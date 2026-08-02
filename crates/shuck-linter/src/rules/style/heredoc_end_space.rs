@@ -38,7 +38,7 @@ pub fn heredoc_end_space(checker: &mut Checker) {
 }
 
 fn heredoc_end_space_fix(span: Span, source: &str) -> Option<(Span, Fix)> {
-    let start = span.start.offset;
+    let start = span.start.offset();
     let rest = source.get(start..)?;
     let len = rest
         .chars()
@@ -69,10 +69,10 @@ EOF
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::HeredocEndSpace));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 4);
-        assert_eq!(diagnostics[0].span.start.column, 4);
-        assert_eq!(diagnostics[0].span.end.line, 4);
-        assert_eq!(diagnostics[0].span.end.column, 4);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
+        assert_eq!(diagnostics[0].span.start.column(), 4);
+        assert_eq!(diagnostics[0].span.end.line(), 4);
+        assert_eq!(diagnostics[0].span.end.column(), 4);
         assert_eq!(diagnostics[0].span.slice(source), "");
     }
 
@@ -82,9 +82,9 @@ EOF
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::HeredocEndSpace));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 4);
-        assert_eq!(diagnostics[0].span.start.column, 4);
-        assert_eq!(diagnostics[0].span.end.column, 4);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
+        assert_eq!(diagnostics[0].span.start.column(), 4);
+        assert_eq!(diagnostics[0].span.end.column(), 4);
         assert_eq!(diagnostics[0].span.slice(source), "");
     }
 
@@ -99,9 +99,9 @@ cat <<-EOF
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::HeredocEndSpace));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 4);
-        assert_eq!(diagnostics[0].span.start.column, 5);
-        assert_eq!(diagnostics[0].span.end.column, 5);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
+        assert_eq!(diagnostics[0].span.start.column(), 5);
+        assert_eq!(diagnostics[0].span.end.column(), 5);
         assert_eq!(diagnostics[0].span.slice(source), "");
     }
 
@@ -111,10 +111,10 @@ cat <<-EOF
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::HeredocEndSpace));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 4);
-        assert_eq!(diagnostics[0].span.start.column, 4);
-        assert_eq!(diagnostics[0].span.end.line, 4);
-        assert_eq!(diagnostics[0].span.end.column, 4);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
+        assert_eq!(diagnostics[0].span.start.column(), 4);
+        assert_eq!(diagnostics[0].span.end.line(), 4);
+        assert_eq!(diagnostics[0].span.end.column(), 4);
         assert_eq!(diagnostics[0].span.slice(source), "");
     }
 
@@ -158,9 +158,9 @@ EOF
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::HeredocEndSpace));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 4);
-        assert_eq!(diagnostics[0].span.start.column, 4);
-        assert_eq!(diagnostics[0].span.end.column, 4);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
+        assert_eq!(diagnostics[0].span.start.column(), 4);
+        assert_eq!(diagnostics[0].span.end.column(), 4);
         assert_eq!(diagnostics[0].span.slice(source), "");
     }
 }

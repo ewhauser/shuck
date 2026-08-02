@@ -145,7 +145,7 @@ fn plugin_request_dependency_key(
         request.framework.clone(),
         request.kind,
         request.name.clone(),
-        request.span.start.offset,
+        request.span.start.offset(),
         request.root_hint.clone(),
     )
 }
@@ -246,8 +246,10 @@ mod tests {
             root_hint: None,
         };
         let mut second = first.clone();
-        first.span.start.offset = 10;
-        second.span.start.offset = 20;
+        first.span.start =
+            shuck_ast::Position::at(first.span.start.line(), first.span.start.column(), 10);
+        second.span.start =
+            shuck_ast::Position::at(second.span.start.line(), second.span.start.column(), 20);
 
         assert_ne!(
             plugin_request_dependency_key(&first),

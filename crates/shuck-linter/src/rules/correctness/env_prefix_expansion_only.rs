@@ -43,7 +43,7 @@ pub fn env_prefix_expansion_only(checker: &mut Checker) {
 }
 
 fn env_prefix_expansion_fix(fact: &EnvPrefixExpansionFixFact, source: &str) -> Option<Fix> {
-    let indent = line_indent_before_offset(source, fact.delete_span().start.offset)?;
+    let indent = line_indent_before_offset(source, fact.delete_span().start.offset())?;
     let mut replacement = String::new();
     for assignment_span in fact.assignment_spans() {
         if !replacement.is_empty() {

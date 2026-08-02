@@ -45,7 +45,7 @@ pub fn ansi_c_quoting(checker: &mut Checker) {
 }
 
 fn span_contains(outer: shuck_ast::Span, inner: shuck_ast::Span) -> bool {
-    outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
+    outer.start.offset() <= inner.start.offset() && outer.end.offset() >= inner.end.offset()
 }
 
 fn is_well_formed_ansi_c_quote(span: shuck_ast::Span, source: &str) -> bool {

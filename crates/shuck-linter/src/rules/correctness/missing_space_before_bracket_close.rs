@@ -75,7 +75,7 @@ mod tests {
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+                .map(|diagnostic| (diagnostic.span.start.line(), diagnostic.span.start.column()))
                 .collect::<Vec<_>>(),
             vec![
                 (2, 7),

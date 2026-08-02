@@ -99,7 +99,7 @@ fn unreached_function_definition_spans(checker: &Checker<'_>) -> Vec<Span> {
         spans.extend(statically_unreached_function_definition_spans(checker));
     }
 
-    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.sort_by_key(|span| (span.start.offset(), span.end.offset()));
     spans.dedup();
     spans
 }
@@ -164,9 +164,9 @@ fn statically_reachable_function_bindings(
                 checker,
                 call.callee,
                 call.name_span,
-                call.name_span.start.offset,
+                call.name_span.start.offset(),
             )
-            .then_some((call.callee, call.name_span.start.offset))
+            .then_some((call.callee, call.name_span.start.offset()))
         })
         .collect::<Vec<_>>();
 
@@ -204,11 +204,11 @@ fn static_call_can_resolve_at_entry(
     entry_offset: usize,
 ) -> bool {
     let callee_binding = checker.semantic().binding(callee);
-    name_span.start.offset >= callee_binding.span.start.offset
+    name_span.start.offset() >= callee_binding.span.start.offset()
         || (matches!(
             checker.semantic().scope(callee_binding.scope).kind,
             ScopeKind::File
-        ) && entry_offset >= callee_binding.span.start.offset)
+        ) && entry_offset >= callee_binding.span.start.offset())
 }
 
 fn function_bindings_by_scope(checker: &Checker<'_>) -> FxHashMap<ScopeId, BindingId> {
@@ -226,7 +226,7 @@ fn enclosing_function_binding(
     scope_bindings: &FxHashMap<ScopeId, BindingId>,
     span: Span,
 ) -> Option<BindingId> {
-    let scope = checker.semantic().scope_at(span.start.offset);
+    let scope = checker.semantic().scope_at(span.start.offset());
     checker
         .semantic()
         .ancestor_scopes(scope)
@@ -286,7 +286,7 @@ fn file_has_top_level_exit_command(checker: &Checker<'_>) -> bool {
 
 fn span_is_inside_unreached_function(span: Span, function_spans: &[Span]) -> bool {
     function_spans.iter().any(|function| {
-        function.start.offset < span.start.offset && span.end.offset <= function.end.offset
+        function.start.offset() < span.start.offset() && span.end.offset() <= function.end.offset()
     })
 }
 
@@ -388,9 +388,9 @@ fn wrapper_name_resolves_to_function(
 fn outermost_unreachable_spans(mut spans: Vec<shuck_ast::Span>) -> Vec<shuck_ast::Span> {
     spans.sort_by(|left, right| {
         left.start
-            .offset
-            .cmp(&right.start.offset)
-            .then_with(|| right.end.offset.cmp(&left.end.offset))
+            .offset()
+            .cmp(&right.start.offset())
+            .then_with(|| right.end.offset().cmp(&left.end.offset()))
     });
 
     let mut outermost = Vec::new();
@@ -410,7 +410,7 @@ fn outermost_unreachable_spans(mut spans: Vec<shuck_ast::Span>) -> Vec<shuck_ast
 }
 
 fn span_contained_by(inner: shuck_ast::Span, outer: shuck_ast::Span) -> bool {
-    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+    outer.start.offset() <= inner.start.offset() && inner.end.offset() <= outer.end.offset()
 }
 
 fn trim_trailing_terminator(span: Span, source: &str) -> Span {

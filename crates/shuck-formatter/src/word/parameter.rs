@@ -315,10 +315,14 @@ pub(super) fn raw_parameter_replacement_parts<'a>(
     }
 
     let span = raw_parameter_span?;
-    let raw_parameter = source.get(span.start.offset..span.end.offset)?;
+    let raw_parameter = source.get(span.start.offset()..span.end.offset())?;
     let raw = raw_parameter.strip_prefix("${")?.strip_suffix('}')?;
-    let raw_body_start = span.start.offset.checked_add("${".len())?;
-    let reference_end = reference.name_span.end.offset.checked_sub(raw_body_start)?;
+    let raw_body_start = span.start.offset().checked_add("${".len())?;
+    let reference_end = reference
+        .name_span
+        .end
+        .offset()
+        .checked_sub(raw_body_start)?;
     let operator = if replace_all { "//" } else { "/" };
     let after_operator = raw.get(reference_end..)?.strip_prefix(operator)?;
     Some(split_raw_parameter_replacement(after_operator))

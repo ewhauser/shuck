@@ -325,8 +325,8 @@ pub(crate) fn analyze(
     let mut scope_index: Vec<ScopeIndexEntry> = scopes
         .iter()
         .map(|scope| ScopeIndexEntry {
-            start: scope.span.start.offset,
-            end: scope.span.end.offset,
+            start: scope.span.start.offset(),
+            end: scope.span.end.offset(),
             scope: scope.id,
         })
         .collect();
@@ -385,12 +385,12 @@ pub(crate) fn function_runtime_analysis_with_entry(
     let mut scope_index: Vec<ScopeIndexEntry> = scopes
         .iter()
         .filter(|scope| {
-            function_span.start.offset <= scope.span.start.offset
-                && scope.span.end.offset <= function_span.end.offset
+            function_span.start.offset() <= scope.span.start.offset()
+                && scope.span.end.offset() <= function_span.end.offset()
         })
         .map(|scope| ScopeIndexEntry {
-            start: scope.span.start.offset,
-            end: scope.span.end.offset,
+            start: scope.span.start.offset(),
+            end: scope.span.end.offset(),
             scope: scope.id,
         })
         .collect();
@@ -673,7 +673,7 @@ impl<'a> Analyzer<'a> {
             for bindings in self.scopes[scope_id.index()].bindings.values() {
                 for binding_id in bindings.iter().rev().copied() {
                     let binding = &self.bindings[binding_id.index()];
-                    if binding.span.start.offset > at.start.offset
+                    if binding.span.start.offset() > at.start.offset()
                         || binding.kind != BindingKind::FunctionDefinition
                     {
                         continue;
@@ -704,7 +704,7 @@ impl<'a> Analyzer<'a> {
     ) -> EvalState {
         self.record_scope_entry(scope, &state.current);
         let recorded = self.recorded_program.command(command);
-        self.record_snapshot(scope, recorded.span.start.offset, &state.current);
+        self.record_snapshot(scope, recorded.span.start.offset(), &state.current);
         self.analyze_command(scope, command, state, leak)
     }
 
@@ -718,7 +718,7 @@ impl<'a> Analyzer<'a> {
         self.record_scope_entry(scope, &state.current);
         for &command in self.recorded_program.commands_in(commands) {
             let recorded = self.recorded_program.command(command);
-            self.record_snapshot(scope, recorded.span.start.offset, &state.current);
+            self.record_snapshot(scope, recorded.span.start.offset(), &state.current);
             state = self.analyze_command(scope, command, state, leak);
         }
         state
@@ -794,7 +794,7 @@ impl<'a> Analyzer<'a> {
             RecordedCommandKind::Case { arms } => self.analyze_case(scope, &state, *arms, leak),
             RecordedCommandKind::Subshell { body } => {
                 self.analyze_sequence(
-                    self.subshell_scope_for(command.span.start.offset)
+                    self.subshell_scope_for(command.span.start.offset())
                         .unwrap_or(scope),
                     *body,
                     EvalState::new(state.current.clone()),
@@ -918,7 +918,7 @@ impl<'a> Analyzer<'a> {
         if let Some(function_scope) = info
             .and_then(|info| info.static_callee.as_deref())
             .and_then(|name| {
-                self.resolve_visible_function_scope(scope, command.span.start.offset, name)
+                self.resolve_visible_function_scope(scope, command.span.start.offset(), name)
             })
         {
             let summary =
@@ -1112,7 +1112,11 @@ impl<'a> Analyzer<'a> {
             .map(|info_id| self.recorded_program.command_info(info_id))
         {
             if let Some(function_scope) = info.static_callee.as_deref().and_then(|name| {
-                self.resolve_visible_function_scope(command_scope, command.span.start.offset, name)
+                self.resolve_visible_function_scope(
+                    command_scope,
+                    command.span.start.offset(),
+                    name,
+                )
             }) {
                 push_unique_scope(seen, callees, function_scope);
             } else if let Some(name_span) = info.dynamic_name_span {
@@ -1220,7 +1224,7 @@ impl<'a> Analyzer<'a> {
             }
             RecordedCommandKind::Subshell { body } => {
                 let subshell_scope = self
-                    .subshell_scope_for(command.span.start.offset)
+                    .subshell_scope_for(command.span.start.offset())
                     .unwrap_or(command_scope);
                 self.collect_direct_function_callees_in_range(subshell_scope, *body, seen, callees);
             }
@@ -1248,7 +1252,7 @@ impl<'a> Analyzer<'a> {
             if let Some(bindings) = self.scopes[scope_id.index()].bindings.get(name) {
                 for binding_id in bindings.iter().rev().copied() {
                     let binding = &self.bindings[binding_id.index()];
-                    if binding.span.start.offset > offset
+                    if binding.span.start.offset() > offset
                         || binding.kind != BindingKind::FunctionDefinition
                     {
                         continue;
@@ -1269,14 +1273,14 @@ impl<'a> Analyzer<'a> {
         self.scopes
             .iter()
             .filter(|scope| {
-                scope.span.start.offset <= offset
-                    && offset <= scope.span.end.offset
+                scope.span.start.offset() <= offset
+                    && offset <= scope.span.end.offset()
                     && matches!(
                         scope.kind,
                         ScopeKind::Subshell | ScopeKind::CommandSubstitution
                     )
             })
-            .min_by_key(|scope| scope.span.end.offset - scope.span.start.offset)
+            .min_by_key(|scope| scope.span.end.offset() - scope.span.start.offset())
             .map(|scope| scope.id)
     }
 
@@ -1489,7 +1493,7 @@ impl FunctionSummary {
 }
 
 fn contains_span(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+    outer.start.offset() <= inner.start.offset() && inner.end.offset() <= outer.end.offset()
 }
 
 fn push_unique_scope(
@@ -1503,7 +1507,7 @@ fn push_unique_scope(
 }
 
 fn binding_visible_at(scopes: &[Scope], binding: &Binding, scope: ScopeId, at: Span) -> bool {
-    binding.span.start.offset <= at.start.offset
+    binding.span.start.offset() <= at.start.offset()
         && ancestor_scopes(scopes, scope).any(|ancestor| ancestor == binding.scope)
 }
 

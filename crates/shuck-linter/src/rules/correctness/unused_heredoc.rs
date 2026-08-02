@@ -43,30 +43,30 @@ fn unused_heredoc_fix(locator: Locator<'_>, span: Span) -> Option<Fix> {
         return None;
     }
 
-    let line_range = locator.line_range(span.start.line)?;
+    let line_range = locator.line_range(span.start.line())?;
     let line_start = usize::from(line_range.start());
     let raw_line_end = usize::from(line_range.end());
     let line_end = trim_cr_end(source, raw_line_end);
-    let header_delete_start = preceding_space_start(source, span.start.offset, line_start);
+    let header_delete_start = preceding_space_start(source, span.start.offset(), line_start);
     let body_start = locator
         .line_index()
-        .line_start(span.start.line + 1)
+        .line_start(span.start.line() + 1)
         .map(usize::from)
         .unwrap_or(source.len());
-    let body_end = heredoc_body_end(locator, span.start.line + 1, &marker)?;
+    let body_end = heredoc_body_end(locator, span.start.line() + 1, &marker)?;
 
     let prefix_is_blank = source
         .get(line_start..header_delete_start)
         .is_some_and(|prefix| prefix.trim().is_empty());
     let suffix_is_blank = source
-        .get(span.end.offset..line_end)
+        .get(span.end.offset()..line_end)
         .is_some_and(|suffix| suffix.trim().is_empty());
     if prefix_is_blank && suffix_is_blank {
         return Some(Fix::unsafe_edit(Edit::deletion_at(line_start, body_end)));
     }
 
     Some(Fix::unsafe_edits([
-        Edit::deletion_at(header_delete_start, span.end.offset),
+        Edit::deletion_at(header_delete_start, span.end.offset()),
         Edit::deletion_at(body_start, body_end),
     ]))
 }
@@ -161,7 +161,7 @@ EOF
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| diagnostic.span.start.line)
+                .map(|diagnostic| diagnostic.span.start.line())
                 .collect::<Vec<_>>(),
             vec![2, 6, 10]
         );

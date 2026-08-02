@@ -69,7 +69,7 @@ done
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
     }
 
     #[test]
@@ -126,7 +126,7 @@ done
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| diagnostic.span.start.line)
+                .map(|diagnostic| diagnostic.span.start.line())
                 .collect::<Vec<_>>(),
             vec![2, 8]
         );
@@ -197,7 +197,7 @@ done
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 
     #[test]
@@ -215,6 +215,6 @@ done
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
     }
 }

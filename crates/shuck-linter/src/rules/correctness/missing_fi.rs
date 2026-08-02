@@ -32,8 +32,8 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].code(), "C035");
-        assert_eq!(diagnostics[0].span.start.line, 4);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]

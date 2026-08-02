@@ -181,8 +181,8 @@ pub fn print_diagnostics(diagnostics: &[Diagnostic], source: &str) -> String {
             output.push('\n');
         }
 
-        let line = diagnostic.span.start.line;
-        let col = diagnostic.span.start.column;
+        let line = diagnostic.span.start.line();
+        let col = diagnostic.span.start.column();
         let line_width = line.to_string().len();
 
         // Rule code + message

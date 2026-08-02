@@ -123,8 +123,8 @@ where
             let body = if !self.options.simplify()
                 && !self.options.minify()
                 && !heredoc_body_contains_command_substitution(&heredoc.body)
-                && heredoc.body.span.end.offset <= source.len()
-                && heredoc.body.span.start.offset <= heredoc.body.span.end.offset
+                && heredoc.body.span.end.offset() <= source.len()
+                && heredoc.body.span.start.offset() <= heredoc.body.span.end.offset()
             {
                 heredoc.body.span.slice(source).to_owned()
             } else {
@@ -158,7 +158,7 @@ where
 
 fn raw_redirect_source_slice<'a>(redirect: &Redirect, source: &'a str) -> Option<&'a str> {
     let span = redirect.span;
-    (span.start.offset < span.end.offset && span.end.offset <= source.len())
+    (span.start.offset() < span.end.offset() && span.end.offset() <= source.len())
         .then(|| span.slice(source))
 }
 
@@ -199,7 +199,7 @@ pub(super) fn append_both_redirect_pair_matches_source(
         return true;
     }
     if raw.starts_with(">>") {
-        let Some(operator_start) = redirect.span.start.offset.checked_sub(1) else {
+        let Some(operator_start) = redirect.span.start.offset().checked_sub(1) else {
             return false;
         };
         return source
@@ -216,16 +216,16 @@ fn redirect_target_starts_on_continuation_line(
 ) -> bool {
     let target_start = redirect
         .word_target()
-        .map(|word| word.span.start.offset)
+        .map(|word| word.span.start.offset())
         .or_else(|| {
             redirect
                 .heredoc()
-                .map(|heredoc| heredoc.delimiter.span.start.offset)
+                .map(|heredoc| heredoc.delimiter.span.start.offset())
         });
     let Some(target_start) = target_start else {
         return false;
     };
-    facts.has_continuation_line_start_between(redirect.span.start.offset, target_start)
+    facts.has_continuation_line_start_between(redirect.span.start.offset(), target_start)
 }
 
 fn should_render_explicit_fd(fd: i32, kind: RedirectKind) -> bool {
@@ -315,10 +315,13 @@ pub(super) fn redirect_list_starts_on_continuation_line(
     let Some(redirect) = redirects.first() else {
         return false;
     };
-    if command_span == Span::new() || redirect.span.start.offset <= command_span.end.offset {
+    if command_span == Span::new() || redirect.span.start.offset() <= command_span.end.offset() {
         return false;
     }
-    facts.has_continuation_line_start_between(command_span.end.offset, redirect.span.start.offset)
+    facts.has_continuation_line_start_between(
+        command_span.end.offset(),
+        redirect.span.start.offset(),
+    )
 }
 
 pub(super) fn redirect_is_attached_process_substitution(
@@ -326,7 +329,7 @@ pub(super) fn redirect_is_attached_process_substitution(
     redirect: &Redirect,
     source: &str,
 ) -> bool {
-    let start = redirect.span.start.offset;
+    let start = redirect.span.start.offset();
     let bytes = source.as_bytes();
     let attached_after_equals = start > 0 && bytes.get(start - 1).is_some_and(|byte| *byte == b'=')
         || start > 1

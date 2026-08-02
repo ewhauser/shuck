@@ -45,14 +45,14 @@ pub fn pipe_stderr_in_sh(checker: &mut Checker) {
 }
 
 fn pipe_all_replacement(source: &str, span: shuck_ast::Span) -> String {
-    let leading = span.start.offset > 0
+    let leading = span.start.offset() > 0
         && source
             .as_bytes()
-            .get(span.start.offset - 1)
+            .get(span.start.offset() - 1)
             .is_some_and(|byte| !byte.is_ascii_whitespace());
     let trailing = source
         .as_bytes()
-        .get(span.end.offset)
+        .get(span.end.offset())
         .is_some_and(|byte| !byte.is_ascii_whitespace());
 
     format!(

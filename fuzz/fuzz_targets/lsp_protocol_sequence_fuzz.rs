@@ -62,11 +62,7 @@ fn run_protocol_sequence(source: &str, data: &[u8]) -> Result<(), String> {
         }),
     )?;
     recv_response(&client_connection, 1)?;
-    send_notification(
-        &client_connection,
-        "initialized",
-        serde_json::json!({}),
-    )?;
+    send_notification(&client_connection, "initialized", serde_json::json!({}))?;
 
     let mut current_source = source.to_owned();
     let mut version = 1i32;
@@ -383,7 +379,10 @@ fn send_notification(
 ) -> Result<(), String> {
     connection
         .sender
-        .send(Message::Notification(Notification::new(method.to_owned(), params)))
+        .send(Message::Notification(Notification::new(
+            method.to_owned(),
+            params,
+        )))
         .map_err(|error| format!("send notification {method}: {error}"))
 }
 
@@ -394,7 +393,9 @@ fn recv_response(connection: &Connection, id: i32) -> Result<(), String> {
         if now >= deadline {
             return Err(format!("timed out waiting for response {id}"));
         }
-        let timeout = deadline.saturating_duration_since(now).min(Duration::from_millis(25));
+        let timeout = deadline
+            .saturating_duration_since(now)
+            .min(Duration::from_millis(25));
         match connection.receiver.recv_timeout(timeout) {
             Ok(Message::Response(response)) if response.id == RequestId::from(id) => {
                 return Ok(());

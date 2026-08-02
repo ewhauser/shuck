@@ -87,10 +87,10 @@ pub(super) fn has_visible_function_name_binding(
     at: Span,
 ) -> bool {
     let semantic = checker.semantic();
-    let scope = semantic.scope_at(at.start.offset);
+    let scope = semantic.scope_at(at.start.offset());
     if checker
         .semantic_analysis()
-        .visible_function_binding_defined_before(name, scope, at.start.offset)
+        .visible_function_binding_defined_before(name, scope, at.start.offset())
         .is_some()
     {
         return true;

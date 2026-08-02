@@ -7,11 +7,11 @@ impl<'a> Parser<'a> {
 
     pub(super) fn is_inline_comment(source: &str, stmt: &Stmt, comment: Comment) -> bool {
         let comment_start = Self::comment_start(comment);
-        if comment_start < stmt.span.end.offset {
+        if comment_start < stmt.span.end.offset() {
             return false;
         }
         source
-            .get(stmt.span.end.offset..comment_start)
+            .get(stmt.span.end.offset()..comment_start)
             .is_some_and(|gap| !gap.contains('\n'))
     }
 
@@ -48,20 +48,20 @@ impl<'a> Parser<'a> {
                 .trailing_comments
                 .extend(Self::take_comments_before(
                     comments,
-                    sequence.span.end.offset,
+                    sequence.span.end.offset(),
                 ));
             return;
         }
 
         for (index, stmt) in sequence.stmts.iter_mut().enumerate() {
-            let leading = Self::take_comments_before(comments, stmt.span.start.offset);
+            let leading = Self::take_comments_before(comments, stmt.span.start.offset());
             if index == 0 {
                 sequence.leading_comments.extend(leading);
             } else {
                 stmt.leading_comments.extend(leading);
             }
 
-            let mut nested = Self::take_comments_before(comments, stmt.span.end.offset);
+            let mut nested = Self::take_comments_before(comments, stmt.span.end.offset());
             Self::attach_comments_to_stmt_with_source(source, stmt, &mut nested);
             if !nested.is_empty() {
                 stmt.leading_comments.extend(nested);
@@ -80,7 +80,7 @@ impl<'a> Parser<'a> {
             .trailing_comments
             .extend(Self::take_comments_before(
                 comments,
-                sequence.span.end.offset,
+                sequence.span.end.offset(),
             ));
     }
 
@@ -92,7 +92,7 @@ impl<'a> Parser<'a> {
         match &mut stmt.command {
             AstCommand::Binary(binary) => {
                 let mut left_comments =
-                    Self::take_comments_before(comments, binary.left.span.end.offset);
+                    Self::take_comments_before(comments, binary.left.span.end.offset());
                 Self::attach_comments_to_stmt_with_source(
                     source,
                     binary.left.as_mut(),
@@ -149,7 +149,7 @@ impl<'a> Parser<'a> {
         match command {
             CompoundCommand::If(command) => {
                 let mut condition =
-                    Self::take_comments_before(comments, command.condition.span.end.offset);
+                    Self::take_comments_before(comments, command.condition.span.end.offset());
                 Self::attach_comments_to_stmt_seq_with_source(
                     source,
                     &mut command.condition,
@@ -158,7 +158,7 @@ impl<'a> Parser<'a> {
                 command.condition.trailing_comments.extend(condition);
 
                 let mut then_branch =
-                    Self::take_comments_before(comments, command.then_branch.span.end.offset);
+                    Self::take_comments_before(comments, command.then_branch.span.end.offset());
                 Self::attach_comments_to_stmt_seq_with_source(
                     source,
                     &mut command.then_branch,
@@ -168,7 +168,7 @@ impl<'a> Parser<'a> {
 
                 for (condition_seq, body_seq) in &mut command.elif_branches {
                     let mut elif_condition =
-                        Self::take_comments_before(comments, condition_seq.span.end.offset);
+                        Self::take_comments_before(comments, condition_seq.span.end.offset());
                     Self::attach_comments_to_stmt_seq_with_source(
                         source,
                         condition_seq,
@@ -177,7 +177,7 @@ impl<'a> Parser<'a> {
                     condition_seq.trailing_comments.extend(elif_condition);
 
                     let mut elif_body =
-                        Self::take_comments_before(comments, body_seq.span.end.offset);
+                        Self::take_comments_before(comments, body_seq.span.end.offset());
                     Self::attach_comments_to_stmt_seq_with_source(source, body_seq, &mut elif_body);
                     body_seq.trailing_comments.extend(elif_body);
                 }
@@ -230,7 +230,7 @@ impl<'a> Parser<'a> {
             }
             CompoundCommand::While(command) => {
                 let mut condition =
-                    Self::take_comments_before(comments, command.condition.span.end.offset);
+                    Self::take_comments_before(comments, command.condition.span.end.offset());
                 Self::attach_comments_to_stmt_seq_with_source(
                     source,
                     &mut command.condition,
@@ -248,7 +248,7 @@ impl<'a> Parser<'a> {
             }
             CompoundCommand::Until(command) => {
                 let mut condition =
-                    Self::take_comments_before(comments, command.condition.span.end.offset);
+                    Self::take_comments_before(comments, command.condition.span.end.offset());
                 Self::attach_comments_to_stmt_seq_with_source(
                     source,
                     &mut command.condition,
@@ -267,7 +267,7 @@ impl<'a> Parser<'a> {
             CompoundCommand::Case(command) => {
                 for case in &mut command.cases {
                     let mut body_comments =
-                        Self::take_comments_before(comments, case.body.span.end.offset);
+                        Self::take_comments_before(comments, case.body.span.end.offset());
                     Self::attach_comments_to_stmt_seq_with_source(
                         source,
                         &mut case.body,
@@ -292,7 +292,7 @@ impl<'a> Parser<'a> {
             }
             CompoundCommand::Always(command) => {
                 let mut body_comments =
-                    Self::take_comments_before(comments, command.body.span.end.offset);
+                    Self::take_comments_before(comments, command.body.span.end.offset());
                 Self::attach_comments_to_stmt_seq_with_source(
                     source,
                     &mut command.body,

@@ -46,13 +46,16 @@ fn spaced_assignment_diagnostics(operands: &[DeclOperand], source: &str) -> Vec<
         }
 
         let mut edits = vec![Edit::deletion_at(
-            name.span.end.offset,
-            word.span.start.offset,
+            name.span.end.offset(),
+            word.span.start.offset(),
         )];
         if word.span.slice(source) == "="
             && let Some(next) = operands.get(index + 2).and_then(decl_operand_span)
         {
-            edits.push(Edit::deletion_at(word.span.end.offset, next.start.offset));
+            edits.push(Edit::deletion_at(
+                word.span.end.offset(),
+                next.start.offset(),
+            ));
         }
         diagnostics
             .push(Diagnostic::new(SpacedAssignment, word.span).with_fix(Fix::unsafe_edits(edits)));

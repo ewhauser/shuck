@@ -174,7 +174,7 @@ impl<'analysis, 'model> DirectFunctionCallReachability<'analysis, 'model> {
         window: DirectFunctionCallWindow,
     ) -> bool {
         let binding = self.analysis.model.binding(binding_id);
-        let after_offset = window.after_offset.max(binding.span.start.offset);
+        let after_offset = window.after_offset.max(binding.span.start.offset());
         if let Some(boundary_scope) = window.scope_boundary {
             let window = BoundaryCallWindow {
                 after_offset,
@@ -310,7 +310,7 @@ impl<'analysis, 'model> DirectFunctionCallReachability<'analysis, 'model> {
                     self.add_activation_edge(
                         target_binding,
                         target_scope,
-                        binding.span.start.offset,
+                        binding.span.start.offset(),
                         &call,
                         &mut seen_edges,
                         &mut edges_by_caller,
@@ -339,7 +339,7 @@ impl<'analysis, 'model> DirectFunctionCallReachability<'analysis, 'model> {
             target_binding,
             target_scope,
             call_scope: call.scope,
-            call_offset: call.name_span.start.offset,
+            call_offset: call.name_span.start.offset(),
         };
         if !seen_edges.insert(key) {
             return;
@@ -348,7 +348,7 @@ impl<'analysis, 'model> DirectFunctionCallReachability<'analysis, 'model> {
         let edge = FunctionActivationEdge {
             target_scope,
             target_binding_offset,
-            call_offset: call.name_span.start.offset,
+            call_offset: call.name_span.start.offset(),
             persistent: !self.analysis.scope_runs_in_transient_context(call.scope),
         };
         edges_by_caller
@@ -535,11 +535,11 @@ impl<'analysis, 'model> DirectFunctionCallReachability<'analysis, 'model> {
         visiting: &mut FxHashSet<ScopeId>,
     ) -> bool {
         let binding = self.model().binding(function_binding);
-        let required_after = after_offset.max(binding.span.start.offset);
+        let required_after = after_offset.max(binding.span.start.offset());
         self.call_candidates_for(&binding.name)
             .into_iter()
             .any(|call| {
-                let call_offset = call.name_span.start.offset;
+                let call_offset = call.name_span.start.offset();
                 call_offset <= before_offset
                     && (!require_non_transient_call
                         || !self.analysis.scope_runs_in_transient_context(call.scope))
@@ -614,13 +614,13 @@ impl<'analysis, 'model> DirectFunctionCallReachability<'analysis, 'model> {
     ) -> bool {
         let binding = self.model().binding(function_binding);
         let nested_window = BoundaryCallWindow {
-            after_offset: window.after_offset.max(binding.span.start.offset),
+            after_offset: window.after_offset.max(binding.span.start.offset()),
             ..window
         };
         self.call_candidates_for(&binding.name)
             .into_iter()
             .any(|call| {
-                let call_offset = call.name_span.start.offset;
+                let call_offset = call.name_span.start.offset();
                 call_offset <= window.before_offset
                     && self.call_is_inside_scope(call.scope, window.boundary_scope)
                     && (!window.require_non_transient_call
@@ -698,10 +698,10 @@ impl<'analysis, 'model> DirectFunctionCallReachability<'analysis, 'model> {
         let key = FunctionCallResolutionKey {
             binding: binding_id,
             call_scope: call.scope,
-            visibility_start: call.name_span.start.offset,
-            visibility_end: call.name_span.end.offset,
-            cfg_start: call.command_span.start.offset,
-            cfg_end: call.command_span.end.offset,
+            visibility_start: call.name_span.start.offset(),
+            visibility_end: call.name_span.end.offset(),
+            cfg_start: call.command_span.start.offset(),
+            cfg_end: call.command_span.end.offset(),
         };
         if let Some(cached) = self.call_resolution_cache.get(&key) {
             return *cached;

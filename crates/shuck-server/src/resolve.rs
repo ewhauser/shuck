@@ -140,7 +140,8 @@ fn render_semantic_hover(
     } else {
         markdown.push_str(&format!(
             "\n\nDefined at line {}, column {}.",
-            hover.symbol.definition_span.start.line, hover.symbol.definition_span.start.column
+            hover.symbol.definition_span.start.line(),
+            hover.symbol.definition_span.start.column()
         ));
     }
 

@@ -62,7 +62,7 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
             offsets
                 .entry(reference.name.clone())
                 .or_insert_with(Vec::new)
-                .push(reference.span.start.offset);
+                .push(reference.span.start.offset());
             offsets
         });
 
@@ -156,7 +156,7 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
         ));
     }
 
-    findings.sort_by_key(|(span, _, _)| (span.start.offset, span.end.offset));
+    findings.sort_by_key(|(span, _, _)| (span.start.offset(), span.end.offset()));
     let mut reported_names = FxHashSet::default();
 
     for (span, reference, candidate) in findings {
@@ -188,7 +188,7 @@ fn heredoc_findings(
                 continue;
             }
             let reference_name = name_use.key().as_str();
-            if !seen.insert((Name::from(reference_name), name_use.span().start.offset)) {
+            if !seen.insert((Name::from(reference_name), name_use.span().start.offset())) {
                 continue;
             }
             if !looks_like_case_mismatch_reference(reference_name) {
@@ -267,7 +267,7 @@ fn scope_compat_findings(
 
     for name_use in index.references() {
         let reference_name = name_use.name.as_str();
-        if !seen.insert((name_use.name.clone(), name_use.span.start.offset)) {
+        if !seen.insert((name_use.name.clone(), name_use.span.start.offset())) {
             continue;
         }
         if !looks_like_case_mismatch_reference(reference_name) {
@@ -384,8 +384,8 @@ fn insert_earliest_candidate(
     candidates
         .entry(key)
         .and_modify(|current| {
-            if (span.start.offset, span.end.offset)
-                < (current.span.start.offset, current.span.end.offset)
+            if (span.start.offset(), span.end.offset())
+                < (current.span.start.offset(), current.span.end.offset())
             {
                 *current = candidate.clone();
             }
@@ -478,7 +478,7 @@ fn best_build_flag_candidate(index: &ScopeCompatIndex, reference_name: &str) -> 
             };
             index.best_candidate_by_name(&candidate_name)
         })
-        .min_by_key(|candidate| (candidate.span.start.offset, candidate.span.end.offset))
+        .min_by_key(|candidate| (candidate.span.start.offset(), candidate.span.end.offset()))
         .map(|candidate| candidate.name.clone())
 }
 
@@ -501,7 +501,7 @@ fn source_may_have_scope_compat_misspelling(source: &str) -> bool {
 fn is_braced_parameter_use(source: &str, span: Span) -> bool {
     source
         .as_bytes()
-        .get(span.start.offset..span.start.offset + 2)
+        .get(span.start.offset()..span.start.offset() + 2)
         .is_some_and(|prefix| prefix == b"${")
 }
 
@@ -512,7 +512,7 @@ fn has_prior_guarded_reference(
 ) -> bool {
     guarded_name_offsets
         .get(name)
-        .is_some_and(|offsets| offsets.iter().any(|offset| *offset < span.start.offset))
+        .is_some_and(|offsets| offsets.iter().any(|offset| *offset < span.start.offset()))
 }
 
 fn has_suppressed_reference_span(
@@ -529,7 +529,7 @@ fn has_suppressed_reference_span(
 }
 
 fn spans_overlap(left: Span, right: Span) -> bool {
-    left.start.offset < right.end.offset && right.start.offset < left.end.offset
+    left.start.offset() < right.end.offset() && right.start.offset() < left.end.offset()
 }
 
 fn is_presence_tested_reference_name(
@@ -544,7 +544,7 @@ fn is_presence_tested_reference_name(
 }
 
 fn parameter_reference_span(locator: Locator<'_>, span: Span) -> Span {
-    let Some(previous_offset) = span.start.offset.checked_sub(1) else {
+    let Some(previous_offset) = span.start.offset().checked_sub(1) else {
         return span;
     };
     if locator.source().as_bytes().get(previous_offset) != Some(&b'$') {
@@ -701,12 +701,12 @@ fn is_parallel_c_and_cxx_flag_use(
     }
 
     let source = checker.source();
-    let current_line = source_line_at(source, reference_span.start.offset);
+    let current_line = source_line_at(source, reference_span.start.offset());
     if text_mentions_shell_name(current_line, "CFLAGS") {
         return true;
     }
 
-    let nearby_lines = source_line_window(source, reference_span.start.offset, 1);
+    let nearby_lines = source_line_window(source, reference_span.start.offset(), 1);
     text_mentions_shell_name(nearby_lines, "CPPFLAGS")
         && text_mentions_shell_name(nearby_lines, "CFLAGS")
         && text_mentions_shell_name(nearby_lines, "CXXFLAGS")
@@ -721,11 +721,11 @@ fn is_hostid_label_echo(
         return false;
     }
 
-    let line_start = source[..reference_span.start.offset]
+    let line_start = source[..reference_span.start.offset()]
         .rfind('\n')
         .map_or(0, |index| index + 1);
-    let line = source_line_at(source, reference_span.start.offset);
-    let reference_column = reference_span.start.offset.saturating_sub(line_start);
+    let line = source_line_at(source, reference_span.start.offset());
+    let reference_column = reference_span.start.offset().saturating_sub(line_start);
     let Some(prefix) = line.get(..reference_column) else {
         return false;
     };
@@ -774,12 +774,12 @@ fn is_literal_numbered_suffix_variant(
         return false;
     }
 
-    source_suffix_matches(source, reference_span.end.offset, suffix)
+    source_suffix_matches(source, reference_span.end.offset(), suffix)
         || source
             .as_bytes()
-            .get(reference_span.end.offset)
+            .get(reference_span.end.offset())
             .is_some_and(|byte| *byte == b'}')
-            && source_suffix_matches(source, reference_span.end.offset + 1, suffix)
+            && source_suffix_matches(source, reference_span.end.offset() + 1, suffix)
 }
 
 fn source_suffix_matches(source: &str, offset: usize, suffix: &str) -> bool {

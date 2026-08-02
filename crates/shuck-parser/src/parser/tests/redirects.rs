@@ -353,16 +353,16 @@ fn test_leaf_spans_track_words_assignments_and_redirects() {
         panic!("expected simple command");
     };
 
-    assert_eq!(command.assignments[0].span.start.line, 1);
-    assert_eq!(command.assignments[0].span.start.column, 1);
-    assert_eq!(command.name.span.start.column, 9);
-    assert_eq!(command.args[0].span.start.column, 14);
-    assert_eq!(script.body[0].redirects[0].span.start.column, 17);
+    assert_eq!(command.assignments[0].span.start.line(), 1);
+    assert_eq!(command.assignments[0].span.start.column(), 1);
+    assert_eq!(command.name.span.start.column(), 9);
+    assert_eq!(command.args[0].span.start.column(), 14);
+    assert_eq!(script.body[0].redirects[0].span.start.column(), 17);
     assert_eq!(
         redirect_word_target(&script.body[0].redirects[0])
             .span
             .start
-            .column,
+            .column(),
         19
     );
 }

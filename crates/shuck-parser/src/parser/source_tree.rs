@@ -30,7 +30,7 @@ impl<'a> Parser<'a> {
         start: Position,
         end: Position,
     ) -> StmtSeq {
-        if start.offset > end.offset || end.offset > self.input.len() {
+        if start.offset() > end.offset() || end.offset() > self.input.len() {
             return StmtSeq {
                 leading_comments: Vec::new(),
                 stmts: Vec::new(),
@@ -38,7 +38,7 @@ impl<'a> Parser<'a> {
                 span: Span::from_positions(start, start),
             };
         }
-        let source = &self.input[start.offset..end.offset];
+        let source = &self.input[start.offset()..end.offset()];
         self.nested_stmt_seq_from_source(source, start)
     }
 
@@ -55,7 +55,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn optional_span(start: Position, end: Position) -> Option<Span> {
-        (start.offset < end.offset).then(|| Span::from_positions(start, end))
+        (start.offset() < end.offset()).then(|| Span::from_positions(start, end))
     }
 
     pub(super) fn split_nested_arithmetic_close(&mut self, context: &'static str) -> Result<Span> {
@@ -130,7 +130,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn rebase_comments(comments: &mut [Comment], base: Position) {
-        let base_offset = TextSize::new(base.offset as u32);
+        let base_offset = TextSize::new(base.offset() as u32);
         for comment in comments {
             comment.range = comment.range.offset_by(base_offset);
         }
@@ -150,7 +150,7 @@ impl<'a> Parser<'a> {
         Self::rebase_comments(&mut stmt.leading_comments, base);
         stmt.terminator_span = stmt.terminator_span.map(|span| span.rebased(base));
         if let Some(comment) = &mut stmt.inline_comment {
-            let base_offset = TextSize::new(base.offset as u32);
+            let base_offset = TextSize::new(base.offset() as u32);
             comment.range = comment.range.offset_by(base_offset);
         }
         Self::rebase_redirects(&mut stmt.redirects, base);

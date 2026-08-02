@@ -29,18 +29,18 @@ fn prepare_scope_lookup_input(source: &'static str) -> PreparedScopeLookupInput 
     for offset in semantic
         .scopes()
         .iter()
-        .map(|scope| scope.span.start.offset)
+        .map(|scope| scope.span.start.offset())
         .chain(
             semantic
                 .bindings()
                 .iter()
-                .map(|binding| binding.span.start.offset),
+                .map(|binding| binding.span.start.offset()),
         )
         .chain(
             semantic
                 .references()
                 .iter()
-                .map(|reference| reference.span.start.offset),
+                .map(|reference| reference.span.start.offset()),
         )
     {
         if seen.insert(offset) {

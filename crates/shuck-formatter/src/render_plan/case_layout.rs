@@ -13,7 +13,7 @@ pub(crate) fn case_item_body_terminator_was_inline_in_source(item: &CaseItem) ->
         return false;
     };
     item.terminator_span
-        .is_some_and(|span| span.start.line == stmt_format_span(stmt).end.line)
+        .is_some_and(|span| span.start.line() == stmt_format_span(stmt).end.line())
 }
 
 pub(crate) fn case_item_pattern_body_terminator_was_inline_in_source(
@@ -29,16 +29,16 @@ pub(crate) fn case_item_pattern_body_terminator_was_inline_in_source(
     let Some(terminator_span) = item.terminator_span else {
         return false;
     };
-    let pattern_end = pattern.span.end.offset.min(source.len());
-    let stmt_start = stmt_span(stmt).start.offset.min(source.len());
-    let stmt_end = stmt_format_span(stmt).end.offset.min(source.len());
-    let terminator_start = terminator_span.start.offset.min(source.len());
-    let pattern_and_body_share_line = pattern.span.end.line == stmt_span(stmt).start.line
+    let pattern_end = pattern.span.end.offset().min(source.len());
+    let stmt_start = stmt_span(stmt).start.offset().min(source.len());
+    let stmt_end = stmt_format_span(stmt).end.offset().min(source.len());
+    let terminator_start = terminator_span.start.offset().min(source.len());
+    let pattern_and_body_share_line = pattern.span.end.line() == stmt_span(stmt).start.line()
         || source
             .get(pattern_end..stmt_start)
             .is_some_and(|gap| !gap.contains('\n') && !gap.contains('\r'));
-    let body_and_terminator_share_line = terminator_span.start.line
-        == stmt_format_span(stmt).end.line
+    let body_and_terminator_share_line = terminator_span.start.line()
+        == stmt_format_span(stmt).end.line()
         || source
             .get(stmt_end..terminator_start)
             .is_some_and(|gap| !gap.contains('\n') && !gap.contains('\r'))
@@ -51,7 +51,7 @@ fn case_item_source_line_has_terminator_after_body(
     stmt: &Stmt,
     source: &str,
 ) -> bool {
-    let stmt_end = stmt_format_span(stmt).end.offset.min(source.len());
+    let stmt_end = stmt_format_span(stmt).end.offset().min(source.len());
     let line_end = source[stmt_end..]
         .find(['\n', '\r'])
         .map_or(source.len(), |offset| stmt_end + offset);
@@ -103,8 +103,8 @@ fn case_item_if_close_shares_terminator(
         return false;
     };
     let fi_span = facts.if_close_span(command);
-    let fi_end = fi_span.end.offset.min(source.len());
-    let terminator_start = terminator_span.start.offset.min(source.len());
+    let fi_end = fi_span.end.offset().min(source.len());
+    let terminator_start = terminator_span.start.offset().min(source.len());
     source
         .get(fi_end..terminator_start)
         .is_some_and(|gap| !gap.contains('\n') && !gap.contains('\r'))
@@ -122,8 +122,8 @@ fn case_item_case_close_shares_terminator(
     let Some(esac_span) = facts.case_command(command).esac_span() else {
         return false;
     };
-    let esac_end = esac_span.end.offset.min(source.len());
-    let terminator_start = terminator_span.start.offset.min(source.len());
+    let esac_end = esac_span.end.offset().min(source.len());
+    let terminator_start = terminator_span.start.offset().min(source.len());
     source
         .get(esac_end..terminator_start)
         .is_some_and(|gap| !gap.contains('\n') && !gap.contains('\r'))
@@ -139,7 +139,7 @@ pub(crate) fn case_item_body_was_inline_without_terminator(item: &CaseItem) -> b
     let Some(stmt) = item.body.first() else {
         return false;
     };
-    pattern.span.end.line == stmt_span(stmt).start.line
+    pattern.span.end.line() == stmt_span(stmt).start.line()
 }
 
 pub(crate) fn case_close_shares_line_with_last_item(
@@ -156,8 +156,8 @@ pub(crate) fn case_close_shares_line_with_last_item(
     let Some(terminator_span) = last_item.terminator_span else {
         return false;
     };
-    let terminator_end = terminator_span.end.offset.min(source.len());
-    let esac_start = esac_span.start.offset.min(source.len());
+    let terminator_end = terminator_span.end.offset().min(source.len());
+    let esac_start = esac_span.start.offset().min(source.len());
     source
         .get(terminator_end..esac_start)
         .is_some_and(|gap| !gap.contains('\n') && !gap.contains('\r'))
@@ -173,7 +173,7 @@ pub(crate) fn case_item_started_inline_without_terminator(item: &CaseItem) -> bo
     let [stmt] = item.body.as_slice() else {
         return false;
     };
-    pattern.span.end.line == stmt_span(stmt).start.line
+    pattern.span.end.line() == stmt_span(stmt).start.line()
 }
 
 pub(crate) fn case_item_pattern_starts_on_case_header(
@@ -182,7 +182,7 @@ pub(crate) fn case_item_pattern_starts_on_case_header(
 ) -> bool {
     item.patterns
         .first()
-        .is_some_and(|pattern| pattern.span.start.line == command.span.start.line)
+        .is_some_and(|pattern| pattern.span.start.line() == command.span.start.line())
 }
 
 pub(crate) fn case_item_pattern_close_paren_on_own_line(
@@ -197,16 +197,16 @@ pub(crate) fn case_item_pattern_close_paren_on_own_line(
         .body
         .first()
         .map(stmt_span)
-        .map(|span| span.start.offset)
-        .or_else(|| item.terminator_span.map(|span| span.start.offset))
-        .unwrap_or(item.body.span.start.offset);
-    let Some(slice) = source.get(first_pattern.span.start.offset..end) else {
+        .map(|span| span.start.offset())
+        .or_else(|| item.terminator_span.map(|span| span.start.offset()))
+        .unwrap_or(item.body.span.start.offset());
+    let Some(slice) = source.get(first_pattern.span.start.offset()..end) else {
         return false;
     };
     let Some(close_offset) = slice.rfind(')') else {
         return false;
     };
-    let close_offset = first_pattern.span.start.offset + close_offset;
+    let close_offset = first_pattern.span.start.offset() + close_offset;
     let Some((line_start, _)) = source_map.line_bounds_for_offset(close_offset) else {
         return false;
     };
@@ -228,14 +228,14 @@ pub(crate) fn case_item_close_paren_shares_line_with_body(
     let Some(first_stmt) = item.body.first() else {
         return false;
     };
-    let stmt_start = stmt_span(first_stmt).start.offset.min(source.len());
-    let Some(slice) = source.get(first_pattern.span.start.offset..stmt_start) else {
+    let stmt_start = stmt_span(first_stmt).start.offset().min(source.len());
+    let Some(slice) = source.get(first_pattern.span.start.offset()..stmt_start) else {
         return false;
     };
     let Some(close_offset) = slice.rfind(')') else {
         return false;
     };
-    let close_offset = first_pattern.span.start.offset + close_offset;
+    let close_offset = first_pattern.span.start.offset() + close_offset;
     !source_map.contains_newline_between(close_offset + 1, stmt_start)
 }
 
@@ -259,7 +259,7 @@ pub(crate) fn case_prefix_comment_uses_body_indent(
     disabled_case_pattern_context: bool,
     body_indent_context: bool,
 ) -> bool {
-    let Some(comment_indent) = source_map.line_indent_before_offset(comment.span().start.offset)
+    let Some(comment_indent) = source_map.line_indent_before_offset(comment.span().start.offset())
     else {
         return false;
     };
@@ -292,7 +292,7 @@ fn case_prefix_comment_follows_terminator(
     source_map: &SourceMap<'_>,
     comment: &SourceComment<'_>,
 ) -> bool {
-    let Some((line_start, _)) = source_map.line_bounds_for_offset(comment.span().start.offset)
+    let Some((line_start, _)) = source_map.line_bounds_for_offset(comment.span().start.offset())
     else {
         return false;
     };

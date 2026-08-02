@@ -44,7 +44,7 @@ pub(crate) fn trim_unescaped_trailing_whitespace(text: &str) -> &str {
 }
 
 pub(crate) fn render_source_text_to_buf(text: &SourceText, source: &str, rendered: &mut String) {
-    if !text.is_source_backed() || text.span().end.offset <= source.len() {
+    if !text.is_source_backed() || text.span().end.offset() <= source.len() {
         rendered.push_str(text.slice(source));
     }
 }
@@ -76,12 +76,12 @@ pub(crate) fn binary_operator(operator: &shuck_ast::BinaryOp) -> &'static str {
 }
 
 pub(crate) fn slice_span(source: &str, span: Option<Span>) -> &str {
-    span.and_then(|span| source.get(span.start.offset..span.end.offset))
+    span.and_then(|span| source.get(span.start.offset()..span.end.offset()))
         .unwrap_or("")
 }
 
 pub(crate) fn extend_heredoc_body_span(span: Span, source: &str) -> Span {
-    let mut end = span.end.offset;
+    let mut end = span.end.offset();
     while end < source.len() {
         let byte = source.as_bytes()[end];
         end += 1;
@@ -89,6 +89,6 @@ pub(crate) fn extend_heredoc_body_span(span: Span, source: &str) -> Span {
             break;
         }
     }
-    let end_position = span.start.advanced_by(&source[span.start.offset..end]);
+    let end_position = span.start.advanced_by(&source[span.start.offset()..end]);
     Span::from_positions(span.start, end_position)
 }

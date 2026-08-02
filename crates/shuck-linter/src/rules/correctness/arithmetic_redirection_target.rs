@@ -63,7 +63,7 @@ echo hi > out.txt
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| diagnostic.span.start.line)
+                .map(|diagnostic| diagnostic.span.start.line())
                 .collect::<Vec<_>>(),
             vec![2, 4]
         );

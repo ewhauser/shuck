@@ -304,7 +304,7 @@ pub(crate) fn build_glued_closing_bracket_insert_offset(
     source: &str,
 ) -> Option<usize> {
     build_glued_closing_bracket_operand_word(command, source)
-        .map(|operand| operand.span.end.offset - 1)
+        .map(|operand| operand.span.end.offset() - 1)
 }
 
 pub(crate) fn build_missing_space_before_bracket_close_fact(
@@ -379,7 +379,7 @@ fn missing_space_before_conditional_bracket_close_offsets(
     command: &ConditionalCommand,
     source: &str,
 ) -> Option<(usize, usize)> {
-    let insert_offset = command.right_bracket_span.start.offset;
+    let insert_offset = command.right_bracket_span.start.offset();
     let previous = source[..insert_offset].chars().next_back()?;
     if previous.is_whitespace()
         || (previous == ')'
@@ -391,7 +391,7 @@ fn missing_space_before_conditional_bracket_close_offsets(
         return None;
     }
 
-    Some((command.right_bracket_span.end.offset, insert_offset))
+    Some((command.right_bracket_span.end.offset(), insert_offset))
 }
 
 fn conditional_expression_ends_with_parenthesized_group(
@@ -401,7 +401,7 @@ fn conditional_expression_ends_with_parenthesized_group(
     loop {
         match expression {
             ConditionalExpr::Parenthesized(parenthesized) => {
-                return parenthesized.right_paren_span.end.offset == end_offset;
+                return parenthesized.right_paren_span.end.offset() == end_offset;
             }
             ConditionalExpr::Binary(binary) => {
                 expression = &binary.right;
@@ -427,8 +427,8 @@ fn missing_space_before_bracket_close_word_offsets(
     }
 
     let close_run_len = unescaped_final_closing_bracket_len(text)?;
-    let insert_offset = word.span.end.offset.checked_sub(close_run_len)?;
-    Some((word.span.end.offset, insert_offset))
+    let insert_offset = word.span.end.offset().checked_sub(close_run_len)?;
+    Some((word.span.end.offset(), insert_offset))
 }
 
 fn unescaped_final_closing_bracket_len(text: &str) -> Option<usize> {
@@ -466,14 +466,14 @@ pub(crate) fn build_jammed_test_bracket_fact(
     }
 
     let start = command.name.span.start;
-    let end = Position {
-        offset: start.offset + bracket_len,
-        line: start.line,
-        column: start.column + bracket_len,
-    };
+    let end = Position::at(
+        start.line(),
+        start.column() + bracket_len,
+        start.offset() + bracket_len,
+    );
     Some((
         Span::from_positions(start, end),
-        command.name.span.start.offset + bracket_len,
+        command.name.span.start.offset() + bracket_len,
     ))
 }
 
@@ -1328,11 +1328,11 @@ pub(crate) fn subshell_body_analysis<'a>(
 
 pub(crate) fn subshell_anchor_span(span: Span, locator: Locator<'_>) -> Span {
     let source = locator.source();
-    let Some(open_paren_offset) = leading_open_paren_offset(source, span.start.offset) else {
+    let Some(open_paren_offset) = leading_open_paren_offset(source, span.start.offset()) else {
         return span;
     };
 
-    let end_offset = trim_trailing_whitespace_offset(source, span.end.offset);
+    let end_offset = trim_trailing_whitespace_offset(source, span.end.offset());
     Span::from_positions(
         locator.position_at_offset_unchecked(open_paren_offset),
         locator.position_at_offset_unchecked(end_offset),

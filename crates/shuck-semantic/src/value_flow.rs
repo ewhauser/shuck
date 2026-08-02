@@ -80,7 +80,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         let reference = self.model().reference(reference_id);
         let policy = self
             .model()
-            .shell_behavior_at(reference.span.start.offset)
+            .shell_behavior_at(reference.span.start.offset())
             .array_reference_policy();
         self.reference_can_fan_out_when_unquoted_with_policy(reference_id, policy)
     }
@@ -144,7 +144,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
     ) -> bool {
         let policy = self
             .model()
-            .shell_behavior_at(at.start.offset)
+            .shell_behavior_at(at.start.offset())
             .array_reference_policy();
         self.name_can_fan_out_when_unquoted_without_reference_with_policy(name, at, scope, policy)
     }
@@ -179,7 +179,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
 
         let synthetic_use_block = self
             .analysis
-            .flow_entry_block_for_binding_scopes(&[scope], at.start.offset);
+            .flow_entry_block_for_binding_scopes(&[scope], at.start.offset());
         self.reaching_value_bindings_for_name_without_reference(name, at, synthetic_use_block)
             .into_iter()
             .any(|binding_id| self.model().binding_has_array_value_shape(binding_id))
@@ -267,7 +267,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
             .filter(|binding_id| {
                 let binding = self.model().binding(*binding_id);
                 visible_scopes.contains(&binding.scope)
-                    && binding.span.end.offset <= at.start.offset
+                    && binding.span.end.offset() <= at.start.offset()
             })
             .collect::<Vec<_>>();
         self.retain_value_bindings(&mut bindings);
@@ -279,7 +279,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
     pub fn helper_value_bindings_before(&mut self, name: &Name, at: Span) -> Vec<BindingId> {
         let mut bindings = self
             .model()
-            .ancestor_scopes(self.model().scope_at(at.start.offset))
+            .ancestor_scopes(self.model().scope_at(at.start.offset()))
             .flat_map(|scope| {
                 self.nonlocal_value_bindings_from_called_functions_before(name, scope, at)
             })
@@ -342,7 +342,8 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
                 if site.scope == scope {
                     continue;
                 }
-                if seen_sites.insert((site.scope, site.span.start.offset, site.span.end.offset)) {
+                if seen_sites.insert((site.scope, site.span.start.offset(), site.span.end.offset()))
+                {
                     caller_sites.push(site.clone());
                 }
             }
@@ -385,7 +386,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
             }
         }
 
-        scopes.sort_by_key(|scope| self.model().scope(*scope).span.start.offset);
+        scopes.sort_by_key(|scope| self.model().scope(*scope).span.start.offset());
         scopes
     }
 
@@ -416,7 +417,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
                     .iter()
                     .any(|site| {
                         site.scope == scope
-                            && site.span.start.offset < limit_offset
+                            && site.span.start.offset() < limit_offset
                             && self
                                 .definition_command_resolves_at_call(definition_command, site.span)
                     })
@@ -426,7 +427,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
             }
         }
 
-        scopes.sort_by_key(|callee_scope| self.model().scope(*callee_scope).span.start.offset);
+        scopes.sort_by_key(|callee_scope| self.model().scope(*callee_scope).span.start.offset());
         scopes
     }
 
@@ -501,7 +502,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
             .collect::<Vec<_>>();
         let entry = self
             .analysis
-            .flow_entry_block_for_binding_scopes(&binding_scopes, target_span.start.offset);
+            .flow_entry_block_for_binding_scopes(&binding_scopes, target_span.start.offset());
         target_blocks.iter().copied().all(|target_block| {
             self.analysis
                 .blocks_cover_all_paths_to_block(entry, target_block, &cover_blocks)
@@ -573,8 +574,8 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         candidates.iter().any(|(other_id, other_block)| {
             *other_id != binding_id && *other_block == binding_block && {
                 let other = self.model().binding(*other_id);
-                other.span.start.offset > binding.span.start.offset
-                    && other.span.start.offset < at.start.offset
+                other.span.start.offset() > binding.span.start.offset()
+                    && other.span.start.offset() < at.start.offset()
             }
         })
     }
@@ -621,7 +622,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
             .copied()
             .filter(|binding_id| self.binding_can_supply_parameter_value(*binding_id))
             .filter(|binding_id| self.model().binding_visible_at(*binding_id, at))
-            .max_by_key(|binding_id| self.model().binding(*binding_id).span.start.offset)
+            .max_by_key(|binding_id| self.model().binding(*binding_id).span.start.offset())
     }
 
     fn block_for_name_use_site(&self, name: &Name, at: Span) -> Option<BlockId> {
@@ -631,8 +632,8 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
 
         let command_id = self
             .model()
-            .innermost_command_id_at(at.start.offset)
-            .or_else(|| self.innermost_command_id_containing_offset(at.start.offset))?;
+            .innermost_command_id_at(at.start.offset())
+            .or_else(|| self.innermost_command_id_containing_offset(at.start.offset()))?;
         self.analysis
             .block_ids_for_span(self.model().command_syntax_span(command_id))
             .first()
@@ -646,16 +647,16 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
             .copied()
             .filter(|command_id| {
                 let span = self.model().command_syntax_span(*command_id);
-                span.start.offset <= offset && offset <= span.end.offset
+                span.start.offset() <= offset && offset <= span.end.offset()
             })
             .max_by(|left, right| {
                 let left_span = self.model().command_syntax_span(*left);
                 let right_span = self.model().command_syntax_span(*right);
                 left_span
                     .start
-                    .offset
-                    .cmp(&right_span.start.offset)
-                    .then_with(|| right_span.end.offset.cmp(&left_span.end.offset))
+                    .offset()
+                    .cmp(&right_span.start.offset())
+                    .then_with(|| right_span.end.offset().cmp(&left_span.end.offset()))
             })
     }
 
@@ -683,7 +684,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
                                 function_name,
                                 site,
                             )
-                            && self.call_site_dominates_offset(site.span, at.start.offset)
+                            && self.call_site_dominates_offset(site.span, at.start.offset())
                     })
             });
             if !called_before {
@@ -743,7 +744,8 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
                 if !self.function_scope_resolves_at_call_site(scope, function_name, site) {
                     continue;
                 }
-                if seen_sites.insert((site.scope, site.span.start.offset, site.span.end.offset)) {
+                if seen_sites.insert((site.scope, site.span.start.offset(), site.span.end.offset()))
+                {
                     caller_sites.push(site.clone());
                 }
             }
@@ -892,7 +894,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
             .function_bindings_for_scope(scope)
             .into_iter()
             .filter_map(|binding_id| self.function_definition_command_for_binding(binding_id))
-            .min_by_key(|command_id| self.model().command_span(*command_id).start.offset);
+            .min_by_key(|command_id| self.model().command_span(*command_id).start.offset());
         self.function_definition_command_memo
             .borrow_mut()
             .insert(scope, command_id);
@@ -922,8 +924,8 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
                 self.function_definition_command_for_binding(*candidate)
                     .is_some_and(|command_id| {
                         self.definition_command_scope_can_reach_call(command_id, site.span)
-                            && self.model().command_span(command_id).end.offset
-                                <= site.span.start.offset
+                            && self.model().command_span(command_id).end.offset()
+                                <= site.span.start.offset()
                     })
             })
             .collect::<Vec<_>>();
@@ -940,16 +942,16 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         let command_span = self.model().command_span(command_id);
         let definition_scope = self
             .analysis
-            .enclosing_function_scope_at(command_span.start.offset);
+            .enclosing_function_scope_at(command_span.start.offset());
         let call_scope = self
             .analysis
-            .enclosing_function_scope_at(call_span.start.offset);
+            .enclosing_function_scope_at(call_span.start.offset());
 
         if definition_scope.is_none() && call_scope.is_some() {
             return true;
         }
 
-        command_span.end.offset <= call_span.start.offset
+        command_span.end.offset() <= call_span.start.offset()
     }
 
     fn definition_command_scope_can_reach_call(
@@ -960,10 +962,10 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         let command_span = self.model().command_span(command_id);
         let command_scope = self
             .analysis
-            .enclosing_function_scope_at(command_span.start.offset);
+            .enclosing_function_scope_at(command_span.start.offset());
         let call_scope = self
             .analysis
-            .enclosing_function_scope_at(call_span.start.offset);
+            .enclosing_function_scope_at(call_span.start.offset());
         command_scope.is_none() || command_scope == call_scope
     }
 
@@ -988,14 +990,14 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
     }
 
     fn call_site_dominates_offset(&self, call_span: Span, limit_offset: usize) -> bool {
-        if call_span.start.offset >= limit_offset {
+        if call_span.start.offset() >= limit_offset {
             return false;
         }
 
         let Some(mut command_id) = self
             .model()
-            .innermost_command_id_at(call_span.start.offset)
-            .or_else(|| self.innermost_command_id_containing_offset(call_span.start.offset))
+            .innermost_command_id_at(call_span.start.offset())
+            .or_else(|| self.innermost_command_id_containing_offset(call_span.start.offset()))
         else {
             return true;
         };
@@ -1010,10 +1012,10 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         let mut current = self.model().command_parent_id(command_id);
         while let Some(command_id) = current {
             let command_span = self.model().command_syntax_span(command_id);
-            if command_span.end.offset > limit_offset {
+            if command_span.end.offset() > limit_offset {
                 break;
             }
-            if command_span.start.offset < call_span.start.offset
+            if command_span.start.offset() < call_span.start.offset()
                 && self.command_is_dominance_barrier(command_id)
             {
                 return false;
@@ -1046,8 +1048,8 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
 
             let next_limit_offset = self
                 .function_definition_command_for_scope(callee_scope)
-                .map(|command_id| self.model().command_span(command_id).end.offset)
-                .unwrap_or_else(|| self.model().scope(callee_scope).span.end.offset);
+                .map(|command_id| self.model().command_span(command_id).end.offset())
+                .unwrap_or_else(|| self.model().scope(callee_scope).span.end.offset());
             self.collect_transitively_called_function_scopes_before(
                 callee_scope,
                 next_limit_offset,
@@ -1088,7 +1090,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
             .any(|binding_id| {
                 let binding = self.model().binding(binding_id);
                 binding.scope == scope
-                    && binding.span.end.offset <= at.start.offset
+                    && binding.span.end.offset() <= at.start.offset()
                     && binding.attributes.contains(BindingAttributes::LOCAL)
             })
     }
@@ -1098,7 +1100,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
     }
 
     fn sort_and_dedup_bindings(&self, bindings: &mut Vec<BindingId>) {
-        bindings.sort_by_key(|binding_id| self.model().binding(*binding_id).span.start.offset);
+        bindings.sort_by_key(|binding_id| self.model().binding(*binding_id).span.start.offset());
         bindings.dedup();
     }
 
@@ -1107,5 +1109,5 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
     }
 }
 fn span_contains(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+    outer.start.offset() <= inner.start.offset() && inner.end.offset() <= outer.end.offset()
 }

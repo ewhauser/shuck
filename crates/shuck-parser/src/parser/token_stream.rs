@@ -96,17 +96,17 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn current_token_has_leading_whitespace(&self) -> bool {
-        self.current_span.start.offset > 0
-            && self.input[..self.current_span.start.offset]
+        self.current_span.start.offset() > 0
+            && self.input[..self.current_span.start.offset()]
                 .chars()
                 .next_back()
                 .is_some_and(|ch| matches!(ch, ' ' | '\t' | '\n'))
     }
 
     pub(super) fn current_token_is_tight_to_next_token(&mut self) -> bool {
-        let current_end = self.current_span.end.offset;
+        let current_end = self.current_span.end.offset();
         self.peek_next()
-            .is_some_and(|token| token.span.start.offset == current_end)
+            .is_some_and(|token| token.span.start.offset() == current_end)
     }
 
     pub(super) fn at_in_set(&self, set: TokenSet) -> bool {

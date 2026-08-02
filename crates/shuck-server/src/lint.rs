@@ -70,7 +70,7 @@ pub fn generate_diagnostics(snapshot: &DocumentSnapshot) -> Vec<types::Diagnosti
         .iter()
         .map(|diagnostic| {
             let directive_edit = directive_edits
-                .get(&diagnostic.span.start.line)
+                .get(&diagnostic.span.start.line())
                 .cloned()
                 .flatten();
             to_lsp_diagnostic(
@@ -286,7 +286,7 @@ fn directive_edits_by_line(
 
     for line in diagnostics
         .iter()
-        .map(|diagnostic| diagnostic.span.start.line)
+        .map(|diagnostic| diagnostic.span.start.line())
     {
         edits.entry(line).or_insert_with(|| {
             shuck_linter::build_ignore_edit_for_line(

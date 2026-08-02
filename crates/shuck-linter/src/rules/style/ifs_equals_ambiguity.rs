@@ -32,8 +32,8 @@ pub fn ifs_equals_ambiguity(checker: &mut Checker) {
     for span in spans {
         checker.report_diagnostic_dedup(Diagnostic::new(IfsEqualsAmbiguity, span).with_fix(
             Fix::safe_edit(Edit::replacement_at(
-                span.start.offset,
-                span.start.offset + 1,
+                span.start.offset(),
+                span.start.offset() + 1,
                 "'='",
             )),
         ));
@@ -98,7 +98,7 @@ done < /dev/null
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+                .map(|diagnostic| (diagnostic.span.start.line(), diagnostic.span.start.column()))
                 .collect::<Vec<_>>(),
             vec![(2, 5), (3, 11)]
         );

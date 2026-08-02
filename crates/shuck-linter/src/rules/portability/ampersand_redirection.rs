@@ -59,7 +59,7 @@ fn ampersand_redirection_fix(redirect: &RedirectFact<'_>, source: &str) -> Optio
     }
 
     let operator_span = redirect.operator_span();
-    if has_standalone_fd_prefix(source, operator_span.start.offset) {
+    if has_standalone_fd_prefix(source, operator_span.start.offset()) {
         return None;
     }
 
@@ -67,7 +67,7 @@ fn ampersand_redirection_fix(redirect: &RedirectFact<'_>, source: &str) -> Optio
 
     Some(Fix::safe_edits([
         Edit::replacement(">", operator_span),
-        Edit::insertion(target_span.end.offset, " 2>&1"),
+        Edit::insertion(target_span.end.offset(), " 2>&1"),
     ]))
 }
 

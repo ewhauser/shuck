@@ -53,7 +53,7 @@ pub(crate) fn loop_control_violations(
         .filter(|(command_span, _, keyword)| {
             let inside_function = checker
                 .semantic_analysis()
-                .enclosing_function_scope_at(command_span.start.offset)
+                .enclosing_function_scope_at(command_span.start.offset())
                 .is_some();
             let in_subshell = checker
                 .semantic()

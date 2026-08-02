@@ -8,7 +8,7 @@ impl<'a> Parser<'a> {
 
         let span = text.span();
         let nested_profile = self
-            .zsh_options_at_offset(span.start.offset)
+            .zsh_options_at_offset(span.start.offset())
             .cloned()
             .map(|options| ShellProfile::with_zsh_options(self.dialect, options))
             .unwrap_or_else(|| self.shell_profile.clone());
@@ -22,8 +22,8 @@ impl<'a> Parser<'a> {
         let reparse_depth = (remaining_depth - 1).min(SOURCE_TEXT_WORD_REPARSE_MAX_DEPTH);
 
         if !text.is_source_backed()
-            && span.start.offset <= span.end.offset
-            && span.end.offset <= self.input.len()
+            && span.start.offset() <= span.end.offset()
+            && span.end.offset() <= self.input.len()
         {
             let raw = span.slice(self.input);
             if raw.contains("\\\"") {
@@ -65,7 +65,7 @@ impl<'a> Parser<'a> {
 
         if Self::word_text_needs_parse(raw)
             || raw.contains(['\'', '"', '\\'])
-            || self.zsh_glob_word_parsing_enabled_at(span.start.offset)
+            || self.zsh_glob_word_parsing_enabled_at(span.start.offset())
         {
             return None;
         }

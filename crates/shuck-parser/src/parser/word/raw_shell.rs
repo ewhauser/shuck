@@ -23,7 +23,7 @@ impl<'a> Parser<'a> {
             return None;
         }
         let span = Span::from_positions(start, end);
-        if self.zsh_glob_word_parsing_enabled_at(span.start.offset)
+        if self.zsh_glob_word_parsing_enabled_at(span.start.offset())
             && let Some(word) = self.maybe_parse_zsh_qualified_glob_word(&text, span, true)
         {
             return Some(word);
@@ -33,11 +33,11 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::parser) fn source_word_contains_zsh_glob_control(&self, start: Position) -> bool {
-        if start.offset >= self.input.len() {
+        if start.offset() >= self.input.len() {
             return false;
         }
 
-        let source = &self.input[start.offset..];
+        let source = &self.input[start.offset()..];
         let mut chars = source.chars().peekable();
         let mut cursor = start;
         let mut paren_depth = 0_i32;
@@ -92,11 +92,11 @@ impl<'a> Parser<'a> {
         &self,
         start: Position,
     ) -> Option<(String, Position)> {
-        if start.offset >= self.input.len() {
+        if start.offset() >= self.input.len() {
             return None;
         }
 
-        let source = &self.input[start.offset..];
+        let source = &self.input[start.offset()..];
         let mut chars = source.chars().peekable();
         let mut cursor = start;
         let mut text = String::new();
@@ -150,9 +150,11 @@ impl<'a> Parser<'a> {
             .source_slice(self.input)
             .map(Cow::Borrowed)
             .or_else(|| {
-                (token.span.start.offset <= token.span.end.offset
-                    && token.span.end.offset <= self.input.len())
-                .then(|| Cow::Borrowed(&self.input[token.span.start.offset..token.span.end.offset]))
+                (token.span.start.offset() <= token.span.end.offset()
+                    && token.span.end.offset() <= self.input.len())
+                .then(|| {
+                    Cow::Borrowed(&self.input[token.span.start.offset()..token.span.end.offset()])
+                })
             })
             .or_else(|| token.word_string().map(Cow::Owned))
     }

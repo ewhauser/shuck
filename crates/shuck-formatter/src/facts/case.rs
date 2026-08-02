@@ -112,13 +112,17 @@ fn case_item_key(item: &CaseItem) -> FactSpan {
     let start = item
         .patterns
         .first()
-        .map(|pattern| pattern.span.start.offset)
-        .unwrap_or(item.body.span.start.offset);
+        .map(|pattern| pattern.span.start.offset())
+        .unwrap_or(item.body.span.start.offset());
     let end = item
         .terminator_span
-        .map(|span| span.end.offset)
-        .or_else(|| item.body.last().map(|stmt| stmt_span(stmt).end.offset))
-        .or_else(|| item.patterns.last().map(|pattern| pattern.span.end.offset))
-        .unwrap_or(item.body.span.end.offset);
+        .map(|span| span.end.offset())
+        .or_else(|| item.body.last().map(|stmt| stmt_span(stmt).end.offset()))
+        .or_else(|| {
+            item.patterns
+                .last()
+                .map(|pattern| pattern.span.end.offset())
+        })
+        .unwrap_or(item.body.span.end.offset());
     FactSpan::from_offsets(start, end)
 }

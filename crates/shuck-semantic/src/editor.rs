@@ -327,7 +327,7 @@ impl<'model> EditorQuery<'model> {
             let index = pending.len();
             let function_scope = analysis.function_scope_for_binding(binding.id);
             pending.push(PendingDocumentSymbol {
-                sort_offset: binding.span.start.offset,
+                sort_offset: binding.span.start.offset(),
                 symbol,
                 parent: None,
             });
@@ -360,7 +360,7 @@ impl<'model> EditorQuery<'model> {
                 continue;
             };
             pending.push(PendingDocumentSymbol {
-                sort_offset: binding.span.start.offset,
+                sort_offset: binding.span.start.offset(),
                 symbol,
                 parent,
             });
@@ -647,7 +647,7 @@ struct HoverTargetRank {
 }
 
 fn span_contains_offset(span: Span, offset: usize) -> bool {
-    span.start.offset <= offset && offset < span.end.offset
+    span.start.offset() <= offset && offset < span.end.offset()
 }
 
 fn hover_target_rank(target: &EditorHoverTarget) -> HoverTargetRank {
@@ -661,8 +661,8 @@ fn hover_target_rank(target: &EditorHoverTarget) -> HoverTargetRank {
         width: target
             .span
             .end
-            .offset
-            .saturating_sub(target.span.start.offset),
+            .offset()
+            .saturating_sub(target.span.start.offset()),
     }
 }
 
@@ -670,11 +670,11 @@ fn find_editor_target(model: &SemanticModel, offset: usize) -> Option<&EditorHov
     let targets = model
         .editor_hover_targets
         .get_or_init(|| build_editor_hover_targets(model));
-    let upper = targets.partition_point(|target| target.span.start.offset <= offset);
+    let upper = targets.partition_point(|target| target.span.start.offset() <= offset);
 
     let mut best: Option<(&EditorHoverTarget, HoverTargetRank)> = None;
     for target in targets[..upper].iter().rev() {
-        if target.span.end.offset <= offset {
+        if target.span.end.offset() <= offset {
             break;
         }
         if !span_contains_offset(target.span, offset) {
@@ -756,7 +756,7 @@ fn build_editor_hover_targets(model: &SemanticModel) -> EditorHoverTargets {
             }
         }
     }
-    targets.sort_by_key(|target| (target.span.start.offset, target.span.end.offset));
+    targets.sort_by_key(|target| (target.span.start.offset(), target.span.end.offset()));
     targets
 }
 
@@ -1021,7 +1021,7 @@ fn rename_span_for_binding(binding: &Binding) -> Span {
 }
 
 fn source_backed_reference(reference: &Reference) -> bool {
-    reference.name_span.start.offset < reference.name_span.end.offset
+    reference.name_span.start.offset() < reference.name_span.end.offset()
         && !matches!(
             reference.kind,
             ReferenceKind::ImplicitRead | ReferenceKind::RequiredRead
@@ -1031,23 +1031,23 @@ fn source_backed_reference(reference: &Reference) -> bool {
 fn sort_dedup_occurrences(occurrences: &mut Vec<EditorOccurrence>) {
     occurrences.sort_by_key(|occurrence| {
         (
-            occurrence.span.start.offset,
-            occurrence.span.end.offset,
+            occurrence.span.start.offset(),
+            occurrence.span.end.offset(),
             occurrence.kind == EditorOccurrenceKind::Read,
         )
     });
     occurrences.dedup_by_key(|occurrence| {
         (
-            occurrence.span.start.offset,
-            occurrence.span.end.offset,
+            occurrence.span.start.offset(),
+            occurrence.span.end.offset(),
             occurrence.kind,
         )
     });
 }
 
 fn sort_dedup_spans(spans: &mut Vec<Span>) {
-    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
-    spans.dedup_by_key(|span| (span.start.offset, span.end.offset));
+    spans.sort_by_key(|span| (span.start.offset(), span.end.offset()));
+    spans.dedup_by_key(|span| (span.start.offset(), span.end.offset()));
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1068,12 +1068,12 @@ fn completion_context(source: &str, indexer: &Indexer, offset: usize) -> Option<
         return Some(CompletionContext::Parameter { replacement_span });
     }
     let word_span = current_word_span(source, offset);
-    if declaration_operand_context(source, indexer, word_span.start.offset) {
+    if declaration_operand_context(source, indexer, word_span.start.offset()) {
         return Some(CompletionContext::Declaration {
             replacement_span: word_span,
         });
     }
-    if command_position_context(source, word_span.start.offset) {
+    if command_position_context(source, word_span.start.offset()) {
         return Some(CompletionContext::Command {
             replacement_span: word_span,
         });
@@ -1359,11 +1359,7 @@ fn position_at_offset(source: &str, offset: usize) -> shuck_ast::Position {
 }
 
 fn position_with_offset(offset: usize) -> shuck_ast::Position {
-    shuck_ast::Position {
-        line: 1,
-        column: offset + 1,
-        offset,
-    }
+    shuck_ast::Position::at(1, offset + 1, offset)
 }
 
 fn valid_variable_name(name: &str) -> bool {
@@ -1446,7 +1442,7 @@ fn runtime_hover(model: &SemanticModel, name: Name, target_span: Span) -> Editor
             kind,
             definition_span: target_span,
             selection_span: target_span,
-            scope: model.scope_at(target_span.start.offset),
+            scope: model.scope_at(target_span.start.offset()),
             binding: None,
         },
         target_span,

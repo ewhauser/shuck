@@ -28,7 +28,11 @@ pub(super) fn build_dead_code(cfg: &ControlFlowGraph) -> Vec<DeadCode> {
                     kind: UnreachableCauseKind::ShellTerminator,
                 });
         dead_code_by_cause
-            .entry((cause.span.start.offset, cause.span.end.offset, cause.kind))
+            .entry((
+                cause.span.start.offset(),
+                cause.span.end.offset(),
+                cause.kind,
+            ))
             .or_insert_with(|| (cause, Vec::new()))
             .1
             .extend(block.commands.iter().copied());
@@ -41,16 +45,16 @@ pub(super) fn build_dead_code(cfg: &ControlFlowGraph) -> Vec<DeadCode> {
             cause_kind: cause.kind,
         })
         .collect::<Vec<_>>();
-    dead_code.sort_by_key(|dead| (dead.cause.start.offset, dead.cause.end.offset));
+    dead_code.sort_by_key(|dead| (dead.cause.start.offset(), dead.cause.end.offset()));
     dead_code
 }
 
 fn outermost_unreachable_spans(mut spans: Vec<Span>) -> Vec<Span> {
     spans.sort_by(|left, right| {
         left.start
-            .offset
-            .cmp(&right.start.offset)
-            .then_with(|| right.end.offset.cmp(&left.end.offset))
+            .offset()
+            .cmp(&right.start.offset())
+            .then_with(|| right.end.offset().cmp(&left.end.offset()))
     });
 
     let mut outermost = Vec::new();
@@ -70,5 +74,5 @@ fn outermost_unreachable_spans(mut spans: Vec<Span>) -> Vec<Span> {
 }
 
 fn span_contained_by(inner: Span, outer: Span) -> bool {
-    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+    outer.start.offset() <= inner.start.offset() && inner.end.offset() <= outer.end.offset()
 }

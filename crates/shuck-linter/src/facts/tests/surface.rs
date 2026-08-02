@@ -182,8 +182,8 @@ if [[ \"$@\" =~ x ]]; then :; fi
         );
         assert_eq!(facts.words().positional_parameter_operator_spans().len(), 1);
         let operator_span = facts.words().positional_parameter_operator_spans()[0];
-        assert_eq!(operator_span.start.line, 6);
-        assert_eq!(operator_span.start.column, 7);
+        assert_eq!(operator_span.start.line(), 6);
+        assert_eq!(operator_span.start.column(), 7);
         assert_eq!(operator_span.end, operator_span.start);
 
         let single_quoted = facts
@@ -448,8 +448,8 @@ printf '%s\\n' a'\\'bc
                     .map(|span| {
                         (
                             fragment.span().slice(source),
-                            span.start.line,
-                            span.start.column,
+                            span.start.line(),
+                            span.start.column(),
                         )
                     })
             })
@@ -543,13 +543,13 @@ LD_LIBRARY_PATH=\"$JVM_LD_LIBRARY_PATH\":\\$this_dir \\
             .words()
             .open_double_quote_fragments()
             .iter()
-            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .map(|fragment| (fragment.span().start.line(), fragment.span().start.column()))
             .collect::<Vec<_>>();
         let close = facts
             .words()
             .suspect_closing_quote_fragments()
             .iter()
-            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .map(|fragment| (fragment.span().start.line(), fragment.span().start.column()))
             .collect::<Vec<_>>();
 
         assert_eq!(open, vec![(6, 11)]);
@@ -596,13 +596,13 @@ say \"configure\" now
             .words()
             .open_double_quote_fragments()
             .iter()
-            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .map(|fragment| (fragment.span().start.line(), fragment.span().start.column()))
             .collect::<Vec<_>>();
         let close = facts
             .words()
             .suspect_closing_quote_fragments()
             .iter()
-            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .map(|fragment| (fragment.span().start.line(), fragment.span().start.column()))
             .collect::<Vec<_>>();
 
         assert_eq!(open, vec![(2, 6)]);
@@ -646,13 +646,13 @@ line two\"\\foo\"tail\"
             .words()
             .open_double_quote_fragments()
             .iter()
-            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .map(|fragment| (fragment.span().start.line(), fragment.span().start.column()))
             .collect::<Vec<_>>();
         let close = facts
             .words()
             .suspect_closing_quote_fragments()
             .iter()
-            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .map(|fragment| (fragment.span().start.line(), fragment.span().start.column()))
             .collect::<Vec<_>>();
 
         assert_eq!(open, vec![(2, 6)]);
@@ -673,13 +673,13 @@ line two\"suffix
             .words()
             .open_double_quote_fragments()
             .iter()
-            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .map(|fragment| (fragment.span().start.line(), fragment.span().start.column()))
             .collect::<Vec<_>>();
         let close = facts
             .words()
             .suspect_closing_quote_fragments()
             .iter()
-            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .map(|fragment| (fragment.span().start.line(), fragment.span().start.column()))
             .collect::<Vec<_>>();
 
         assert_eq!(open, vec![(2, 8)]);
@@ -700,13 +700,13 @@ line two\"$suffix
             .words()
             .open_double_quote_fragments()
             .iter()
-            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .map(|fragment| (fragment.span().start.line(), fragment.span().start.column()))
             .collect::<Vec<_>>();
         let close = facts
             .words()
             .suspect_closing_quote_fragments()
             .iter()
-            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .map(|fragment| (fragment.span().start.line(), fragment.span().start.column()))
             .collect::<Vec<_>>();
 
         assert_eq!(open, vec![(2, 6)]);
@@ -727,13 +727,13 @@ line two\"$suffix
             .words()
             .open_double_quote_fragments()
             .iter()
-            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .map(|fragment| (fragment.span().start.line(), fragment.span().start.column()))
             .collect::<Vec<_>>();
         let close = facts
             .words()
             .suspect_closing_quote_fragments()
             .iter()
-            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .map(|fragment| (fragment.span().start.line(), fragment.span().start.column()))
             .collect::<Vec<_>>();
 
         assert_eq!(open, vec![(2, 8)]);
@@ -754,13 +754,13 @@ line two''tail'
             .words()
             .open_double_quote_fragments()
             .iter()
-            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .map(|fragment| (fragment.span().start.line(), fragment.span().start.column()))
             .collect::<Vec<_>>();
         let close = facts
             .words()
             .suspect_closing_quote_fragments()
             .iter()
-            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .map(|fragment| (fragment.span().start.line(), fragment.span().start.column()))
             .collect::<Vec<_>>();
 
         assert_eq!(open, vec![(2, 6)]);
@@ -788,13 +788,13 @@ enable_shared_with_static_runtimes=yes
             .words()
             .open_double_quote_fragments()
             .iter()
-            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .map(|fragment| (fragment.span().start.line(), fragment.span().start.column()))
             .collect::<Vec<_>>();
         let close = facts
             .words()
             .suspect_closing_quote_fragments()
             .iter()
-            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .map(|fragment| (fragment.span().start.line(), fragment.span().start.column()))
             .collect::<Vec<_>>();
 
         assert_eq!(open, vec![(3, 21), (4, 75)]);
@@ -817,13 +817,13 @@ then \"install\" later
             .words()
             .open_double_quote_fragments()
             .iter()
-            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .map(|fragment| (fragment.span().start.line(), fragment.span().start.column()))
             .collect::<Vec<_>>();
         let close = facts
             .words()
             .suspect_closing_quote_fragments()
             .iter()
-            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .map(|fragment| (fragment.span().start.line(), fragment.span().start.column()))
             .collect::<Vec<_>>();
 
         assert_eq!(open, vec![(2, 6), (3, 15), (4, 14)]);
@@ -846,10 +846,10 @@ fn builds_double_paren_grouping_spans() {
             .iter()
             .map(|span| {
                 (
-                    span.start.line,
-                    span.start.column,
-                    span.end.line,
-                    span.end.column,
+                    span.start.line(),
+                    span.start.column(),
+                    span.end.line(),
+                    span.end.column(),
                 )
             })
             .collect::<Vec<_>>();
@@ -3544,7 +3544,7 @@ $cmd[0] arg
             .words()
             .brace_variable_before_bracket_spans()
             .iter()
-            .map(|span| (span.start.line, span.start.column))
+            .map(|span| (span.start.line(), span.start.column()))
             .collect::<Vec<_>>();
 
         assert_eq!(spans, vec![(2, 7), (6, 1)]);

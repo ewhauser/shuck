@@ -17,11 +17,11 @@ impl<'a> Parser<'a> {
             brace_ccl_enabled,
             &mut brace_syntax,
         );
-        brace_syntax.sort_by_key(|brace| (brace.span.start.offset, brace.span.end.offset));
+        brace_syntax.sort_by_key(|brace| (brace.span.start.offset(), brace.span.end.offset()));
         brace_syntax.dedup_by_key(|brace| {
             (
-                brace.span.start.offset,
-                brace.span.end.offset,
+                brace.span.start.offset(),
+                brace.span.end.offset(),
                 brace.quote_context,
                 brace.kind,
             )
@@ -97,12 +97,12 @@ impl<'a> Parser<'a> {
             return false;
         }
 
-        let mut cursor = parts[0].span.start.offset;
+        let mut cursor = parts[0].span.start.offset();
         for part in parts {
-            if part.span.start.offset > cursor
+            if part.span.start.offset() > cursor
                 && self
                     .input
-                    .get(cursor..part.span.start.offset)
+                    .get(cursor..part.span.start.offset())
                     .is_some_and(|raw| raw.contains(['{', '}']))
             {
                 return true;
@@ -116,7 +116,7 @@ impl<'a> Parser<'a> {
                 | WordPart::DoubleQuoted { .. }
                 | WordPart::ZshQualifiedGlob(_) => self
                     .input
-                    .get(part.span.start.offset..part.span.end.offset)
+                    .get(part.span.start.offset()..part.span.end.offset())
                     .is_some_and(|raw| raw.contains(['{', '}'])),
                 WordPart::Variable(_)
                 | WordPart::CommandSubstitution { .. }
@@ -138,7 +138,7 @@ impl<'a> Parser<'a> {
                 return true;
             }
 
-            cursor = part.span.end.offset;
+            cursor = part.span.end.offset();
         }
 
         false
@@ -159,7 +159,9 @@ impl<'a> Parser<'a> {
                     );
                 }
                 WordPart::SingleQuoted { .. } => {
-                    if let Some(raw) = self.input.get(part.span.start.offset..part.span.end.offset)
+                    if let Some(raw) = self
+                        .input
+                        .get(part.span.start.offset()..part.span.end.offset())
                     {
                         Self::push_brace_scan_text(raw, part.span.start, out);
                     }
@@ -195,12 +197,12 @@ impl<'a> Parser<'a> {
         parts: &[WordPartNode],
         out: &mut Vec<(char, Position)>,
     ) {
-        let mut cursor_offset = span.start.offset;
+        let mut cursor_offset = span.start.offset();
         let mut cursor_position = span.start;
 
         for part in parts {
-            if part.span.start.offset > cursor_offset
-                && let Some(raw) = self.input.get(cursor_offset..part.span.start.offset)
+            if part.span.start.offset() > cursor_offset
+                && let Some(raw) = self.input.get(cursor_offset..part.span.start.offset())
             {
                 Self::push_brace_scan_text(raw, cursor_position, out);
             }
@@ -214,7 +216,9 @@ impl<'a> Parser<'a> {
                     );
                 }
                 WordPart::SingleQuoted { .. } => {
-                    if let Some(raw) = self.input.get(part.span.start.offset..part.span.end.offset)
+                    if let Some(raw) = self
+                        .input
+                        .get(part.span.start.offset()..part.span.end.offset())
                     {
                         Self::push_brace_scan_text(raw, part.span.start, out);
                     }
@@ -242,12 +246,12 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            cursor_offset = part.span.end.offset;
+            cursor_offset = part.span.end.offset();
             cursor_position = part.span.end;
         }
 
-        if cursor_offset < span.end.offset
-            && let Some(raw) = self.input.get(cursor_offset..span.end.offset)
+        if cursor_offset < span.end.offset()
+            && let Some(raw) = self.input.get(cursor_offset..span.end.offset())
         {
             Self::push_brace_scan_text(raw, cursor_position, out);
         }
@@ -960,8 +964,8 @@ impl<'a> Parser<'a> {
         span: Span,
         source_backed: bool,
     ) -> Option<Word> {
-        let features = self.zsh_glob_parse_features_at(span.start.offset);
-        if !self.zsh_glob_word_parsing_enabled_at(span.start.offset)
+        let features = self.zsh_glob_parse_features_at(span.start.offset());
+        if !self.zsh_glob_word_parsing_enabled_at(span.start.offset())
             || text.is_empty()
             || text.contains('=')
             || text.contains(['\x00', '\\', '\'', '"', '$', '`'])

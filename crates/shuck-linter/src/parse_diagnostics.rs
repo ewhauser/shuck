@@ -126,8 +126,10 @@ pub(crate) fn collect_parse_rule_diagnostics(
         && let Some(span) = if_bracket_glued_span(locator, parse_diagnostics)
     {
         diagnostics.push(
-            Diagnostic::new(IfBracketGlued, span)
-                .with_fix(Fix::safe_edit(Edit::insertion(span.start.offset + 2, " "))),
+            Diagnostic::new(IfBracketGlued, span).with_fix(Fix::safe_edit(Edit::insertion(
+                span.start.offset() + 2,
+                " ",
+            ))),
         );
     }
     if enabled_rules.contains(crate::Rule::LinebreakBeforeAnd) {
@@ -163,8 +165,9 @@ pub(crate) fn collect_parse_rule_diagnostics(
                 continue;
             };
             diagnostics.push(
-                Diagnostic::new(CPrototypeFragment, span)
-                    .with_fix(Fix::safe_edit(Edit::insertion(span.start.offset + 1, " "))),
+                Diagnostic::new(CPrototypeFragment, span).with_fix(Fix::safe_edit(
+                    Edit::insertion(span.start.offset() + 1, " "),
+                )),
             );
         }
     }
@@ -224,32 +227,32 @@ fn extglob_in_case_pattern_fix(source: &str, part_span: Span) -> Option<Fix> {
 }
 
 fn simple_case_pattern_surface(source: &str, part_span: Span) -> Option<(Span, &str)> {
-    let line_start = source[..part_span.start.offset]
+    let line_start = source[..part_span.start.offset()]
         .rfind('\n')
         .map_or(0, |offset| offset + 1);
-    let pattern_start = simple_case_pattern_start(source, line_start, part_span.start.offset)?;
-    let prefix = &source[pattern_start..part_span.start.offset];
+    let pattern_start = simple_case_pattern_start(source, line_start, part_span.start.offset())?;
+    let prefix = &source[pattern_start..part_span.start.offset()];
     if prefix.is_empty() || prefix.bytes().any(|byte| byte.is_ascii_whitespace()) {
         return None;
     }
 
-    let pattern_end = simple_case_pattern_end(source, part_span.end.offset)?;
+    let pattern_end = simple_case_pattern_end(source, part_span.end.offset())?;
     let pattern_text = &source[pattern_start..pattern_end];
     if pattern_text.bytes().any(|byte| byte.is_ascii_whitespace()) {
         return None;
     }
 
-    let start = Position {
-        line: part_span.start.line,
-        column: part_span
+    let start = Position::at(
+        part_span.start.line(),
+        part_span
             .start
-            .column
-            .saturating_sub(part_span.start.offset - pattern_start),
-        offset: pattern_start,
-    };
+            .column()
+            .saturating_sub(part_span.start.offset() - pattern_start),
+        pattern_start,
+    );
     let end = part_span
         .end
-        .advanced_by(&source[part_span.end.offset..pattern_end]);
+        .advanced_by(&source[part_span.end.offset()..pattern_end]);
 
     Some((Span::from_positions(start, end), pattern_text))
 }
@@ -1156,7 +1159,7 @@ fn if_missing_then_span(
             return None;
         }
 
-        let mut line = diagnostic.span.start.line;
+        let mut line = diagnostic.span.start.line();
         let mut saw_then = false;
         while line > 0 {
             let text = line_text_at(locator, line)?;
@@ -1387,10 +1390,10 @@ fn function_parameter_syntax_span(
         return None;
     }
 
-    let line = line_text_at(locator, diagnostic.span.start.line)?;
+    let line = line_text_at(locator, diagnostic.span.start.line())?;
     let search_end = line
         .char_indices()
-        .nth(diagnostic.span.start.column.saturating_sub(1))
+        .nth(diagnostic.span.start.column().saturating_sub(1))
         .map_or(line.len(), |(index, ch)| index + ch.len_utf8());
     let paren_index = line
         .get(..search_end)
@@ -1399,7 +1402,7 @@ fn function_parameter_syntax_span(
             line.get(search_end..)
                 .and_then(|suffix| suffix.find('(').map(|relative| search_end + relative))
         })?;
-    let line_start = line_start_offset(locator, diagnostic.span.start.line)?;
+    let line_start = line_start_offset(locator, diagnostic.span.start.line())?;
     let start_offset = line_start + paren_index;
     let start = locator.position_at_offset(start_offset)?;
     let end = locator.position_at_offset(start_offset + 1)?;
@@ -1417,7 +1420,7 @@ fn linebreak_before_and_spans(
                 return None;
             }
 
-            leading_control_operator_span(locator, diagnostic.span.start.line)
+            leading_control_operator_span(locator, diagnostic.span.start.line())
         })
         .collect()
 }
@@ -1471,7 +1474,7 @@ fn leading_control_operator_span(locator: Locator<'_>, line_number: usize) -> Op
 
 fn linebreak_before_and_fix(locator: Locator<'_>, span: Span) -> Option<Fix> {
     let source = locator.source();
-    let line_start = line_start_offset(locator, span.start.line)?;
+    let line_start = line_start_offset(locator, span.start.line())?;
     let insert_offset = line_start.checked_sub(1)?;
     if source.as_bytes().get(insert_offset) != Some(&b'\n') {
         return None;
@@ -1481,7 +1484,7 @@ fn linebreak_before_and_fix(locator: Locator<'_>, span: Span) -> Option<Fix> {
     }
 
     let operator = span.slice(source);
-    let rest = source.get(span.end.offset..)?;
+    let rest = source.get(span.end.offset()..)?;
     let trailing_ws_len = rest
         .chars()
         .take_while(|ch| matches!(ch, ' ' | '\t'))
@@ -1489,7 +1492,7 @@ fn linebreak_before_and_fix(locator: Locator<'_>, span: Span) -> Option<Fix> {
         .sum::<usize>();
     Some(Fix::safe_edits([
         Edit::insertion(insert_offset, format!(" {operator}")),
-        Edit::deletion_at(span.start.offset, span.end.offset + trailing_ws_len),
+        Edit::deletion_at(span.start.offset(), span.end.offset() + trailing_ws_len),
     ]))
 }
 
@@ -1520,12 +1523,12 @@ fn until_missing_do_span(
         .iter()
         .find(|diagnostic| {
             is_expected_command_error(&diagnostic.message)
-                && is_done_line(locator, diagnostic.span.start.line)
+                && is_done_line(locator, diagnostic.span.start.line())
                 && {
                     let flags = pending_until_flags
                         .get_or_insert_with(|| compute_pending_until_flags(locator.source()));
                     flags
-                        .get(diagnostic.span.start.line.saturating_sub(1))
+                        .get(diagnostic.span.start.line().saturating_sub(1))
                         .copied()
                         .unwrap_or(false)
                 }
@@ -1561,7 +1564,7 @@ fn if_bracket_glued_span(
         if !is_expected_command_error(&diagnostic.message) {
             return None;
         }
-        if_bracket_glued_span_on_line(locator, diagnostic.span.start.line)
+        if_bracket_glued_span_on_line(locator, diagnostic.span.start.line())
     })
 }
 
@@ -1751,7 +1754,7 @@ fn missing_done_belongs_to_for_loop(
     semantic: &LinterSemanticArtifacts<'_>,
 ) -> bool {
     semantic
-        .missing_done_trailing_loop_is_for(&file.body, file.span.end.offset)
+        .missing_done_trailing_loop_is_for(&file.body, file.span.end.offset())
         .or_else(|| missing_done_loop_kind_from_source(source))
         .unwrap_or(false)
 }
@@ -2240,16 +2243,12 @@ fn c_prototype_fragment_span(diagnostic: &ParseDiagnostic, locator: Locator<'_>)
     {
         return None;
     }
-    let line = diagnostic.span.start.line;
+    let line = diagnostic.span.start.line();
     let line_text = line_text_at(locator, line)?;
     let column = find_attached_background_ampersand_column(line_text)?;
     let line_start_offset = line_start_offset(locator, line)?;
     let offset = line_start_offset + (column - 1);
-    let point = Position {
-        line,
-        column,
-        offset,
-    };
+    let point = Position::at(line, column, offset);
     Some(Span::from_positions(point, point))
 }
 
@@ -2367,8 +2366,8 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::MissingFi);
-        assert_eq!(diagnostics[0].span.start.line, 4);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
         assert_eq!(
             diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
             Some(Applicability::Unsafe)
@@ -2394,8 +2393,8 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2429,8 +2428,8 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2448,8 +2447,8 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2467,8 +2466,8 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2486,8 +2485,8 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2505,8 +2504,8 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2524,8 +2523,8 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 3);
-        assert_eq!(diagnostics[0].span.start.column, 5);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
+        assert_eq!(diagnostics[0].span.start.column(), 5);
     }
 
     #[test]
@@ -2551,8 +2550,8 @@ EOF
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2577,8 +2576,8 @@ EOF
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2602,8 +2601,8 @@ if outer; then
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2627,8 +2626,8 @@ if outer; then
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2650,8 +2649,8 @@ if true; then
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2675,8 +2674,8 @@ fi + 1
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2752,8 +2751,8 @@ if true; then
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2776,8 +2775,8 @@ if true; then
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2799,8 +2798,8 @@ if true; then
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2824,8 +2823,8 @@ if true; then
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2848,8 +2847,8 @@ fi
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2873,8 +2872,8 @@ if outer; then
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2898,8 +2897,8 @@ if outer; then
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2920,8 +2919,8 @@ if outer; then if inner; then :; fi
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -2955,8 +2954,8 @@ f() { if true; then
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnterminatedIf);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 9);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 9);
     }
 
     #[test]
@@ -2989,8 +2988,8 @@ if outer; then
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 3);
-        assert_eq!(diagnostics[0].span.start.column, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
+        assert_eq!(diagnostics[0].span.start.column(), 3);
     }
 
     #[test]
@@ -3013,8 +3012,8 @@ if outer; then
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -3093,8 +3092,8 @@ fi
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::FunctionParamsInSh);
         assert_eq!(diagnostics[0].span.slice(source), "(");
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 24);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 24);
     }
 
     #[test]
@@ -3128,8 +3127,8 @@ fi
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::LoopWithoutEnd);
-        assert_eq!(diagnostics[0].span.start.line, 4);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
         assert_eq!(
             diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
             Some(Applicability::Unsafe)
@@ -3340,8 +3339,8 @@ fi
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::IfMissingThen);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
     }
 
     #[test]
@@ -3807,7 +3806,7 @@ fi
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::LinebreakBeforeAnd);
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
         assert_eq!(
             apply_fixes(source, &diagnostics, Applicability::Safe).code,
             "#!/bin/bash\ntrue &&\necho x\n"
@@ -3867,8 +3866,8 @@ fi
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::CPrototypeFragment);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 3);
         assert_eq!(
             diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
             Some(Applicability::Safe)

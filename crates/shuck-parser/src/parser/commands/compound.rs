@@ -440,9 +440,9 @@ impl<'a> Parser<'a> {
             return Error::parse(message);
         }
 
-        let rebased_line = base.line + line.saturating_sub(1);
+        let rebased_line = base.line() + line.saturating_sub(1);
         let rebased_column = if line == 1 {
-            base.column + column.saturating_sub(1)
+            base.column() + column.saturating_sub(1)
         } else {
             column
         };

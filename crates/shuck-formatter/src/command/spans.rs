@@ -359,8 +359,8 @@ fn synthetic_simple_command_verbatim_span(
     source_map: &SourceMap<'_>,
 ) -> Span {
     let source = source_map.source();
-    let start = command.span.start.offset.min(source.len());
-    let end = command.span.end.offset.min(source.len());
+    let start = command.span.start.offset().min(source.len());
+    let end = command.span.end.offset().min(source.len());
     let Some(raw) = source.get(start..end) else {
         return command.span;
     };
@@ -414,7 +414,7 @@ fn word_uses_synthetic_source(word: &Word, source: &str) -> bool {
     }
     let rendered = word.render_syntax(source);
     let raw = source
-        .get(word.span.start.offset.min(source.len())..word.span.end.offset.min(source.len()));
+        .get(word.span.start.offset().min(source.len())..word.span.end.offset().min(source.len()));
     raw.is_none_or(|raw| raw != rendered)
 }
 

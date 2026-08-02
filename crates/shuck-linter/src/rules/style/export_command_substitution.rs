@@ -71,7 +71,7 @@ fn should_report_s010_declaration(
 
     let inside_function = checker
         .semantic_analysis()
-        .enclosing_function_scope_at(span.start.offset)
+        .enclosing_function_scope_at(span.start.offset())
         .is_some();
 
     !inside_function

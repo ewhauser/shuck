@@ -68,7 +68,7 @@ pub fn mutable_global(checker: &mut Checker) {
     let mut reportable_bindings = Vec::new();
 
     for writes in writes_by_name.values_mut() {
-        writes.sort_unstable_by_key(|write| semantic.binding(write.binding_id).span.start.offset);
+        writes.sort_unstable_by_key(|write| semantic.binding(write.binding_id).span.start.offset());
 
         let Some(first_file_write) = writes
             .iter()
@@ -94,7 +94,7 @@ pub fn mutable_global(checker: &mut Checker) {
     }
 
     reportable_bindings
-        .sort_unstable_by_key(|binding_id| semantic.binding(*binding_id).span.start.offset);
+        .sort_unstable_by_key(|binding_id| semantic.binding(*binding_id).span.start.offset());
 
     for binding_id in reportable_bindings {
         let binding = semantic.binding(binding_id);
@@ -145,7 +145,7 @@ fn has_prior_function_declaration(
         .any(|id| {
             let candidate = semantic.binding(id);
             candidate.scope == function_scope
-                && candidate.span.start.offset < binding.span.start.offset
+                && candidate.span.start.offset() < binding.span.start.offset()
                 && is_function_local_declaration(candidate)
                 && declaration_runs_before_binding(checker, candidate, binding, function_scope)
         })
@@ -346,7 +346,7 @@ update() {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "value");
-        assert_eq!(diagnostics[0].span.start.line, 7);
+        assert_eq!(diagnostics[0].span.start.line(), 7);
     }
 
     #[test]
@@ -366,7 +366,7 @@ update() {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "value");
-        assert_eq!(diagnostics[0].span.start.line, 8);
+        assert_eq!(diagnostics[0].span.start.line(), 8);
     }
 
     #[test]
@@ -449,7 +449,7 @@ mode=${mode:-prod}$((mode + 1))
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "mode");
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 
     #[test]
@@ -463,7 +463,7 @@ mode=${mode:-prod}$(mode=$mode; printf x)
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "mode");
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 
     #[test]
@@ -477,7 +477,7 @@ mode=${mode#dev} # ${mode:-prod}
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "mode");
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 
     #[test]
@@ -505,7 +505,7 @@ mode=${mode#dev}; echo ${mode:-prod}
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "mode");
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 
     #[test]
@@ -535,7 +535,7 @@ mode=prod
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "mode");
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 
     #[test]

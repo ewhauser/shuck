@@ -354,11 +354,11 @@ fn bracket_v_name_spans(
                 .copied()
                 .filter(|binding_id| {
                     let binding = checker.semantic().binding(*binding_id);
-                    binding.span.start.offset <= operand.span.start.offset
+                    binding.span.start.offset() <= operand.span.start.offset()
                         && is_test_v_variable_binding(binding)
                 })
                 .max_by_key(|binding_id| {
-                    checker.semantic().binding(*binding_id).span.start.offset
+                    checker.semantic().binding(*binding_id).span.start.offset()
                 })?;
             let roots = root_bindings_for_binding(
                 binding_id,
@@ -492,7 +492,7 @@ fn expansion_span_is_plain_reference(
 }
 
 fn sort_and_dedup_spans(spans: &mut Vec<Span>) {
-    spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+    spans.sort_unstable_by_key(|span| (span.start.offset(), span.end.offset()));
     spans.dedup();
 }
 

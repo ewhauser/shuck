@@ -1529,7 +1529,7 @@ echo \"$x\"
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
         assert_eq!(diagnostics[0].span.slice(source), "x");
     }
 
@@ -1548,7 +1548,7 @@ echo \"$x\"
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
         assert_eq!(diagnostics[0].span.slice(source), "x");
     }
 }

@@ -73,7 +73,7 @@ impl<'a> Lexer<'a> {
         if can_borrow {
             Ok(LexedWordSegment::borrowed_with_spans(
                 LexedWordSegmentKind::SingleQuoted,
-                &self.input[content_start.offset..content_end.offset],
+                &self.input[content_start.offset()..content_end.offset()],
                 content_span,
                 wrapper_span,
             ))
@@ -480,7 +480,7 @@ impl<'a> Lexer<'a> {
                 } else {
                     LexedWordSegmentKind::DoubleQuoted
                 },
-                &self.input[content_start.offset..content_end.offset],
+                &self.input[content_start.offset()..content_end.offset()],
                 content_span,
                 wrapper_span,
             ))

@@ -59,10 +59,10 @@ pub(crate) fn build_literal_brace_spans(
         &mut scratch,
     );
     spans.retain(|span| {
-        !region_index.is_expansion_brace_edge(TextSize::new(span.start.offset as u32))
+        !region_index.is_expansion_brace_edge(TextSize::new(span.start.offset() as u32))
     });
-    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
-    spans.dedup_by_key(|span| (span.start.offset, span.end.offset));
+    spans.sort_by_key(|span| (span.start.offset(), span.end.offset()));
+    spans.dedup_by_key(|span| (span.start.offset(), span.end.offset()));
     spans
 }
 
@@ -95,7 +95,7 @@ pub(crate) fn collect_literal_brace_spans_for_word(
     scratch.dynamic_exclusions.clear();
     collect_dynamic_brace_exclusions(
         &word.parts,
-        word.span.start.offset,
+        word.span.start.offset(),
         source,
         region_index,
         &mut scratch.dynamic_exclusions,
@@ -177,11 +177,9 @@ pub(crate) fn literal_brace_word_span_is_reportable(
     span: Span,
     nested_escaped_templates: &[Span],
 ) -> bool {
-    !nested_escaped_templates
-        .iter()
-        .copied()
-        .any(|body| body.start.offset <= span.start.offset && span.start.offset < body.end.offset)
-        && !word_span_is_inside_command_substitution(nodes, fact, fact_store, span)
+    !nested_escaped_templates.iter().copied().any(|body| {
+        body.start.offset() <= span.start.offset() && span.start.offset() < body.end.offset()
+    }) && !word_span_is_inside_command_substitution(nodes, fact, fact_store, span)
 }
 
 pub(crate) fn word_span_is_inside_command_substitution(
@@ -218,8 +216,8 @@ pub(crate) fn is_find_exec_placeholder_word(
     }
 
     commands.iter().any(|command| {
-        command.stmt().span.start.offset <= occurrence_span(nodes, fact).start.offset
-            && command.stmt().span.end.offset >= occurrence_span(nodes, fact).end.offset
+        command.stmt().span.start.offset() <= occurrence_span(nodes, fact).start.offset()
+            && command.stmt().span.end.offset() >= occurrence_span(nodes, fact).end.offset()
             && is_find_exec_command(command, source)
     }) || line_has_find_exec_placeholder_context(locator, occurrence_span(nodes, fact))
 }
@@ -257,15 +255,15 @@ pub(crate) fn line_has_find_exec_placeholder_context(
     brace_span: Span,
 ) -> bool {
     let source = locator.source();
-    let Some(line_range) = locator.line_range(brace_span.start.line) else {
+    let Some(line_range) = locator.line_range(brace_span.start.line()) else {
         return false;
     };
     let line_start_offset = usize::from(line_range.start());
     let line_text = line_range.slice(source);
-    let Some(relative_start) = brace_span.start.offset.checked_sub(line_start_offset) else {
+    let Some(relative_start) = brace_span.start.offset().checked_sub(line_start_offset) else {
         return false;
     };
-    let Some(relative_end) = brace_span.end.offset.checked_sub(line_start_offset) else {
+    let Some(relative_end) = brace_span.end.offset().checked_sub(line_start_offset) else {
         return false;
     };
     if relative_end > line_text.len() {
@@ -447,7 +445,7 @@ pub(crate) fn collect_brace_character_spans(
         if !matches!(ch, '{' | '}') {
             continue;
         }
-        let absolute_offset = span.start.offset + offset;
+        let absolute_offset = span.start.offset() + offset;
         if has_odd_backslash_run_before(source, absolute_offset) {
             continue;
         }
@@ -462,10 +460,10 @@ pub(crate) fn collect_brace_character_spans(
 pub(crate) fn brace_span_has_escaped_dollar_prefix(span: Span, source: &str) -> bool {
     let span_text = span.slice(source);
     if span_text.starts_with("${") {
-        return has_odd_backslash_run_before(source, span.start.offset);
+        return has_odd_backslash_run_before(source, span.start.offset());
     }
 
-    has_escaped_dollar_before(source, span.start.offset)
+    has_escaped_dollar_before(source, span.start.offset())
 }
 
 pub(crate) fn brace_syntax_with_whitespace_is_literal(
@@ -574,8 +572,8 @@ pub(crate) fn collect_unclassified_literal_brace_spans(
         word.brace_syntax()
             .iter()
             .map(|brace| DynamicBraceExcludedSpan {
-                start_offset: brace.span.start.offset - span.start.offset,
-                end_offset: brace.span.end.offset - span.start.offset,
+                start_offset: brace.span.start.offset() - span.start.offset(),
+                end_offset: brace.span.end.offset() - span.start.offset(),
                 kind: DynamicBraceExcludedSpanKind::RuntimeShellSyntax,
             }),
     );
@@ -707,11 +705,11 @@ pub(crate) fn collect_uncovered_command_brace_spans(
 
         scratch
             .covered_spans
-            .sort_by_key(|span| (span.start.offset, span.end.offset));
+            .sort_by_key(|span| (span.start.offset(), span.end.offset()));
 
-        let mut cursor = command_span.start.offset;
+        let mut cursor = command_span.start.offset();
         for span in scratch.covered_spans.iter().copied() {
-            if span.start.offset > cursor {
+            if span.start.offset() > cursor {
                 collect_raw_literal_brace_spans(
                     RawLiteralBraceScan {
                         locator,
@@ -719,16 +717,16 @@ pub(crate) fn collect_uncovered_command_brace_spans(
                         excluded_ranges: heredoc_ranges,
                     },
                     cursor,
-                    span.start.offset,
+                    span.start.offset(),
                     out,
                     &mut scratch.relevant_excluded_ranges,
                     &mut scratch.unmatched_spans,
                 );
             }
-            cursor = cursor.max(span.end.offset);
+            cursor = cursor.max(span.end.offset());
         }
 
-        if command_span.end.offset > cursor {
+        if command_span.end.offset() > cursor {
             collect_raw_literal_brace_spans(
                 RawLiteralBraceScan {
                     locator,
@@ -736,7 +734,7 @@ pub(crate) fn collect_uncovered_command_brace_spans(
                     excluded_ranges: heredoc_ranges,
                 },
                 cursor,
-                command_span.end.offset,
+                command_span.end.offset(),
                 out,
                 &mut scratch.relevant_excluded_ranges,
                 &mut scratch.unmatched_spans,
@@ -747,26 +745,26 @@ pub(crate) fn collect_uncovered_command_brace_spans(
 
 pub(crate) fn redirect_fd_var_brace_span(redirect: &Redirect, source: &str) -> Option<Span> {
     let fd_var_span = redirect.fd_var_span?;
-    let start_offset = fd_var_span.start.offset.checked_sub('{'.len_utf8())?;
-    let end_offset = fd_var_span.end.offset.checked_add('}'.len_utf8())?;
-    if source.get(start_offset..fd_var_span.start.offset)? != "{" {
+    let start_offset = fd_var_span.start.offset().checked_sub('{'.len_utf8())?;
+    let end_offset = fd_var_span.end.offset().checked_add('}'.len_utf8())?;
+    if source.get(start_offset..fd_var_span.start.offset())? != "{" {
         return None;
     }
-    if source.get(fd_var_span.end.offset..end_offset)? != "}" {
+    if source.get(fd_var_span.end.offset()..end_offset)? != "}" {
         return None;
     }
 
     Some(Span::from_positions(
-        Position {
-            line: fd_var_span.start.line,
-            column: fd_var_span.start.column.checked_sub(1)?,
-            offset: start_offset,
-        },
-        Position {
-            line: fd_var_span.end.line,
-            column: fd_var_span.end.column + 1,
-            offset: end_offset,
-        },
+        Position::at(
+            fd_var_span.start.line(),
+            fd_var_span.start.column().checked_sub(1)?,
+            start_offset,
+        ),
+        Position::at(
+            fd_var_span.end.line(),
+            fd_var_span.end.column() + 1,
+            end_offset,
+        ),
     ))
 }
 
@@ -1091,15 +1089,15 @@ pub(crate) fn command_substitution_body_offsets(
     if text.starts_with("$(") && text.ends_with(')') && text.len() >= 3 {
         return Some((
             span,
-            span.start.offset + "$(".len(),
-            span.end.offset - ')'.len_utf8(),
+            span.start.offset() + "$(".len(),
+            span.end.offset() - ')'.len_utf8(),
         ));
     }
     if text.starts_with('`') && text.ends_with('`') && text.len() >= 2 {
         return Some((
             span,
-            span.start.offset + '`'.len_utf8(),
-            span.end.offset - '`'.len_utf8(),
+            span.start.offset() + '`'.len_utf8(),
+            span.end.offset() - '`'.len_utf8(),
         ));
     }
     None
@@ -1337,8 +1335,8 @@ pub(crate) fn collect_dynamic_brace_exclusions(
             WordPart::Literal(_) => {}
             WordPart::DoubleQuoted { .. } if !part.span.slice(source).starts_with("\\\"") => {
                 out.push(DynamicBraceExcludedSpan {
-                    start_offset: part.span.start.offset - word_base_offset,
-                    end_offset: part.span.end.offset - word_base_offset,
+                    start_offset: part.span.start.offset() - word_base_offset,
+                    end_offset: part.span.end.offset() - word_base_offset,
                     kind: DynamicBraceExcludedSpanKind::Quoted,
                 });
             }
@@ -1353,8 +1351,8 @@ pub(crate) fn collect_dynamic_brace_exclusions(
             }
             WordPart::SingleQuoted { .. } => {
                 out.push(DynamicBraceExcludedSpan {
-                    start_offset: part.span.start.offset - word_base_offset,
-                    end_offset: part.span.end.offset - word_base_offset,
+                    start_offset: part.span.start.offset() - word_base_offset,
+                    end_offset: part.span.end.offset() - word_base_offset,
                     kind: DynamicBraceExcludedSpanKind::Quoted,
                 });
             }
@@ -1387,12 +1385,12 @@ pub(crate) fn runtime_shell_dynamic_brace_exclusion(
     word_base_offset: usize,
     region_index: &RegionIndex,
 ) -> DynamicBraceExcludedSpan {
-    let start_offset = part.span.start.offset - word_base_offset;
-    let mut end_offset = part.span.end.offset - word_base_offset;
+    let start_offset = part.span.start.offset() - word_base_offset;
+    let mut end_offset = part.span.end.offset() - word_base_offset;
 
     let part_range = TextRange::new(
-        TextSize::new(part.span.start.offset as u32),
-        TextSize::new(part.span.end.offset as u32),
+        TextSize::new(part.span.start.offset() as u32),
+        TextSize::new(part.span.end.offset() as u32),
     );
     if let Some(pair) = region_index.first_dollar_brace_pair_in(part_range) {
         let pair_end_relative = pair.end().to_u32() as usize - word_base_offset;
@@ -1477,7 +1475,7 @@ pub(crate) fn collect_raw_escaped_parameter_brace_edge_spans(
     let span = word.span;
     let text = span.slice(source);
     excluded.clear();
-    collect_raw_escaped_parameter_exclusions(&word.parts, span.start.offset, source, excluded);
+    collect_raw_escaped_parameter_exclusions(&word.parts, span.start.offset(), source, excluded);
     excluded.sort_by_key(|span| (span.start_offset, span.end_offset));
 
     let mut excluded_index = 0usize;
@@ -1561,13 +1559,13 @@ pub(crate) fn brace_pair_matches_nonliteral_syntax(
     open_offset: usize,
     close_offset: usize,
 ) -> bool {
-    let absolute_open_offset = word.span.start.offset + open_offset;
-    let absolute_close_offset = word.span.start.offset + close_offset + '}'.len_utf8();
+    let absolute_open_offset = word.span.start.offset() + open_offset;
+    let absolute_close_offset = word.span.start.offset() + close_offset + '}'.len_utf8();
 
     word.brace_syntax().iter().any(|brace| {
         brace.kind != BraceSyntaxKind::Literal
-            && brace.span.start.offset == absolute_open_offset
-            && brace.span.end.offset == absolute_close_offset
+            && brace.span.start.offset() == absolute_open_offset
+            && brace.span.end.offset() == absolute_close_offset
     })
 }
 
@@ -1596,8 +1594,8 @@ pub(crate) fn collect_raw_escaped_parameter_exclusions(
             | WordPart::ZshQualifiedGlob(_) => {}
             WordPart::DoubleQuoted { .. } if !part.span.slice(source).starts_with("\\\"") => {
                 out.push(DynamicBraceExcludedSpan {
-                    start_offset: part.span.start.offset - word_base_offset,
-                    end_offset: part.span.end.offset - word_base_offset,
+                    start_offset: part.span.start.offset() - word_base_offset,
+                    end_offset: part.span.end.offset() - word_base_offset,
                     kind: DynamicBraceExcludedSpanKind::Quoted,
                 });
             }
@@ -1605,8 +1603,8 @@ pub(crate) fn collect_raw_escaped_parameter_exclusions(
             WordPart::SingleQuoted { .. }
             | WordPart::CommandSubstitution { .. }
             | WordPart::ProcessSubstitution { .. } => out.push(DynamicBraceExcludedSpan {
-                start_offset: part.span.start.offset - word_base_offset,
-                end_offset: part.span.end.offset - word_base_offset,
+                start_offset: part.span.start.offset() - word_base_offset,
+                end_offset: part.span.end.offset() - word_base_offset,
                 kind: DynamicBraceExcludedSpanKind::Quoted,
             }),
         }

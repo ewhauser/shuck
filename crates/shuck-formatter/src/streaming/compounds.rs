@@ -1,7 +1,7 @@
 use super::*;
 
 fn arithmetic_command_is_followed_by_inline_branch_keyword(span: Span, source: &str) -> bool {
-    let Some(after) = source.get(span.end.offset.min(source.len())..) else {
+    let Some(after) = source.get(span.end.offset().min(source.len())..) else {
         return false;
     };
     let trimmed = after.trim_start_matches([' ', '\t', '\r']);
@@ -84,7 +84,7 @@ where
         raw_condition: &str,
     ) -> Result<()> {
         let source = self.source();
-        let fi_upper_bound = fi_span.start.offset;
+        let fi_upper_bound = fi_span.start.offset();
         self.write_text("if");
         self.write_text(raw_condition);
         self.write_text("then");
@@ -113,11 +113,11 @@ where
         fi_span: Span,
     ) -> Result<()> {
         let source = self.source();
-        let fi_upper_bound = fi_span.start.offset;
+        let fi_upper_bound = fi_span.start.offset();
         self.write_text("if");
         self.newline();
         self.with_indent(|formatter| {
-            formatter.format_stmt_sequence(&command.condition, Some(then_span.start.offset))
+            formatter.format_stmt_sequence(&command.condition, Some(then_span.start.offset()))
         })?;
         self.newline();
         self.write_text("then");
@@ -184,7 +184,7 @@ where
                 self.format_inline_stmts(&command.then_branch)?;
                 self.write_text("; else");
                 let site =
-                    CompoundBodySite::if_else_branch(command, else_branch, fi_span.start.offset);
+                    CompoundBodySite::if_else_branch(command, else_branch, fi_span.start.offset());
                 self.format_if_branch_body_site(site)?;
                 let then_upper_bound = if_branch_upper_bound(
                     command,
@@ -239,7 +239,7 @@ where
         layout: ExpandedIfLayout,
     ) -> Result<()> {
         let source = self.source();
-        let fi_upper_bound = fi_span.start.offset;
+        let fi_upper_bound = fi_span.start.offset();
         self.write_text(then_separator);
         let then_upper_bound =
             if_branch_upper_bound(command, 0, source, self.source_map(), self.facts());
@@ -376,7 +376,7 @@ where
             self.write_text("elif");
             self.newline();
             self.with_indent(|formatter| {
-                formatter.format_stmt_sequence(condition, Some(body.span.start.offset))
+                formatter.format_stmt_sequence(condition, Some(body.span.start.offset()))
             })?;
             self.newline();
             self.write_text("then");
@@ -427,7 +427,7 @@ where
         let Some(first) = condition.first() else {
             return Vec::new();
         };
-        let condition_start = stmt_span(first).start.offset;
+        let condition_start = stmt_span(first).start.offset();
         if keyword_offset >= condition_start {
             return Vec::new();
         }
@@ -545,7 +545,7 @@ where
         }
         if let Some(body) = &command.else_branch {
             self.write_text(" else ");
-            let site = CompoundBodySite::if_else_branch(command, body, command.span.end.offset);
+            let site = CompoundBodySite::if_else_branch(command, body, command.span.end.offset());
             self.format_brace_group(site.body(), site.bounds().render_limit())?;
         }
         Ok(())
@@ -587,7 +587,7 @@ where
             self.write_text(" in");
             self.write_word_list_preserving_breaks_after(
                 words,
-                in_span.map(|span| span.end.offset),
+                in_span.map(|span| span.end.offset()),
             );
         }
     }
@@ -849,8 +849,8 @@ where
             return;
         };
         let source = self.source();
-        let start = command.word.span.end.offset.min(source.len());
-        let end = first_pattern.span.start.offset.min(source.len());
+        let start = command.word.span.end.offset().min(source.len());
+        let end = first_pattern.span.start.offset().min(source.len());
         let Some(between) = source.get(start..end) else {
             return;
         };
@@ -876,7 +876,7 @@ where
         let first_pattern_start = item
             .patterns
             .first()
-            .map(|pattern| pattern.span.start.offset);
+            .map(|pattern| pattern.span.start.offset());
         let item_facts = self.facts().case_item(item);
         let prefix_comments = item_facts.prefix_comments().to_vec();
         let pattern_suffix_comment = item_facts.pattern_suffix_comment();
@@ -896,7 +896,7 @@ where
                 let previous = &item.patterns[index - 1];
                 if self
                     .facts()
-                    .contains_newline_between(previous.span.end.offset, word.span.start.offset)
+                    .contains_newline_between(previous.span.end.offset(), word.span.start.offset())
                 {
                     self.write_text(" |");
                     self.line_continuation();
@@ -958,7 +958,7 @@ where
             self.write_case_terminator(item);
         } else {
             let body_sequence = self.facts().sequence(&item.body, upper_bound);
-            let pattern_line = item.patterns.last().map(|pattern| pattern.span.end.line);
+            let pattern_line = item.patterns.last().map(|pattern| pattern.span.end.line());
             let body_has_later_comments = pattern_line.is_some_and(|pattern_line| {
                 (0..item.body.len()).any(|index| {
                     body_sequence
@@ -1046,14 +1046,14 @@ where
         if !item.body.is_empty() {
             return Vec::new();
         }
-        let Some(end) = item.terminator_span.map(|span| span.start.offset) else {
+        let Some(end) = item.terminator_span.map(|span| span.start.offset()) else {
             return Vec::new();
         };
         let start = item
             .patterns
             .last()
-            .map(|pattern| pattern.span.end.offset)
-            .unwrap_or(item.body.span.start.offset);
+            .map(|pattern| pattern.span.end.offset())
+            .unwrap_or(item.body.span.start.offset());
         let Some(slice) = self.source().get(start..end) else {
             return Vec::new();
         };
@@ -1092,8 +1092,8 @@ where
             previous_line = comment_line;
         }
         let esac_line = esac_span
-            .map(|span| span.start.line)
-            .unwrap_or(command.span.end.line);
+            .map(|span| span.start.line())
+            .unwrap_or(command.span.end.line());
         self.write_line_breaks(line_gap_break_count(previous_line, esac_line));
     }
 
@@ -1110,7 +1110,7 @@ where
                 self.source(),
                 self.source_map(),
                 comment,
-                first_pattern.span.start.offset,
+                first_pattern.span.start.offset(),
                 disabled_case_pattern_context,
                 body_indent_context,
             );
@@ -1127,7 +1127,7 @@ where
             let target_line = comments
                 .get(index + 1)
                 .map(SourceComment::line)
-                .unwrap_or(first_pattern.span.start.line);
+                .unwrap_or(first_pattern.span.start.line());
             self.write_line_breaks(line_gap_break_count(comment.line(), target_line));
         }
     }
@@ -1222,7 +1222,7 @@ where
     pub(super) fn format_arithmetic(&mut self, command: &ArithmeticCommand) -> Result<()> {
         let expression_source = command
             .expr_span
-            .and_then(|span| self.source().get(span.start.offset..span.end.offset));
+            .and_then(|span| self.source().get(span.start.offset()..span.end.offset()));
         if let Some(expr) = command.expr_ast.as_ref()
             && !expression_source.is_some_and(|source| source.contains('\n'))
         {
@@ -1236,7 +1236,7 @@ where
         }
         let rendered = self
             .source()
-            .get(command.span.start.offset..command.span.end.offset)
+            .get(command.span.start.offset()..command.span.end.offset())
             .unwrap_or_default();
         let mut formatted = format_arithmetic_command_source(rendered);
         if arithmetic_command_is_followed_by_inline_branch_keyword(command.span, self.source()) {
@@ -1335,9 +1335,9 @@ where
     }
 
     pub(super) fn format_always(&mut self, command: &AlwaysCommand) -> Result<()> {
-        self.format_brace_group(&command.body, Some(command.span.end.offset))?;
+        self.format_brace_group(&command.body, Some(command.span.end.offset()))?;
         self.write_text(" always ");
-        self.format_brace_group(&command.always_body, Some(command.span.end.offset))
+        self.format_brace_group(&command.always_body, Some(command.span.end.offset()))
     }
 
     pub(super) fn format_function(&mut self, function: &FunctionDef) -> Result<()> {
@@ -1345,12 +1345,12 @@ where
         self.format_named_function_header(function);
         if self.options().function_next_line() {
             self.newline();
-            self.format_function_body(function.body.as_ref(), function.span.end.offset)
+            self.format_function_body(function.body.as_ref(), function.span.end.offset())
         } else {
             self.write_space();
             self.format_function_body_with_header_comment(
                 function.body.as_ref(),
-                function.span.end.offset,
+                function.span.end.offset(),
                 header_comment,
             )
         }
@@ -1369,7 +1369,7 @@ where
         } else {
             self.write_space();
         }
-        self.format_function_body(function.body.as_ref(), function.span.end.offset)?;
+        self.format_function_body(function.body.as_ref(), function.span.end.offset())?;
         if !function.args.is_empty() {
             for argument in &function.args {
                 self.write_space();
@@ -1607,7 +1607,7 @@ where
     ) -> Option<usize> {
         let first = commands.first()?;
         let source = self.source();
-        let start = stmt_span(first).start.offset.min(source.len());
+        let start = stmt_span(first).start.offset().min(source.len());
         let (line_start, line_end) = self.source_map().line_bounds_for_offset(start)?;
         let width = inline_comment_code_width(source, line_start, line_end, None)?;
         Some(width + 1)
@@ -1622,8 +1622,8 @@ where
         }
 
         let source = self.source();
-        let header_end = function.header.span().end.offset;
-        let body_start = stmt_span(function.body.as_ref()).start.offset;
+        let header_end = function.header.span().end.offset();
+        let body_start = stmt_span(function.body.as_ref()).start.offset();
         if header_end >= body_start || header_end >= source.len() {
             return None;
         }
@@ -1635,13 +1635,13 @@ where
             .map(|offset| header_end + offset)
             .unwrap_or(body_start);
         let comment = source_map.first_source_comment_between(header_end, line_end)?;
-        let before_comment = source_map.slice_between(header_end, comment.span().start.offset)?;
+        let before_comment = source_map.slice_between(header_end, comment.span().start.offset())?;
         if before_comment.contains('{') {
             return None;
         }
         let suffix_start = header_end;
         let comment_text = source_map
-            .slice_between(suffix_start, comment.span().end.offset)?
+            .slice_between(suffix_start, comment.span().end.offset())?
             .trim_end_matches([' ', '\t', '\r'])
             .to_string();
         (!comment_text.is_empty()).then(|| (comment.span(), comment_text))

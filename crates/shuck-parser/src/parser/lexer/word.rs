@@ -119,7 +119,7 @@ impl<'a> Lexer<'a> {
                     .is_none_or(|byte| byte.is_ascii())
             {
                 self.consume_source_bytes(ascii_len);
-                &self.input[start.offset..self.offset]
+                &self.input[start.offset()..self.offset]
             } else {
                 let chunk = self.cursor.eat_while(Self::is_plain_word_char);
                 self.advance_scanned_source_bytes(chunk.len());
@@ -147,7 +147,7 @@ impl<'a> Lexer<'a> {
                     let end = self.current_position();
                     return Some(LexedToken::borrowed_word(
                         TokenKind::Word,
-                        &self.input[start.offset..self.offset],
+                        &self.input[start.offset()..self.offset],
                         Some(Span::from_positions(start, end)),
                     ));
                 }
@@ -164,7 +164,7 @@ impl<'a> Lexer<'a> {
                 let end = self.current_position();
                 return self.finish_segmented_word(LexedWord::borrowed(
                     LexedWordSegmentKind::Plain,
-                    &self.input[start.offset..self.offset],
+                    &self.input[start.offset()..self.offset],
                     Some(Span::from_positions(start, end)),
                 ));
             }
@@ -219,7 +219,7 @@ impl<'a> Lexer<'a> {
             } else if ch == '$' {
                 let expansion_start = self.current_position();
                 if matches!(self.second_char(), Some('\'') | Some('"'))
-                    && (self.current_position().offset > start.offset
+                    && (self.current_position().offset() > start.offset()
                         || word.as_ref().is_some_and(|word| !word.is_empty()))
                 {
                     break;
@@ -488,7 +488,7 @@ impl<'a> Lexer<'a> {
             let end = self.current_position();
             Ok(LexedWordSegment::borrowed(
                 LexedWordSegmentKind::Plain,
-                &self.input[start.offset..self.offset],
+                &self.input[start.offset()..self.offset],
                 Some(Span::from_positions(start, end)),
             ))
         }
@@ -509,7 +509,7 @@ impl<'a> Lexer<'a> {
                     .is_none_or(|byte| byte.is_ascii())
             {
                 self.consume_source_bytes(ascii_len);
-                &self.input[start.offset..self.offset]
+                &self.input[start.offset()..self.offset]
             } else {
                 let chunk = self.cursor.eat_while(Self::is_plain_word_char);
                 self.advance_scanned_source_bytes(chunk.len());
@@ -522,7 +522,7 @@ impl<'a> Lexer<'a> {
             let end = self.current_position();
             return Some(LexedWordSegment::borrowed(
                 LexedWordSegmentKind::Plain,
-                &self.input[start.offset..self.offset],
+                &self.input[start.offset()..self.offset],
                 Some(Span::from_positions(start, end)),
             ));
         }
@@ -644,7 +644,7 @@ impl<'a> Lexer<'a> {
         } else {
             Some(LexedWordSegment::borrowed_with_spans(
                 LexedWordSegmentKind::Plain,
-                &self.input[start.offset..end.offset],
+                &self.input[start.offset()..end.offset()],
                 span,
                 span,
             ))

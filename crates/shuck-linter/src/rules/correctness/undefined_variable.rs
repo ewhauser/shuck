@@ -40,7 +40,7 @@ pub fn undefined_variable(checker: &mut Checker) {
         .to_vec();
     uninitialized_references.sort_by_key(|uninitialized| {
         let reference = checker.semantic().reference(uninitialized.reference);
-        (reference.span.start.offset, reference.span.end.offset)
+        (reference.span.start.offset(), reference.span.end.offset())
     });
 
     let mut reported_names = FxHashSet::default();
@@ -100,7 +100,7 @@ fn is_zsh_completion_context_reference(checker: &Checker<'_>, reference: &Refere
         && is_zsh_completion_context_name(reference.name.as_str())
         && checker
             .semantic_analysis()
-            .enclosing_function_scope_at(reference.span.start.offset)
+            .enclosing_function_scope_at(reference.span.start.offset())
             .is_some_and(|scope| {
                 checker
                     .facts()

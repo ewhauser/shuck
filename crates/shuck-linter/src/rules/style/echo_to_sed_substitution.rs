@@ -41,9 +41,9 @@ EC2_REGION=\"`echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e 's:\\([0-9][0-9]*\\)[a-z]*\\
             &LinterSettings::for_rule(Rule::EchoToSedSubstitution),
         );
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 14);
-        assert_eq!(diagnostics[0].span.end.line, 2);
-        assert_eq!(diagnostics[0].span.end.column, 76);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 14);
+        assert_eq!(diagnostics[0].span.end.line(), 2);
+        assert_eq!(diagnostics[0].span.end.column(), 76);
     }
 }

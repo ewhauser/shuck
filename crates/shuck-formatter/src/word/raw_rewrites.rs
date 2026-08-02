@@ -1576,7 +1576,7 @@ pub(super) fn raw_pattern_source_slice<'a>(pattern: &Pattern, source: &'a str) -
 }
 
 pub(super) fn raw_source_slice(span: shuck_ast::Span, source: &str) -> Option<&str> {
-    if span.start.offset >= span.end.offset || span.end.offset > source.len() {
+    if span.start.offset() >= span.end.offset() || span.end.offset() > source.len() {
         return None;
     }
 

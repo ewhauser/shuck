@@ -122,7 +122,10 @@ pub(crate) fn client_options_from_byte(byte: u8) -> ClientOptions {
     }
 }
 
-pub(crate) fn capabilities_from_byte(byte: u8, encoding: PositionEncoding) -> types::ClientCapabilities {
+pub(crate) fn capabilities_from_byte(
+    byte: u8,
+    encoding: PositionEncoding,
+) -> types::ClientCapabilities {
     let encoding_name = match encoding {
         PositionEncoding::UTF8 => "utf-8",
         PositionEncoding::UTF16 => "utf-16",
@@ -170,7 +173,11 @@ pub(crate) fn validate_lsp_ranges_in_values(
     }
 }
 
-pub(crate) fn validate_lsp_ranges_in_value(source: &str, encoding: PositionEncoding, value: &Value) {
+pub(crate) fn validate_lsp_ranges_in_value(
+    source: &str,
+    encoding: PositionEncoding,
+    value: &Value,
+) {
     match value {
         Value::Array(values) => {
             for value in values {
@@ -191,11 +198,7 @@ pub(crate) fn validate_lsp_ranges_in_value(source: &str, encoding: PositionEncod
     }
 }
 
-pub(crate) fn assert_valid_range(
-    source: &str,
-    encoding: PositionEncoding,
-    range: types::Range,
-) {
+pub(crate) fn assert_valid_range(source: &str, encoding: PositionEncoding, range: types::Range) {
     assert!(
         position_leq(range.start, range.end),
         "LSP range is not ordered: {:?}",

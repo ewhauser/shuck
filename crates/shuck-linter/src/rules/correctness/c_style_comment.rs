@@ -32,7 +32,7 @@ pub fn c_style_comment(checker: &mut Checker) {
                 .starts_with("/*")
                 .then(|| {
                     crate::Diagnostic::new(CStyleComment, name.span).with_fix(Fix::unsafe_edit(
-                        Edit::insertion(name.span.start.offset, "# "),
+                        Edit::insertion(name.span.start.offset(), "# "),
                     ))
                 })
         };

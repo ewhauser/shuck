@@ -62,10 +62,10 @@ impl<'a> Locator<'a> {
             .map(usize::from)
             .unwrap_or_default();
 
-        Position {
+        Position::at(
             line,
-            column: self.source[line_start..offset].chars().count() + 1,
+            self.source[line_start..offset].chars().count() + 1,
             offset,
-        }
+        )
     }
 }

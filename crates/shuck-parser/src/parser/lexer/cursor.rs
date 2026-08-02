@@ -214,7 +214,7 @@ impl<'a> Lexer<'a> {
         end: Position,
     ) {
         if capture.is_none() {
-            *capture = Some(self.input[start.offset..end.offset].to_string());
+            *capture = Some(self.input[start.offset()..end.offset()].to_string());
         }
     }
 
@@ -297,7 +297,7 @@ impl<'a> Lexer<'a> {
     ) -> &'b str {
         capture
             .as_deref()
-            .unwrap_or(&self.input[start.offset..self.offset])
+            .unwrap_or(&self.input[start.offset()..self.offset])
     }
 
     pub(in crate::parser) fn current_word_surface_is_single_char(

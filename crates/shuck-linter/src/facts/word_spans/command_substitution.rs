@@ -132,13 +132,13 @@ pub(crate) fn widen_dollar_paren_command_substitution_span(
 ) -> Option<Span> {
     let source = locator.source();
     let bytes = source.as_bytes();
-    if bytes.get(span.start.offset)? != &b'$' || bytes.get(span.start.offset + 1)? != &b'(' {
+    if bytes.get(span.start.offset())? != &b'$' || bytes.get(span.start.offset() + 1)? != &b'(' {
         return None;
     }
 
     let end_offset = shuck_ast::raw_shell::RawShellScanner::new(source)
-        .skip_balanced_shell_construct(span.start.offset + 2, b'(', b')')?;
-    let start = locator.position_at_offset(span.start.offset)?;
+        .skip_balanced_shell_construct(span.start.offset() + 2, b'(', b')')?;
+    let start = locator.position_at_offset(span.start.offset())?;
     let end = locator.position_at_offset(end_offset)?;
     Some(Span::from_positions(start, end))
 }
@@ -149,13 +149,13 @@ pub(crate) fn widen_backtick_command_substitution_span(
 ) -> Option<Span> {
     let source = locator.source();
     let bytes = source.as_bytes();
-    if bytes.get(span.start.offset)? != &b'`' {
+    if bytes.get(span.start.offset())? != &b'`' {
         return None;
     }
 
     let end_offset = shuck_ast::raw_shell::RawShellScanner::new(source)
-        .skip_legacy_backtick_substitution_body(span.start.offset + 1)?;
-    let start = locator.position_at_offset(span.start.offset)?;
+        .skip_legacy_backtick_substitution_body(span.start.offset() + 1)?;
+    let start = locator.position_at_offset(span.start.offset())?;
     let end = locator.position_at_offset(end_offset)?;
     Some(Span::from_positions(start, end))
 }

@@ -169,7 +169,7 @@ impl<'a> Parser<'a> {
             return false;
         }
 
-        let Some(tail) = self.input.get(self.current_span.end.offset..) else {
+        let Some(tail) = self.input.get(self.current_span.end.offset()..) else {
             return false;
         };
         let tail = tail.trim_start_matches([' ', '\t']);

@@ -85,7 +85,7 @@ fn let_command_span(source: &str, fact: crate::facts::CommandFactRef<'_, '_>) ->
         .last()
         .map_or(name.span.end, |word| let_argument_end(source, word));
 
-    let tail = source.get(end.offset..)?;
+    let tail = source.get(end.offset()..)?;
     let mut padding_end = end;
     for ch in tail.chars() {
         match ch {
@@ -125,9 +125,9 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::AvoidLetBuiltin));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
-        assert_eq!(diagnostics[0].span.end.column, 7);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
+        assert_eq!(diagnostics[0].span.end.column(), 7);
     }
 
     #[test]
@@ -136,9 +136,9 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::AvoidLetBuiltin));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
-        assert_eq!(diagnostics[0].span.end.column, 21);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
+        assert_eq!(diagnostics[0].span.end.column(), 21);
     }
 
     #[test]

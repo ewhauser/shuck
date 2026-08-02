@@ -59,8 +59,8 @@ pub(crate) fn span_render_end_line(
     source: &str,
     source_map: &crate::comments::SourceMap<'_>,
 ) -> usize {
-    let mut end = span.end.offset.min(source.len());
-    while end > span.start.offset
+    let mut end = span.end.offset().min(source.len());
+    while end > span.start.offset()
         && source
             .as_bytes()
             .get(end - 1)
@@ -69,8 +69,8 @@ pub(crate) fn span_render_end_line(
         end -= 1;
     }
 
-    if end == span.start.offset {
-        span.start.line
+    if end == span.start.offset() {
+        span.start.line()
     } else {
         source_map.line_number_for_offset(end - 1)
     }
@@ -82,8 +82,8 @@ pub(crate) fn stmt_has_trailing_comment(
 ) -> bool {
     let raw = stmt_span(stmt);
     let formatted = stmt_format_span(stmt);
-    raw.end.offset > formatted.end.offset
-        && source_map.contains_comment_between(formatted.end.offset, raw.end.offset)
+    raw.end.offset() > formatted.end.offset()
+        && source_map.contains_comment_between(formatted.end.offset(), raw.end.offset())
 }
 
 pub(crate) fn should_render_verbatim_with_heredoc(
@@ -265,7 +265,7 @@ fn close_keyword_at_span_end(
     span: Span,
     keyword: &str,
 ) -> Option<Span> {
-    let span_end = span.end.offset.min(source.len());
+    let span_end = span.end.offset().min(source.len());
     let start = span_end.checked_sub(keyword.len())?;
     (source.get(start..span_end) == Some(keyword))
         .then(|| source_map.span_for_offsets(start, span_end))
@@ -277,7 +277,7 @@ pub(crate) fn normalized_close_keyword_span(
     span: Span,
     keyword: &str,
 ) -> Span {
-    let start = span.start.offset.min(source.len());
+    let start = span.start.offset().min(source.len());
     let end = start.saturating_add(keyword.len()).min(source.len());
     if source.get(start..end) == Some(keyword) {
         source_map.span_for_offsets(start, end)
@@ -287,7 +287,7 @@ pub(crate) fn normalized_close_keyword_span(
 }
 
 fn span_starts_with_keyword(source: &str, span: Span, keyword: &str) -> bool {
-    let start = span.start.offset.min(source.len());
+    let start = span.start.offset().min(source.len());
     let end = start.saturating_add(keyword.len()).min(source.len());
     source.get(start..end) == Some(keyword)
 }
@@ -344,7 +344,7 @@ where
     } else {
         stmt_attachment_span_with_heredoc(stmt, source, source_map, options, stmt_contains_heredoc)
             .start
-            .line
+            .line()
     }
 }
 
@@ -367,15 +367,15 @@ where
         matching_group_close(open),
         stmt_contains_heredoc,
     )
-    .map(|span| span.start.line)
+    .map(|span| span.start.line())
     .or_else(|| {
-        find_empty_group_open_offset(source, stmt_span(stmt).start.offset, open)
+        find_empty_group_open_offset(source, stmt_span(stmt).start.offset(), open)
             .map(|offset| source_map.line_number_for_offset(offset))
     })
     .unwrap_or_else(|| {
         stmt_attachment_span_with_heredoc(stmt, source, source_map, options, stmt_contains_heredoc)
             .start
-            .line
+            .line()
     })
 }
 
@@ -384,16 +384,16 @@ fn stmt_has_alignment_sensitive_padding(
     source_map: &crate::comments::SourceMap<'_>,
 ) -> bool {
     let mut spans = stmt_token_spans(stmt);
-    spans.retain(|span| span != &Span::new() && span.start.offset < span.end.offset);
-    spans.sort_by_key(|span| span.start.offset);
+    spans.retain(|span| span != &Span::new() && span.start.offset() < span.end.offset());
+    spans.sort_by_key(|span| span.start.offset());
     spans.windows(2).any(|window| {
         let [left, right] = window else {
             return false;
         };
-        if right.start.offset <= left.end.offset {
+        if right.start.offset() <= left.end.offset() {
             return false;
         }
-        source_map.has_alignment_padding_between(left.end.offset, right.start.offset)
+        source_map.has_alignment_padding_between(left.end.offset(), right.start.offset())
     })
 }
 
@@ -404,16 +404,16 @@ pub(crate) fn case_item_was_inline_in_source(item: &CaseItem) -> bool {
 
     item.patterns
         .last()
-        .is_some_and(|pattern| pattern.span.end.line == stmt_span(stmt).start.line)
+        .is_some_and(|pattern| pattern.span.end.line() == stmt_span(stmt).start.line())
         && item
             .terminator_span
-            .is_some_and(|span| span.start.line == stmt_format_span(stmt).end.line)
+            .is_some_and(|span| span.start.line() == stmt_format_span(stmt).end.line())
 }
 
 pub(crate) fn case_item_body_upper_bound(item: &CaseItem, fallback: usize) -> Option<usize> {
     Some(
         item.terminator_span
-            .map(|span| span.start.offset)
+            .map(|span| span.start.offset())
             .unwrap_or(fallback),
     )
 }

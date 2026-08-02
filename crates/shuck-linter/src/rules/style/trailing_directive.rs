@@ -36,14 +36,14 @@ pub fn trailing_directive(checker: &mut Checker) {
 
 fn trailing_directive_fix(locator: Locator<'_>, span: shuck_ast::Span) -> Option<Fix> {
     let source = locator.source();
-    let line_range = locator.line_range(span.start.line)?;
+    let line_range = locator.line_range(span.start.line())?;
     let line_start = usize::from(line_range.start());
     let raw_line_end = usize::from(line_range.end());
     let line_end = source
         .get(..raw_line_end)
         .filter(|_| raw_line_end > 0 && source.as_bytes()[raw_line_end - 1] == b'\r')
         .map_or(raw_line_end, |_| raw_line_end - 1);
-    let comment_start = span.start.offset;
+    let comment_start = span.start.offset();
     if comment_start < line_start || comment_start >= line_end {
         return None;
     }
@@ -85,8 +85,8 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 3);
         assert_eq!(diagnostics[0].span.slice(source), "#");
     }
 
@@ -96,8 +96,8 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 3);
         assert_eq!(diagnostics[0].span.slice(source), "#");
     }
 
@@ -205,7 +205,7 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
     }
 
     #[test]
@@ -214,7 +214,7 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
     }
 
     #[test]
@@ -224,7 +224,7 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
     }
 
     #[test]

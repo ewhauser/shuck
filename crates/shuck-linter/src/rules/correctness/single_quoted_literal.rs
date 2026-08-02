@@ -655,8 +655,8 @@ END { if (!set) exit 1 }\n\
     fn corpus_regression_backticks_are_reported() {
         let diagnostics = c005_diagnostics("SHOBJ_ARCHFLAGS='-arch_only `/usr/bin/arch`'\n");
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 1);
-        assert_eq!(diagnostics[0].span.start.column, 17);
+        assert_eq!(diagnostics[0].span.start.line(), 1);
+        assert_eq!(diagnostics[0].span.start.column(), 17);
     }
 
     #[test]
@@ -666,8 +666,8 @@ END { if (!set) exit 1 }\n\
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 7);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 7);
     }
 
     #[test]
@@ -770,10 +770,10 @@ END { if (!set) exit 1 }\n\
         let diagnostics = c005_diagnostics("echo '$HOME'\n");
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 1);
-        assert_eq!(diagnostics[0].span.start.column, 6);
-        assert_eq!(diagnostics[0].span.end.line, 1);
-        assert_eq!(diagnostics[0].span.end.column, 13);
+        assert_eq!(diagnostics[0].span.start.line(), 1);
+        assert_eq!(diagnostics[0].span.start.column(), 6);
+        assert_eq!(diagnostics[0].span.end.line(), 1);
+        assert_eq!(diagnostics[0].span.end.column(), 13);
         assert_eq!(
             diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
             Some(Applicability::Unsafe)
@@ -791,8 +791,8 @@ END { if (!set) exit 1 }\n\
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 1);
-        assert_eq!(diagnostics[0].span.start.column, 10);
+        assert_eq!(diagnostics[0].span.start.line(), 1);
+        assert_eq!(diagnostics[0].span.start.column(), 10);
     }
 
     #[test]
@@ -888,7 +888,7 @@ echo \"\\\"$HOME\\\" and \\\\\\\\path\"
         let diagnostics = c005_diagnostics(source);
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 5);
+        assert_eq!(diagnostics[0].span.start.line(), 5);
         assert_eq!(diagnostics[0].span.slice(source), "'\"${!options[@]}\"'");
     }
 
@@ -918,7 +918,7 @@ subcommand()
         let diagnostics = c005_diagnostics(source);
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 7);
+        assert_eq!(diagnostics[0].span.start.line(), 7);
         assert_eq!(diagnostics[0].span.slice(source), "'\"${!options[@]}\"'");
     }
 
@@ -937,10 +937,10 @@ lt_compile=`echo \"$ac_compile\" | $SED \\\n\
                 .iter()
                 .map(|diagnostic| {
                     (
-                        diagnostic.span.start.line,
-                        diagnostic.span.start.column,
-                        diagnostic.span.end.line,
-                        diagnostic.span.end.column,
+                        diagnostic.span.start.line(),
+                        diagnostic.span.start.column(),
+                        diagnostic.span.end.line(),
+                        diagnostic.span.end.column(),
                     )
                 })
                 .collect::<Vec<_>>(),
@@ -959,7 +959,7 @@ sed -i -e 's/foo/$bar/' \\\n\
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| diagnostic.span.start.line)
+                .map(|diagnostic| diagnostic.span.start.line())
                 .collect::<Vec<_>>(),
             vec![1, 2]
         );
@@ -982,10 +982,10 @@ x=$(printf %s \\\n\
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
             (
-                diagnostics[0].span.start.line,
-                diagnostics[0].span.start.column,
-                diagnostics[0].span.end.line,
-                diagnostics[0].span.end.column,
+                diagnostics[0].span.start.line(),
+                diagnostics[0].span.start.column(),
+                diagnostics[0].span.end.line(),
+                diagnostics[0].span.end.column(),
             ),
             (2, 1, 2, 8)
         );
@@ -1000,10 +1000,10 @@ relink_command=`$ECHO \"$compile_var$compile_command$compile_rpath\" | $SED 's%@
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
             (
-                diagnostics[0].span.start.line,
-                diagnostics[0].span.start.column,
-                diagnostics[0].span.end.line,
-                diagnostics[0].span.end.column,
+                diagnostics[0].span.start.line(),
+                diagnostics[0].span.start.column(),
+                diagnostics[0].span.end.line(),
+                diagnostics[0].span.end.column(),
             ),
             (1, 75, 1, 104)
         );

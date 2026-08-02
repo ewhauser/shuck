@@ -33,8 +33,8 @@ pub fn literal_backslash(checker: &mut Checker) {
         .filter_map(|fact| fact.standalone_literal_backslash_span(source))
         .map(|span| {
             Diagnostic::new(LiteralBackslash, span).with_fix(Fix::safe_edit(Edit::deletion_at(
-                span.start.offset,
-                span.start.offset + 1,
+                span.start.offset(),
+                span.start.offset() + 1,
             )))
         })
         .collect::<Vec<_>>();

@@ -62,7 +62,7 @@ pub fn escaped_underscore(checker: &mut Checker) {
     let non_fixable_spans = escapes
         .iter()
         .filter(|escape| escape.source_kind() == EscapeScanSourceKind::PatternCharClass)
-        .map(|escape| (escape.span().start.offset, escape.span().end.offset))
+        .map(|escape| (escape.span().start.offset(), escape.span().end.offset()))
         .collect::<FxHashSet<_>>();
     let diagnostics = escapes
         .into_iter()
@@ -72,7 +72,9 @@ pub fn escaped_underscore(checker: &mut Checker) {
                 escape.span().start.advanced_by("\\"),
             );
             let diagnostic = Diagnostic::new(EscapedUnderscore, escape.span());
-            if non_fixable_spans.contains(&(escape.span().start.offset, escape.span().end.offset)) {
+            if non_fixable_spans
+                .contains(&(escape.span().start.offset(), escape.span().end.offset()))
+            {
                 diagnostic
             } else {
                 diagnostic.with_fix(Fix::unsafe_edit(Edit::deletion(backslash_span)))

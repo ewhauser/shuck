@@ -19,7 +19,7 @@ impl<'source> SourceView<'source> {
     }
 
     pub(crate) fn span_slice(self, span: Span) -> Option<&'source str> {
-        if span.start.offset >= span.end.offset || span.end.offset > self.source.len() {
+        if span.start.offset() >= span.end.offset() || span.end.offset() > self.source.len() {
             return None;
         }
         Some(span.slice(self.source))
@@ -98,8 +98,8 @@ impl<'source> SourceView<'source> {
     }
 
     pub(crate) fn last_shell_keyword_start(self, span: Span, keyword: &str) -> Option<usize> {
-        let upper = span.end.offset.min(self.source.len());
-        let lower = span.start.offset.min(upper);
+        let upper = span.end.offset().min(self.source.len());
+        let lower = span.start.offset().min(upper);
         self.last_shell_keyword_start_between(lower, upper, keyword)
     }
 

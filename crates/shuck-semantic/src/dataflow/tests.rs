@@ -513,7 +513,7 @@ printf '%s\\n' \"$value\"
         .dataflow()
         .unused_assignments
         .iter()
-        .map(|unused| model.binding(unused.binding).span.start.line)
+        .map(|unused| model.binding(unused.binding).span.start.line())
         .collect::<Vec<_>>();
 
     assert_eq!(unused_lines, vec![1, 2]);
@@ -715,7 +715,7 @@ f
             .iter()
             .map(|binding| {
                 let binding = model.binding(*binding);
-                (binding.name.to_string(), binding.span.start.line)
+                (binding.name.to_string(), binding.span.start.line())
             })
             .collect::<Vec<_>>()
     );
@@ -746,7 +746,7 @@ f
             .iter()
             .map(|binding| {
                 let binding = model.binding(*binding);
-                (binding.name.to_string(), binding.span.start.line)
+                (binding.name.to_string(), binding.span.start.line())
             })
             .collect::<Vec<_>>()
     );

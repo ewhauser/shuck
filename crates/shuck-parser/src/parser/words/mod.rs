@@ -372,7 +372,11 @@ impl<'a> PatternParser<'a> {
                     }
                 }
                 PatternSegment::Word(part) => {
-                    scanned += part.span.end.offset.saturating_sub(part.span.start.offset);
+                    scanned += part
+                        .span
+                        .end
+                        .offset()
+                        .saturating_sub(part.span.start.offset());
                     if scanned > Self::MAX_ZSH_CASE_GROUP_PRESCAN_BYTES {
                         return true;
                     }
@@ -689,8 +693,8 @@ impl<'a> PatternParser<'a> {
     }
 
     fn source_matches(&self, span: Span, text: &str) -> bool {
-        span.start.offset <= span.end.offset
-            && span.end.offset <= self.input.len()
+        span.start.offset() <= span.end.offset()
+            && span.end.offset() <= self.input.len()
             && span.slice(self.input) == text
     }
 }
@@ -865,7 +869,7 @@ fn var_ref_subscript_contains_offset(reference: &VarRef, offset: usize) -> bool 
 }
 
 fn span_contains_offset(span: Span, offset: usize) -> bool {
-    span.start.offset <= offset && offset < span.end.offset
+    span.start.offset() <= offset && offset < span.end.offset()
 }
 
 #[inline]
@@ -900,14 +904,14 @@ fn try_pure_literal_end_position(
     }
 
     let len = bytes.len();
-    Some(Position {
-        line: base.line + newline_count,
-        column: match last_newline {
+    Some(Position::at(
+        base.line() + newline_count,
+        match last_newline {
             Some(idx) => len - idx,
-            None => base.column + len,
+            None => base.column() + len,
         },
-        offset: base.offset + len,
-    })
+        base.offset() + len,
+    ))
 }
 
 fn source_prefix_ends_inside_double_quotes(prefix: &str) -> bool {

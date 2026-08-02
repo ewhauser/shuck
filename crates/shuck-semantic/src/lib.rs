@@ -367,8 +367,8 @@ pub(crate) struct SpanKey {
 impl SpanKey {
     pub(crate) fn new(span: Span) -> Self {
         Self {
-            start: span.start.offset,
-            end: span.end.offset,
+            start: span.start.offset(),
+            end: span.end.offset(),
         }
     }
 }
@@ -602,7 +602,7 @@ fn dedup_synthetic_reads(reads: Vec<SyntheticRead>) -> Vec<SyntheticRead> {
     let mut seen = FxHashSet::default();
     let mut deduped = Vec::new();
     for read in reads {
-        if seen.insert((read.scope, read.span.start.offset, read.name.clone())) {
+        if seen.insert((read.scope, read.span.start.offset(), read.name.clone())) {
             deduped.push(read);
         }
     }
@@ -629,8 +629,9 @@ fn previous_visible_binding_id_from_slice(
     offset: usize,
     ignored_binding_span: Option<Span>,
 ) -> Option<BindingId> {
-    let candidate_count = bindings
-        .partition_point(|binding_id| all_bindings[binding_id.index()].span.start.offset <= offset);
+    let candidate_count = bindings.partition_point(|binding_id| {
+        all_bindings[binding_id.index()].span.start.offset() <= offset
+    });
 
     bindings[..candidate_count]
         .iter()
@@ -675,11 +676,11 @@ fn insert_binding_id_sorted(
     let target = &all_bindings[id.index()];
     let insertion = bindings.as_slice().partition_point(|candidate_id| {
         let candidate = &all_bindings[candidate_id.index()];
-        candidate.span.start.offset < target.span.start.offset
-            || (candidate.span.start.offset == target.span.start.offset
-                && candidate.span.end.offset < target.span.end.offset)
-            || (candidate.span.start.offset == target.span.start.offset
-                && candidate.span.end.offset == target.span.end.offset
+        candidate.span.start.offset() < target.span.start.offset()
+            || (candidate.span.start.offset() == target.span.start.offset()
+                && candidate.span.end.offset() < target.span.end.offset())
+            || (candidate.span.start.offset() == target.span.start.offset()
+                && candidate.span.end.offset() == target.span.end.offset()
                 && candidate.id.index() < target.id.index())
     });
     bindings.insert_binding_id(insertion, id);
@@ -714,7 +715,7 @@ impl ScopeLookup {
         for scope_ids in &mut children {
             scope_ids.sort_by_key(|scope_id| {
                 let span = scopes[scope_id.index()].span;
-                (span.start.offset, span.end.offset)
+                (span.start.offset(), span.end.offset())
             });
         }
 
@@ -740,7 +741,7 @@ impl ScopeLookup {
     fn child_scope_at(&self, scopes: &[Scope], parent: ScopeId, offset: usize) -> Option<ScopeId> {
         let children = self.children.get(parent.index())?;
         let cutoff = children
-            .partition_point(|scope_id| scopes[scope_id.index()].span.start.offset <= offset);
+            .partition_point(|scope_id| scopes[scope_id.index()].span.start.offset() <= offset);
         let mut best: Option<ScopeId> = None;
         let mut index = cutoff;
 
@@ -748,7 +749,7 @@ impl ScopeLookup {
             index -= 1;
             let scope_id = children[index];
             let span = scopes[scope_id.index()].span;
-            if span.end.offset < offset {
+            if span.end.offset() < offset {
                 break;
             }
             if contains_offset(span, offset) {
@@ -866,7 +867,7 @@ impl SemanticModel {
         let mut reference_index = built.reference_index;
         for reference_ids in reference_index.values_mut() {
             reference_ids.sort_by_key(|reference_id| {
-                built.references[reference_id.index()].span.start.offset
+                built.references[reference_id.index()].span.start.offset()
             });
         }
         let indirect_targets_by_binding =
@@ -1048,7 +1049,7 @@ impl SemanticModel {
         &self,
         function_scope: ScopeId,
     ) -> Option<ZshOptionAnalysis> {
-        let function_entry_offset = self.scope(function_scope).span.start.offset;
+        let function_entry_offset = self.scope(function_scope).span.start.offset();
         let mut function_entry = *self.zsh_options_at(function_entry_offset)?;
         for field in self.zsh_runtime_ambiguous_entry_mask().iter() {
             crate::zsh_options::set_public_option_field(
@@ -1150,7 +1151,7 @@ impl SemanticModel {
                     || reference_has_local_positional_reset(
                         self,
                         reference.scope,
-                        reference.span.start.offset,
+                        reference.span.start.offset(),
                         local_reset_offsets_by_scope,
                     )
                 {
@@ -1184,12 +1185,12 @@ impl SemanticModel {
             .references_sorted_by_start
             .get_or_init(|| build_references_sorted_by_start(&self.references));
         let lower = sorted.partition_point(|id| {
-            self.references[id.index()].span.start.offset < outer.start.offset
+            self.references[id.index()].span.start.offset() < outer.start.offset()
         });
         ReferencesInSpan {
             references: &self.references,
             ids: sorted[lower..].iter(),
-            end: outer.end.offset,
+            end: outer.end.offset(),
         }
     }
 
@@ -1232,12 +1233,13 @@ impl SemanticModel {
         let sorted = self
             .bindings_sorted_by_start
             .get_or_init(|| build_bindings_sorted_by_start(&self.bindings));
-        let lower = sorted
-            .partition_point(|id| self.bindings[id.index()].span.start.offset < outer.start.offset);
+        let lower = sorted.partition_point(|id| {
+            self.bindings[id.index()].span.start.offset() < outer.start.offset()
+        });
         BindingsInSpan {
             bindings: &self.bindings,
             ids: sorted[lower..].iter(),
-            end: outer.end.offset,
+            end: outer.end.offset(),
         }
     }
 
@@ -1357,7 +1359,7 @@ impl SemanticModel {
             .chain(all_bindings.iter().copied().filter(|binding_id| {
                 let binding = self.binding(*binding_id);
                 binding.scope != reference.scope
-                    && binding.span.start.offset < reference.span.start.offset
+                    && binding.span.start.offset() < reference.span.start.offset()
             }))
             .collect::<FxHashSet<_>>()
             .into_iter()
@@ -1369,9 +1371,9 @@ impl SemanticModel {
     #[doc(hidden)]
     pub fn binding_visible_at(&self, binding_id: BindingId, at: Span) -> bool {
         let binding = self.binding(binding_id);
-        binding.span.start.offset <= at.start.offset
+        binding.span.start.offset() <= at.start.offset()
             && self
-                .ancestor_scopes(self.scope_at(at.start.offset))
+                .ancestor_scopes(self.scope_at(at.start.offset()))
                 .any(|scope| scope == binding.scope)
     }
 
@@ -1383,7 +1385,8 @@ impl SemanticModel {
             .get(&(binding.scope, binding.name.clone()))
             .is_some_and(|cleared_offsets| {
                 cleared_offsets.iter().any(|cleared_offset| {
-                    *cleared_offset > binding.span.start.offset && *cleared_offset < at.start.offset
+                    *cleared_offset > binding.span.start.offset()
+                        && *cleared_offset < at.start.offset()
                 })
             })
     }
@@ -1397,11 +1400,11 @@ impl SemanticModel {
         at: Span,
         ignored_binding_span: Option<Span>,
     ) -> Option<&Binding> {
-        let scope = self.scope_at(at.start.offset);
+        let scope = self.scope_at(at.start.offset());
         self.previous_visible_binding_id_in_scope_chain(
             name,
             scope,
-            at.start.offset,
+            at.start.offset(),
             ignored_binding_span,
         )
         .map(|binding_id| self.binding(binding_id))
@@ -1416,7 +1419,7 @@ impl SemanticModel {
         at: Span,
     ) -> Option<&Binding> {
         if let Some(binding_id) =
-            self.previous_assoc_lookup_binding_id_in_scope(current_scope, name, at.start.offset)
+            self.previous_assoc_lookup_binding_id_in_scope(current_scope, name, at.start.offset())
         {
             return Some(self.binding(binding_id));
         }
@@ -1424,7 +1427,7 @@ impl SemanticModel {
         self.ancestor_scopes(current_scope)
             .skip(1)
             .find_map(|scope| {
-                self.previous_visible_binding_id_in_scope(scope, name, at.start.offset, None)
+                self.previous_visible_binding_id_in_scope(scope, name, at.start.offset(), None)
             })
             .map(|binding_id| self.binding(binding_id))
     }
@@ -1440,7 +1443,7 @@ impl SemanticModel {
         if let Some(binding_id) = self.previous_visible_binding_id_in_scope_chain(
             name,
             current_scope,
-            at.start.offset,
+            at.start.offset(),
             None,
         ) {
             return Some(self.binding(binding_id));
@@ -1581,7 +1584,7 @@ impl SemanticModel {
                 if let Some(binding_id) = self.previous_visible_binding_id_in_scope_chain(
                     name,
                     call_site.scope,
-                    call_site.name_span.start.offset,
+                    call_site.name_span.start.offset(),
                     None,
                 ) {
                     return Some(self.binding(binding_id));
@@ -1783,7 +1786,10 @@ impl SemanticModel {
                     })
                     .min_by_key(|(index, (candidate, _))| {
                         (
-                            candidate.end.offset.saturating_sub(candidate.start.offset),
+                            candidate
+                                .end
+                                .offset()
+                                .saturating_sub(candidate.start.offset()),
                             std::cmp::Reverse(*index),
                         )
                     })
@@ -2139,7 +2145,7 @@ impl SemanticModel {
             };
 
             for binding in bindings.iter().rev().copied() {
-                if self.bindings[binding.index()].span.start.offset <= span.start.offset {
+                if self.bindings[binding.index()].span.start.offset() <= span.start.offset() {
                     return Some(binding);
                 }
             }
@@ -2223,10 +2229,10 @@ impl SemanticModel {
     /// Returns whether a source operation is guaranteed to have executed in
     /// the completion point's enclosing execution scope.
     pub fn source_ref_visible_at_offset(&self, source_ref: &SourceRef, offset: usize) -> bool {
-        if source_ref.conditionally_executed || source_ref.span.start.offset >= offset {
+        if source_ref.conditionally_executed || source_ref.span.start.offset() >= offset {
             return false;
         }
-        let source_scope = self.scope_at(source_ref.span.start.offset);
+        let source_scope = self.scope_at(source_ref.span.start.offset());
         let cursor_scope = self.scope_at(offset);
         if let Some(transient_scope) = self.innermost_transient_scope_within_function(source_scope)
         {
@@ -2560,7 +2566,7 @@ fn infer_bash_from_shebang(source: &str) -> Option<bool> {
 }
 
 fn contains_offset(span: Span, offset: usize) -> bool {
-    span.start.offset <= offset && offset <= span.end.offset
+    span.start.offset() <= offset && offset <= span.end.offset()
 }
 
 /// Flattens the scope tree into (start offset, innermost scope) segments.
@@ -2573,8 +2579,8 @@ fn build_scope_at_segments(scopes: &[Scope], lookup: &ScopeLookup) -> Vec<(usize
     let mut breakpoints = Vec::with_capacity(scopes.len() * 2 + 1);
     breakpoints.push(0usize);
     for scope in scopes {
-        breakpoints.push(scope.span.start.offset);
-        breakpoints.push(scope.span.end.offset + 1);
+        breakpoints.push(scope.span.start.offset());
+        breakpoints.push(scope.span.end.offset() + 1);
     }
     breakpoints.sort_unstable();
     breakpoints.dedup();
@@ -2591,7 +2597,7 @@ fn build_scope_at_segments(scopes: &[Scope], lookup: &ScopeLookup) -> Vec<(usize
 
 fn build_references_sorted_by_start(references: &[Reference]) -> Vec<ReferenceId> {
     let mut ids: Vec<ReferenceId> = (0..references.len() as u32).map(ReferenceId).collect();
-    ids.sort_by_key(|id| references[id.index()].span.start.offset);
+    ids.sort_by_key(|id| references[id.index()].span.start.offset());
     ids
 }
 
@@ -2630,7 +2636,7 @@ fn reference_has_local_positional_reset(
 
 fn build_bindings_sorted_by_start(bindings: &[Binding]) -> Vec<BindingId> {
     let mut ids: Vec<BindingId> = (0..bindings.len() as u32).map(BindingId).collect();
-    ids.sort_by_key(|id| bindings[id.index()].span.start.offset);
+    ids.sort_by_key(|id| bindings[id.index()].span.start.offset());
     ids
 }
 
@@ -2648,7 +2654,7 @@ fn build_guarded_or_defaulting_reference_offsets_by_name(
             offsets_by_name
                 .entry(reference.name.clone())
                 .or_default()
-                .push(reference.span.start.offset);
+                .push(reference.span.start.offset());
         }
     }
 
@@ -2696,10 +2702,10 @@ impl<'a> Iterator for ReferencesInSpan<'a> {
         loop {
             let id = self.ids.next()?;
             let reference = &self.references[id.index()];
-            if reference.span.start.offset > self.end {
+            if reference.span.start.offset() > self.end {
                 return None;
             }
-            if reference.span.end.offset <= self.end {
+            if reference.span.end.offset() <= self.end {
                 return Some(reference);
             }
         }
@@ -2749,10 +2755,10 @@ impl<'a> Iterator for BindingsInSpan<'a> {
         loop {
             let id = self.ids.next()?;
             let binding = &self.bindings[id.index()];
-            if binding.span.start.offset > self.end {
+            if binding.span.start.offset() > self.end {
                 return None;
             }
-            if binding.span.end.offset <= self.end {
+            if binding.span.end.offset() <= self.end {
                 return Some(binding);
             }
         }
@@ -2760,11 +2766,11 @@ impl<'a> Iterator for BindingsInSpan<'a> {
 }
 
 fn scope_span_width(span: Span) -> usize {
-    span.end.offset.saturating_sub(span.start.offset)
+    span.end.offset().saturating_sub(span.start.offset())
 }
 
 fn contains_span(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
+    outer.start.offset() <= inner.start.offset() && outer.end.offset() >= inner.end.offset()
 }
 
 #[cfg(test)]

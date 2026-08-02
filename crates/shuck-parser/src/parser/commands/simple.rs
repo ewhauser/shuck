@@ -325,8 +325,8 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn word_is_attached_to_current_token(&self, word: &Word) -> bool {
-        let start = word.span.end.offset;
-        let end = self.current_span.start.offset;
+        let start = word.span.end.offset();
+        let end = self.current_span.start.offset();
         let input_len = self.input.len();
         start <= end
             && end <= input_len

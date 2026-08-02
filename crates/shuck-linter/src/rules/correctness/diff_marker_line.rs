@@ -93,17 +93,17 @@ fn command_satisfies_pending_operator(checker: &Checker<'_>, command_id: Command
 fn diagnostic_for_dash_command(source: &str, span: Span, can_fix_in_context: bool) -> Diagnostic {
     let diagnostic = Diagnostic::new(DiffMarkerLine, span);
     if can_fix_in_context && span_starts_physical_line(source, span) {
-        diagnostic.with_fix(Fix::unsafe_edit(Edit::insertion(span.start.offset, "# ")))
+        diagnostic.with_fix(Fix::unsafe_edit(Edit::insertion(span.start.offset(), "# ")))
     } else {
         diagnostic
     }
 }
 
 fn span_starts_physical_line(source: &str, span: Span) -> bool {
-    let line_start = source[..span.start.offset]
+    let line_start = source[..span.start.offset()]
         .rfind('\n')
         .map_or(0, |offset| offset + 1);
-    source[line_start..span.start.offset]
+    source[line_start..span.start.offset()]
         .chars()
         .all(|ch| matches!(ch, ' ' | '\t'))
 }

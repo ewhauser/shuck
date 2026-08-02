@@ -109,24 +109,25 @@ fn numeric_comparison_redirect_diagnostic(
         return None;
     }
 
-    if redirect_data.span.start.offset < opening_bracket_span.end.offset
-        || redirect_data.span.start.offset >= closing_bracket_span.start.offset
+    if redirect_data.span.start.offset() < opening_bracket_span.end.offset()
+        || redirect_data.span.start.offset() >= closing_bracket_span.start.offset()
     {
         return None;
     }
 
     let operator_span = redirect.operator_span();
-    if operator_span.start.offset != redirect_data.span.start.offset {
+    if operator_span.start.offset() != redirect_data.span.start.offset() {
         return None;
     }
 
-    let gap = source.get(operator_span.end.offset..target.span.start.offset)?;
+    let gap = source.get(operator_span.end.offset()..target.span.start.offset())?;
     if !is_shell_token_gap(gap) {
         return None;
     }
 
     let fix_span = Span::from_positions(operator_span.start, target.span.start);
-    let leading_separator = if has_trailing_token_boundary(&source[..operator_span.start.offset]) {
+    let leading_separator = if has_trailing_token_boundary(&source[..operator_span.start.offset()])
+    {
         ""
     } else {
         " "

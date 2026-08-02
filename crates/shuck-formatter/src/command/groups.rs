@@ -81,14 +81,14 @@ pub(super) fn group_verbatim_span_impl(
         return inner;
     }
 
-    let Some(open_offset) = source[..inner.start.offset].rfind(open) else {
+    let Some(open_offset) = source[..inner.start.offset()].rfind(open) else {
         return inner;
     };
     let wrapper_prefix_start = open_offset + open.len_utf8();
-    if !source_map.contains_comment_between(wrapper_prefix_start, inner.start.offset) {
+    if !source_map.contains_comment_between(wrapper_prefix_start, inner.start.offset()) {
         return inner;
     }
-    let Some(close_offset) = find_group_close_offset(source, inner.end.offset, close) else {
+    let Some(close_offset) = find_group_close_offset(source, inner.end.offset(), close) else {
         return inner;
     };
 
@@ -107,7 +107,7 @@ pub(crate) fn group_open_suffix<'a>(
     let (_, line_end) = source_map.line_bounds_for_offset(open_offset)?;
     let suffix_start = open_offset + open.len_utf8();
     let comment = source_map.first_source_comment_between(suffix_start, line_end)?;
-    let prefix = source_map.slice_between(suffix_start, comment.span().start.offset)?;
+    let prefix = source_map.slice_between(suffix_start, comment.span().start.offset())?;
     if !prefix.chars().all(char::is_whitespace) {
         return None;
     }
@@ -191,7 +191,7 @@ pub(crate) fn stmt_start_after_operator(
             '(',
             ')',
         ),
-        _ => command_format_span(&stmt.command).start.offset,
+        _ => command_format_span(&stmt.command).start.offset(),
     }
 }
 
@@ -207,13 +207,13 @@ fn group_open_offset_after_operator(
     let search_end = commands
         .first()
         .map(|first| stmt_group_attachment_start_offset(first, source_map))
-        .unwrap_or_else(|| stmt_span(stmt).end.offset);
+        .unwrap_or_else(|| stmt_span(stmt).end.offset());
 
     find_group_open_offset_between(source, operator_end, search_end, open)
         .or_else(|| {
-            group_attachment_span(commands, source_map, open, close).map(|span| span.start.offset)
+            group_attachment_span(commands, source_map, open, close).map(|span| span.start.offset())
         })
-        .unwrap_or_else(|| command_format_span(&stmt.command).start.offset)
+        .unwrap_or_else(|| command_format_span(&stmt.command).start.offset())
 }
 
 fn find_group_open_offset_between(
@@ -316,7 +316,7 @@ fn stmt_group_attachment_start_offset(
     stmt_group_attachment_or_verbatim_span(stmt, source_map)
         .unwrap_or_else(|| stmt_verbatim_span_with_source_map(stmt, source_map))
         .start
-        .offset
+        .offset()
 }
 
 fn stmt_group_attachment_end_offset_with_heredoc<F>(
@@ -330,17 +330,15 @@ where
     if let Some(span) =
         stmt_group_attachment_or_verbatim_span_with_heredoc(stmt, source_map, stmt_contains_heredoc)
     {
-        return span.end.offset;
+        return span.end.offset();
     }
 
     match &stmt.command {
-        Command::Function(_) | Command::AnonymousFunction(_) => stmt_span(stmt).end.offset,
-        _ if stmt_contains_heredoc(stmt) => {
-            stmt_verbatim_span_with_source_map(stmt, source_map)
-                .end
-                .offset
-        }
-        _ => stmt_span(stmt).end.offset,
+        Command::Function(_) | Command::AnonymousFunction(_) => stmt_span(stmt).end.offset(),
+        _ if stmt_contains_heredoc(stmt) => stmt_verbatim_span_with_source_map(stmt, source_map)
+            .end
+            .offset(),
+        _ => stmt_span(stmt).end.offset(),
     }
 }
 

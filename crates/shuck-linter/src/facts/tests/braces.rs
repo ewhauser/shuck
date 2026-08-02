@@ -14,7 +14,7 @@ echo \\${${name}}/\\${fallback}
             .words()
             .literal_brace_spans()
             .iter()
-            .map(|span| (span.start.line, span.start.column))
+            .map(|span| (span.start.line(), span.start.column()))
             .collect::<Vec<_>>();
 
         assert_eq!(

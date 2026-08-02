@@ -143,11 +143,11 @@ pub(crate) fn build_presence_tested_names(
     // is the only one that needs a sort because per-command refs come out of a
     // FxHashSet drain in non-deterministic order.
     for spans in nested_command_spans_by_name.values_mut() {
-        debug_assert!(spans.is_sorted_by_key(|span| (span.start.offset, span.end.offset)));
+        debug_assert!(spans.is_sorted_by_key(|span| (span.start.offset(), span.end.offset())));
         spans.dedup();
     }
     for spans in c006_nested_command_spans_by_name.values_mut() {
-        debug_assert!(spans.is_sorted_by_key(|span| (span.start.offset, span.end.offset)));
+        debug_assert!(spans.is_sorted_by_key(|span| (span.start.offset(), span.end.offset())));
         spans.dedup();
     }
 
@@ -159,10 +159,10 @@ pub(crate) fn build_presence_tested_names(
     for names in names_by_name.values_mut() {
         debug_assert!(names.is_sorted_by_key(|fact| {
             (
-                fact.command_span().start.offset,
-                fact.command_span().end.offset,
-                fact.tested_span().start.offset,
-                fact.tested_span().end.offset,
+                fact.command_span().start.offset(),
+                fact.command_span().end.offset(),
+                fact.tested_span().start.offset(),
+                fact.tested_span().end.offset(),
             )
         }));
         names.dedup();
@@ -185,7 +185,7 @@ fn build_outermost_nested_presence_scopes(commands: &[CommandFact<'_>]) -> Vec<O
         let span = command.span();
         let id = command.id();
         let is_nested = command.is_nested_word_command();
-        pop_finished_nested_presence_scopes(&mut active_nested_scopes, span.start.offset);
+        pop_finished_nested_presence_scopes(&mut active_nested_scopes, span.start.offset());
         outermost_scopes[id.index()] = active_nested_scopes
             .first()
             .copied()
@@ -209,7 +209,7 @@ fn command_slot_count(commands: &[CommandFact<'_>]) -> usize {
 fn pop_finished_nested_presence_scopes(active_nested_scopes: &mut Vec<Span>, offset: usize) {
     while active_nested_scopes
         .last()
-        .is_some_and(|span| span.end.offset <= offset)
+        .is_some_and(|span| span.end.offset() <= offset)
     {
         active_nested_scopes.pop();
     }

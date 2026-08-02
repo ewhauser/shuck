@@ -181,8 +181,8 @@ pub(super) fn normalize_scalar_assignment_unquoted_continuations(
         return None;
     };
     if !facts.has_raw_continuation_backslash_between(
-        assignment.span.start.offset,
-        assignment.span.end.offset,
+        assignment.span.start.offset(),
+        assignment.span.end.offset(),
     ) {
         return None;
     }
@@ -311,10 +311,10 @@ pub(super) fn pipeline_operator_breaks(
     let mut breaks = Vec::with_capacity(operators.len());
     for (statement, (_, operator_span)) in statements.iter().skip(1).zip(operators.iter()) {
         let next_start =
-            interstitial_comment_end(statement, operator_span.end.offset, source, source_map);
+            interstitial_comment_end(statement, operator_span.end.offset(), source, source_map);
         breaks.push(
             source_map.operator_starts_or_ends_line(*operator_span)
-                || source_map.contains_newline_between(operator_span.end.offset, next_start),
+                || source_map.contains_newline_between(operator_span.end.offset(), next_start),
         );
     }
 
@@ -532,12 +532,12 @@ pub(super) fn conditional_binary_has_explicit_rhs_break(
     }
     source_map.operator_starts_or_ends_line(expression.op_span)
         || source_map.contains_newline_between(
-            expression.left.span().end.offset,
-            expression.op_span.start.offset,
+            expression.left.span().end.offset(),
+            expression.op_span.start.offset(),
         )
         || source_map.contains_newline_between(
-            expression.op_span.end.offset,
-            expression.right.span().start.offset,
+            expression.op_span.end.offset(),
+            expression.right.span().start.offset(),
         )
 }
 

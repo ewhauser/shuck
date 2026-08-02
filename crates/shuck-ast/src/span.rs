@@ -7,11 +7,11 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Position {
     /// 1-based line number
-    pub line: usize,
+    line: u32,
     /// 1-based column number (byte offset within line)
-    pub column: usize,
+    column: u32,
     /// 0-based byte offset from start of input
-    pub offset: usize,
+    offset: u32,
 }
 
 impl Position {
@@ -24,9 +24,40 @@ impl Position {
         }
     }
 
+    /// Create a position from explicit line, column, and byte offset values.
+    #[inline]
+    pub fn at(line: usize, column: usize, offset: usize) -> Self {
+        debug_assert!(line <= u32::MAX as usize);
+        debug_assert!(column <= u32::MAX as usize);
+        debug_assert!(offset <= u32::MAX as usize);
+        Self {
+            line: line as u32,
+            column: column as u32,
+            offset: offset as u32,
+        }
+    }
+
+    /// 1-based line number.
+    #[inline]
+    pub fn line(&self) -> usize {
+        self.line as usize
+    }
+
+    /// 1-based column number (byte offset within line).
+    #[inline]
+    pub fn column(&self) -> usize {
+        self.column as usize
+    }
+
+    /// 0-based byte offset from start of input.
+    #[inline]
+    pub fn offset(&self) -> usize {
+        self.offset as usize
+    }
+
     /// Advance position by one character.
     pub fn advance(&mut self, ch: char) {
-        self.offset += ch.len_utf8();
+        self.offset += ch.len_utf8() as u32;
         if ch == '\n' {
             self.line += 1;
             self.column = 1;
@@ -55,11 +86,11 @@ impl Position {
         }
 
         let len = bytes.len();
-        self.offset += len;
-        self.line += newline_count;
+        self.offset += len as u32;
+        self.line += newline_count as u32;
         self.column = match last_newline {
-            Some(idx) => len - idx,
-            None => self.column + len,
+            Some(idx) => (len - idx) as u32,
+            None => self.column + len as u32,
         };
         self
     }
@@ -138,20 +169,20 @@ impl Span {
     /// Slice the source text covered by this span.
     #[inline]
     pub fn slice<'a>(&self, source: &'a str) -> &'a str {
-        slice_with_byte_offsets(source, self.start.offset, self.end.offset)
+        slice_with_byte_offsets(source, self.start.offset as usize, self.end.offset as usize)
     }
 
     /// Convert this span to a [`TextRange`] using only the byte offsets.
     pub fn to_range(self) -> TextRange {
         TextRange::new(
-            TextSize::new(self.start.offset as u32),
-            TextSize::new(self.end.offset as u32),
+            TextSize::new(self.start.offset),
+            TextSize::new(self.end.offset),
         )
     }
 
     /// Get the starting line number.
     pub fn line(&self) -> usize {
-        self.start.line
+        self.start.line as usize
     }
 }
 
@@ -318,39 +349,19 @@ mod tests {
 
     #[test]
     fn test_position_display() {
-        let pos = Position {
-            line: 5,
-            column: 10,
-            offset: 50,
-        };
+        let pos = Position::at(5, 10, 50);
         assert_eq!(format!("{}", pos), "5:10");
     }
 
     #[test]
     fn test_span_merge() {
         let span1 = Span {
-            start: Position {
-                line: 1,
-                column: 1,
-                offset: 0,
-            },
-            end: Position {
-                line: 1,
-                column: 5,
-                offset: 4,
-            },
+            start: Position::at(1, 1, 0),
+            end: Position::at(1, 5, 4),
         };
         let span2 = Span {
-            start: Position {
-                line: 1,
-                column: 10,
-                offset: 9,
-            },
-            end: Position {
-                line: 2,
-                column: 3,
-                offset: 15,
-            },
+            start: Position::at(1, 10, 9),
+            end: Position::at(2, 3, 15),
         };
         let merged = span1.merge(span2);
         assert_eq!(merged.start.offset, 0);
@@ -360,30 +371,14 @@ mod tests {
     #[test]
     fn test_span_display() {
         let single_line = Span {
-            start: Position {
-                line: 3,
-                column: 1,
-                offset: 0,
-            },
-            end: Position {
-                line: 3,
-                column: 10,
-                offset: 9,
-            },
+            start: Position::at(3, 1, 0),
+            end: Position::at(3, 10, 9),
         };
         assert_eq!(format!("{}", single_line), "line 3");
 
         let multi_line = Span {
-            start: Position {
-                line: 1,
-                column: 1,
-                offset: 0,
-            },
-            end: Position {
-                line: 5,
-                column: 1,
-                offset: 50,
-            },
+            start: Position::at(1, 1, 0),
+            end: Position::at(5, 1, 50),
         };
         assert_eq!(format!("{}", multi_line), "lines 1-5");
     }
@@ -391,18 +386,7 @@ mod tests {
     #[test]
     fn span_slice_handles_non_char_boundaries() {
         let source = "a─b";
-        let span = Span::from_positions(
-            Position {
-                line: 1,
-                column: 2,
-                offset: 1,
-            },
-            Position {
-                line: 1,
-                column: 3,
-                offset: 3,
-            },
-        );
+        let span = Span::from_positions(Position::at(1, 2, 1), Position::at(1, 3, 3));
 
         assert_eq!(span.slice(source), "─");
     }

@@ -41,11 +41,11 @@ pub fn bare_command_name_assignment(checker: &mut Checker) {
 
 fn quote_assignment_value_fix(span: Span, source: &str) -> Option<Fix> {
     let line = source
-        .get(span.start.offset..)?
+        .get(span.start.offset()..)?
         .split_inclusive('\n')
         .next()?;
     let eq_relative = line.find('=')?;
-    let value_start = span.start.offset + eq_relative + 1;
+    let value_start = span.start.offset() + eq_relative + 1;
     let value_text = source.get(value_start..)?;
     let value_len = value_text
         .chars()

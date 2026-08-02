@@ -103,7 +103,7 @@ exec {fd}>a {fd}>b
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
-            diagnostics[0].span.start.offset,
+            diagnostics[0].span.start.offset(),
             source.find('>').expect("first redirect")
         );
     }

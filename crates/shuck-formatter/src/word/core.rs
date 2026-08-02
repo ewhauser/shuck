@@ -5,17 +5,17 @@ use super::raw_rewrites::*;
 use super::*;
 
 pub(crate) fn word_gap_end_before_trailing_continuation(word: &Word, source: &str) -> usize {
-    let span_end = word.span.end.offset;
+    let span_end = word.span.end.offset();
     let part_end = word
         .parts
         .iter()
-        .map(|part| part.span.end.offset)
+        .map(|part| part.span.end.offset())
         .max()
         .unwrap_or(span_end);
     if part_end >= span_end {
         return span_end;
     }
-    let Some(last_part) = word.parts.iter().max_by_key(|part| part.span.end.offset) else {
+    let Some(last_part) = word.parts.iter().max_by_key(|part| part.span.end.offset()) else {
         return span_end;
     };
     if !matches!(
@@ -286,7 +286,7 @@ pub(super) fn word_part_has_escaped_command_substitution(
             CommandSubstitutionSyntax::DollarParen => {
                 raw_source_slice(span, source).is_some_and(|raw| raw.starts_with("\\$("))
                     || source
-                        .get(..span.start.offset)
+                        .get(..span.start.offset())
                         .is_some_and(|prefix| prefix.ends_with('\\'))
             }
         },
@@ -570,7 +570,7 @@ pub(super) fn render_word_part(
                     let fallback = RawCommandSubstitutionCommentFallback {
                         raw,
                         body,
-                        span_start: span.start.offset,
+                        span_start: span.start.offset(),
                         context: env,
                     };
                     if commented_command_substitution_can_use_structural_formatter(body) {
@@ -578,7 +578,7 @@ pub(super) fn render_word_part(
                         if render_command_substitution(
                             rendered,
                             body,
-                            span.end.offset,
+                            span.end.offset(),
                             env,
                             layout,
                             1,
@@ -606,7 +606,7 @@ pub(super) fn render_word_part(
                 } else if render_command_substitution(
                     rendered,
                     body,
-                    span.end.offset,
+                    span.end.offset(),
                     env,
                     layout,
                     1,
@@ -620,7 +620,7 @@ pub(super) fn render_word_part(
             } else if render_command_substitution(
                 rendered,
                 body,
-                span.end.offset,
+                span.end.offset(),
                 env,
                 command_substitution_layout(
                     None,
@@ -648,7 +648,7 @@ pub(super) fn render_word_part(
                             rendered,
                             raw,
                             source,
-                            span.start.offset,
+                            span.start.offset(),
                             options,
                         );
                     } else {

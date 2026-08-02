@@ -67,7 +67,7 @@ x EOF
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
         assert_eq!(diagnostics[0].span.slice(source), "EOF");
     }
 
@@ -84,7 +84,7 @@ cat <<-EOF
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
         assert_eq!(diagnostics[0].span.slice(source), "EOF");
     }
 

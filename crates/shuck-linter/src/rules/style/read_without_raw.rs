@@ -32,7 +32,7 @@ pub fn read_without_raw(checker: &mut Checker) {
         .filter_map(|fact| fact.body_name_word().map(|word| word.span))
         .map(|span| {
             Diagnostic::new(ReadWithoutRaw, span)
-                .with_fix(Fix::unsafe_edit(Edit::insertion(span.end.offset, " -r")))
+                .with_fix(Fix::unsafe_edit(Edit::insertion(span.end.offset(), " -r")))
         })
         .collect::<Vec<_>>();
 

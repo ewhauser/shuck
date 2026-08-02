@@ -65,7 +65,7 @@ pub fn add_ignores_to_path_with_resolvers(
     let target_lines = analysis
         .diagnostics
         .iter()
-        .map(|diagnostic| diagnostic.span.start.line)
+        .map(|diagnostic| diagnostic.span.start.line())
         .collect::<BTreeSet<_>>();
 
     for line in target_lines {
@@ -80,7 +80,7 @@ pub fn add_ignores_to_path_with_resolvers(
         let line_diagnostics = analysis
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.span.start.line == line)
+            .filter(|diagnostic| diagnostic.span.start.line() == line)
             .cloned()
             .collect::<Vec<_>>();
         if line_diagnostics.is_empty() {
@@ -140,7 +140,7 @@ pub fn build_ignore_edit_for_line(
     let line_diagnostics = analysis
         .diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic.span.start.line == line)
+        .filter(|diagnostic| diagnostic.span.start.line() == line)
         .cloned()
         .collect::<Vec<_>>();
     if line_diagnostics.is_empty() {
@@ -406,7 +406,7 @@ fn edit_is_valid(
     }
 
     if candidate.diagnostics.iter().any(|diagnostic| {
-        diagnostic.span.start.line == usize::try_from(line).unwrap_or_default()
+        diagnostic.span.start.line() == usize::try_from(line).unwrap_or_default()
             && target_rules.contains(&diagnostic.rule)
     }) {
         return false;
@@ -463,10 +463,10 @@ impl DiagnosticKey {
     fn new(diagnostic: &Diagnostic) -> Self {
         Self {
             rule: diagnostic.rule,
-            start_line: diagnostic.span.start.line,
-            start_column: diagnostic.span.start.column,
-            end_line: diagnostic.span.end.line,
-            end_column: diagnostic.span.end.column,
+            start_line: diagnostic.span.start.line(),
+            start_column: diagnostic.span.start.column(),
+            end_line: diagnostic.span.end.line(),
+            end_column: diagnostic.span.end.column(),
             message: diagnostic.message.clone(),
         }
     }
@@ -823,7 +823,7 @@ mod tests {
         let line_diagnostics = current
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.span.start.line == 2)
+            .filter(|diagnostic| diagnostic.span.start.line() == 2)
             .cloned()
             .collect::<Vec<_>>();
 
@@ -860,7 +860,7 @@ mod tests {
         let line_diagnostics = current
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.span.start.line == 2)
+            .filter(|diagnostic| diagnostic.span.start.line() == 2)
             .cloned()
             .collect::<Vec<_>>();
 

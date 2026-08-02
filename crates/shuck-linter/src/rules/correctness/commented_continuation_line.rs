@@ -28,12 +28,12 @@ pub fn commented_continuation_line(checker: &mut Checker) {
         {
             let backslash_offset = span
                 .start
-                .offset
+                .offset()
                 .checked_sub(1)
                 .expect("commented continuation anchors should follow a trailing backslash");
             report(
                 Diagnostic::new(CommentedContinuationLine, span).with_fix(Fix::unsafe_edit(
-                    Edit::deletion_at(backslash_offset, span.start.offset),
+                    Edit::deletion_at(backslash_offset, span.start.offset()),
                 )),
             );
         }
@@ -56,11 +56,11 @@ mod tests {
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 3);
-        assert_eq!(diagnostics[0].span.start.column, 11);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
+        assert_eq!(diagnostics[0].span.start.column(), 11);
         assert_eq!(diagnostics[0].span.start, diagnostics[0].span.end);
         assert_eq!(
-            &source[diagnostics[0].span.start.offset - 1..diagnostics[0].span.start.offset],
+            &source[diagnostics[0].span.start.offset() - 1..diagnostics[0].span.start.offset()],
             "\\"
         );
     }

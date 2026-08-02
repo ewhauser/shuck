@@ -1293,7 +1293,7 @@ impl<'a> ArithmeticParser<'a> {
     }
 
     fn error_at(&self, pos: Position, message: impl Into<String>) -> Error {
-        Error::parse_at(message, pos.line, pos.column)
+        Error::parse_at(message, pos.line(), pos.column())
     }
 
     fn tick(&mut self) -> Result<()> {

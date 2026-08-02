@@ -78,8 +78,8 @@ impl CallFunctionId {
     pub fn new(name: Name, definition_span: Span) -> Self {
         Self {
             name,
-            definition_start: definition_span.start.offset,
-            definition_end: definition_span.end.offset,
+            definition_start: definition_span.start.offset(),
+            definition_end: definition_span.end.offset(),
         }
     }
 }
@@ -217,7 +217,7 @@ impl FileCallFacts {
         mut source_edges: Vec<CallFactSourceEdge>,
     ) -> Self {
         let analysis = model.analysis();
-        source_edges.sort_by_key(|edge| edge.span.start.offset);
+        source_edges.sort_by_key(|edge| edge.span.start.offset());
 
         let mut functions_by_scope: FxHashMap<ScopeId, Vec<(CallFunctionId, Span)>> =
             FxHashMap::default();
@@ -282,7 +282,7 @@ impl FileCallFacts {
             .source_refs()
             .iter()
             .map(|source_ref| {
-                let scope = model.scope_at(source_ref.span.start.offset);
+                let scope = model.scope_at(source_ref.span.start.offset());
                 let enclosing_function = model
                     .ancestor_scopes(scope)
                     .find_map(|scope| functions_by_scope.get(&scope))
@@ -313,7 +313,7 @@ impl FileCallFacts {
                 });
             }
         }
-        source_effects.sort_by_key(|effect| effect.span.start.offset);
+        source_effects.sort_by_key(|effect| effect.span.start.offset());
         let has_dynamic_command_dispatch =
             model.recorded_program().commands().iter().any(|command| {
                 command.command_info.is_some_and(|info| {
@@ -339,8 +339,8 @@ impl FileCallFacts {
     pub fn definition(&self, function: &CallFunctionId) -> Option<&CallFactDefinition> {
         self.definitions.iter().find(|definition| {
             definition.name == function.name
-                && definition.def_span.start.offset == function.definition_start
-                && definition.def_span.end.offset == function.definition_end
+                && definition.def_span.start.offset() == function.definition_start
+                && definition.def_span.end.offset() == function.definition_end
         })
     }
 }
@@ -412,7 +412,7 @@ impl WorkspaceCallIndex {
             from_path,
             facts.source_edges.iter().filter(|edge| {
                 edge.completion_visible
-                    && (edge.span == Span::new() || edge.span.start.offset < cutoff)
+                    && (edge.span == Span::new() || edge.span.start.offset() < cutoff)
             }),
         )
     }
@@ -498,7 +498,7 @@ impl WorkspaceCallIndex {
             .filter(|definition| definition.unconditional && definition.persistent_top_level)
             .map(|definition| {
                 (
-                    definition.def_span.start.offset,
+                    definition.def_span.start.offset(),
                     Event::Definition(definition),
                 )
             })
@@ -507,7 +507,7 @@ impl WorkspaceCallIndex {
                     .source_edges
                     .iter()
                     .filter(|edge| edge.completion_visible)
-                    .map(|edge| (edge.span.start.offset, Event::Source(edge))),
+                    .map(|edge| (edge.span.start.offset(), Event::Source(edge))),
             )
             .collect::<Vec<_>>();
         events.sort_by_key(|(offset, _)| *offset);
@@ -562,7 +562,7 @@ impl WorkspaceCallIndex {
             .iter()
             .find(|site| site.name_span == name_span)?;
         let cutoff = match site.enclosing {
-            CallNodeKind::TopLevel => Some(site.name_span.start.offset),
+            CallNodeKind::TopLevel => Some(site.name_span.start.offset()),
             CallNodeKind::Function(_) => None,
         };
         let sourced = self.resolve_through_edges_before(from_path, &site.callee, cutoff);
@@ -603,16 +603,16 @@ impl WorkspaceCallIndex {
             CallNodeKind::TopLevel => self.resolve_exact_events(
                 from_path,
                 &site.callee,
-                ExactQuery::top_level(site.name_span.start.offset),
+                ExactQuery::top_level(site.name_span.start.offset()),
                 &mut stack,
             ),
             CallNodeKind::Function(function) => {
                 if self.called_source_function_may_mutate(from_path, function)
                     || facts.source_effects.iter().any(|effect| {
                         (effect.enclosing_function.is_none()
-                            && effect.span.start.offset >= function.definition_start)
+                            && effect.span.start.offset() >= function.definition_start)
                             || (effect.enclosing_function.as_ref() == Some(function)
-                                && effect.span.start.offset >= site.name_span.start.offset)
+                                && effect.span.start.offset() >= site.name_span.start.offset())
                     })
                 {
                     return None;
@@ -625,7 +625,7 @@ impl WorkspaceCallIndex {
                         local_definition: site.local_definition_span,
                         include_top_level_definitions: false,
                         enclosing_function: Some(function),
-                        local_call_offset: Some(site.name_span.start.offset),
+                        local_call_offset: Some(site.name_span.start.offset()),
                     },
                     &mut stack,
                 )
@@ -686,11 +686,11 @@ impl WorkspaceCallIndex {
             || facts.source_effects.iter().any(|effect| {
                 !effect.persistent
                     && ((effect.enclosing_function.is_none()
-                        && effect.span.start.offset < query.top_level_cutoff)
+                        && effect.span.start.offset() < query.top_level_cutoff)
                         || (effect.enclosing_function.as_ref() == query.enclosing_function
                             && query
                                 .local_call_offset
-                                .is_some_and(|offset| effect.span.start.offset < offset)))
+                                .is_some_and(|offset| effect.span.start.offset() < offset)))
             })
         {
             return ExactResolution::Ambiguous;
@@ -706,10 +706,10 @@ impl WorkspaceCallIndex {
             for definition in facts.definitions.iter().filter(|definition| {
                 definition.persistent_top_level
                     && &definition.name == callee
-                    && definition.def_span.start.offset < query.top_level_cutoff
+                    && definition.def_span.start.offset() < query.top_level_cutoff
             }) {
                 events.push((
-                    definition.def_span.start.offset,
+                    definition.def_span.start.offset(),
                     Event::Definition(definition),
                 ));
             }
@@ -720,20 +720,20 @@ impl WorkspaceCallIndex {
                 .find(|definition| definition.def_span == definition_span)
         {
             events.push((
-                definition.def_span.start.offset,
+                definition.def_span.start.offset(),
                 Event::Definition(definition),
             ));
         }
         for effect in facts.source_effects.iter().filter(|effect| {
             effect.persistent
                 && ((effect.enclosing_function.is_none()
-                    && effect.span.start.offset < query.top_level_cutoff)
+                    && effect.span.start.offset() < query.top_level_cutoff)
                     || (effect.enclosing_function.as_ref() == query.enclosing_function
                         && query
                             .local_call_offset
-                            .is_some_and(|offset| effect.span.start.offset < offset)))
+                            .is_some_and(|offset| effect.span.start.offset() < offset)))
         }) {
-            events.push((effect.span.start.offset, Event::Source(effect)));
+            events.push((effect.span.start.offset(), Event::Source(effect)));
         }
         events.sort_by_key(|(offset, _)| *offset);
 
@@ -807,7 +807,7 @@ impl WorkspaceCallIndex {
             .rev()
             .filter(|edge| {
                 edge.span == Span::new()
-                    || cutoff.is_none_or(|offset| edge.span.start.offset < offset)
+                    || cutoff.is_none_or(|offset| edge.span.start.offset() < offset)
             })
             .find_map(|edge| {
                 self.resolve_exported(&edge.path, callee, &mut stack)
@@ -840,12 +840,12 @@ impl WorkspaceCallIndex {
         let mut events = Vec::new();
         for definition in facts.definitions.iter().filter(|def| &def.name == callee) {
             events.push((
-                definition.def_span.start.offset,
+                definition.def_span.start.offset(),
                 Event::Definition(definition),
             ));
         }
         for edge in &facts.source_edges {
-            events.push((edge.span.start.offset, Event::Source(edge)));
+            events.push((edge.span.start.offset(), Event::Source(edge)));
         }
         events.sort_by_key(|(offset, _)| *offset);
 
@@ -884,7 +884,7 @@ impl WorkspaceCallIndex {
                 continue;
             }
             let cutoff = match site.enclosing {
-                CallNodeKind::TopLevel => Some(site.name_span.start.offset),
+                CallNodeKind::TopLevel => Some(site.name_span.start.offset()),
                 CallNodeKind::Function(_) => None,
             };
             let sourced = resolved
@@ -955,7 +955,7 @@ impl WorkspaceCallIndex {
                     continue;
                 }
                 let cutoff = match site.enclosing {
-                    CallNodeKind::TopLevel => Some(site.name_span.start.offset),
+                    CallNodeKind::TopLevel => Some(site.name_span.start.offset()),
                     CallNodeKind::Function(_) => None,
                 };
                 let sourced = edge_resolutions
@@ -966,8 +966,9 @@ impl WorkspaceCallIndex {
                     choose_resolved_target(caller_path, site.local_definition_span, sourced)
                         .is_some_and(|target| {
                             target.path.as_path() == target_path
-                                && target.def_span.start.offset == target_function.definition_start
-                                && target.def_span.end.offset == target_function.definition_end
+                                && target.def_span.start.offset()
+                                    == target_function.definition_start
+                                && target.def_span.end.offset() == target_function.definition_end
                         });
                 if !resolves {
                     continue;
@@ -1015,7 +1016,8 @@ fn choose_resolved_target(
 ) -> Option<ResolvedDefinition> {
     match (local_definition, sourced) {
         (Some(definition), Some((target, source_span)))
-            if source_span != Span::new() && source_span.start.offset > definition.start.offset =>
+            if source_span != Span::new()
+                && source_span.start.offset() > definition.start.offset() =>
         {
             Some(target)
         }
@@ -1055,7 +1057,7 @@ mod tests {
             .iter()
             .zip(paths)
             .map(|(source_ref, path)| {
-                let scope = model.scope_at(source_ref.span.start.offset);
+                let scope = model.scope_at(source_ref.span.start.offset());
                 CallFactSourceEdge {
                     path: PathBuf::from(path),
                     span: source_ref.span,
@@ -1787,7 +1789,7 @@ mod tests {
             .definitions
             .iter()
             .filter(|definition| definition.name == name("greet"))
-            .max_by_key(|definition| definition.def_span.start.offset)
+            .max_by_key(|definition| definition.def_span.start.offset())
             .expect("final greet definition should be projected")
             .def_span;
         index.insert(caller_path.clone(), caller_facts);
@@ -1829,7 +1831,7 @@ mod tests {
         let final_definition = target_facts
             .definitions
             .iter()
-            .max_by_key(|definition| definition.def_span.start.offset)
+            .max_by_key(|definition| definition.def_span.start.offset())
             .expect("final sourced definition should be projected")
             .clone();
 

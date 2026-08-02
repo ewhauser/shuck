@@ -55,7 +55,7 @@ mod tests {
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| diagnostic.span.start.line)
+                .map(|diagnostic| diagnostic.span.start.line())
                 .collect::<Vec<_>>(),
             vec![2, 3, 4, 5]
         );
@@ -111,7 +111,7 @@ mod tests {
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| diagnostic.span.start.line)
+                .map(|diagnostic| diagnostic.span.start.line())
                 .collect::<Vec<_>>(),
             vec![1, 2, 3]
         );

@@ -26,7 +26,7 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
     let semantic = checker.semantic();
     let mut array_history = HashMap::new();
     let mut bindings = semantic.bindings().iter().collect::<Vec<_>>();
-    bindings.sort_by_key(|binding| (binding.span.start.offset, binding.span.end.offset));
+    bindings.sort_by_key(|binding| (binding.span.start.offset(), binding.span.end.offset()));
     let builtin_history = builtin_array_history(checker);
     let history_events = array_history_events(checker, &bindings, &builtin_history.events);
     let mut next_history_event = 0usize;
@@ -36,7 +36,7 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
         .into_iter()
         .filter_map(|binding| {
             while let Some(event) = history_events.get(next_history_event) {
-                if event.offset > binding.span.start.offset {
+                if event.offset > binding.span.start.offset() {
                     break;
                 }
                 push_array_history(&mut array_history, event.name.clone(), event.state);
@@ -229,7 +229,7 @@ fn zsh_selectorless_subscript_value_resets_scalar_history(
         && !matches!(
             checker
                 .semantic()
-                .shell_behavior_at(binding.span.start.offset)
+                .shell_behavior_at(binding.span.start.offset())
                 .array_reference_policy(),
             ArrayReferencePolicy::RequiresExplicitSelector
         )
@@ -268,7 +268,7 @@ struct BuiltinArrayHistory {
 impl BuiltinArrayHistory {
     fn contains_target(&self, binding: &Binding) -> bool {
         self.target_spans
-            .contains(&(binding.span.start.offset, binding.span.end.offset))
+            .contains(&(binding.span.start.offset(), binding.span.end.offset()))
     }
 }
 
@@ -315,13 +315,13 @@ fn collect_command_array_history(
             }
             history
                 .target_spans
-                .insert((target.span().start.offset, target.span().end.offset));
+                .insert((target.span().start.offset(), target.span().end.offset()));
             history.events.push(ArrayHistoryEvent {
-                offset: target.span().start.offset,
+                offset: target.span().start.offset(),
                 name: Name::from(target.key().as_str()),
                 state: ArrayHistoryState::from_offset(
                     checker,
-                    target.span().start.offset,
+                    target.span().start.offset(),
                     true,
                     false,
                 ),
@@ -345,13 +345,13 @@ fn collect_command_array_history(
             }
             history
                 .target_spans
-                .insert((target.span().start.offset, target.span().end.offset));
+                .insert((target.span().start.offset(), target.span().end.offset()));
             history.events.push(ArrayHistoryEvent {
-                offset: target.span().start.offset,
+                offset: target.span().start.offset(),
                 name: Name::from(target.key().as_str()),
                 state: ArrayHistoryState::from_offset(
                     checker,
-                    target.span().start.offset,
+                    target.span().start.offset(),
                     true,
                     false,
                 ),
@@ -381,7 +381,7 @@ fn presence_test_reset_events(
                 checker,
                 &mut events,
                 &mut seen,
-                fact.command_span().start.offset,
+                fact.command_span().start.offset(),
                 &name,
             );
         }
@@ -390,7 +390,7 @@ fn presence_test_reset_events(
                 checker,
                 &mut events,
                 &mut seen,
-                fact.command_span().start.offset,
+                fact.command_span().start.offset(),
                 &name,
             );
         }
@@ -409,11 +409,11 @@ fn name_only_declaration_history_events(checker: &Checker<'_>) -> Vec<ArrayHisto
             };
             if name_only_declaration_resets_array_history(declaration.builtin, flags) {
                 events.push(ArrayHistoryEvent {
-                    offset: span.start.offset,
+                    offset: span.start.offset(),
                     name: name.clone(),
                     state: ArrayHistoryState::from_offset(
                         checker,
-                        span.start.offset,
+                        span.start.offset(),
                         false,
                         declaration.builtin == DeclarationBuiltin::Local,
                     ),
@@ -504,7 +504,7 @@ fn append_declaration_assignment_name_spans(checker: &Checker<'_>) -> HashSet<(u
         .filter_map(|operand| match operand {
             DeclarationOperand::Assignment {
                 name_span, append, ..
-            } if *append => Some((name_span.start.offset, name_span.end.offset)),
+            } if *append => Some((name_span.start.offset(), name_span.end.offset())),
             DeclarationOperand::Flag { .. }
             | DeclarationOperand::Name { .. }
             | DeclarationOperand::Assignment { .. }
@@ -518,7 +518,7 @@ fn binding_can_trigger_array_to_string_conversion(
     append_declaration_assignments: &HashSet<(usize, usize)>,
 ) -> bool {
     if append_declaration_assignments
-        .contains(&(binding.span.start.offset, binding.span.end.offset))
+        .contains(&(binding.span.start.offset(), binding.span.end.offset()))
     {
         return false;
     }
@@ -635,7 +635,7 @@ fn binding_command<'checker, 'ast>(
     checker
         .facts()
         .command_facts()
-        .innermost_command_at_binding_offset(binding.span.start.offset)
+        .innermost_command_at_binding_offset(binding.span.start.offset())
         .or_else(|| {
             checker
                 .facts()
@@ -727,7 +727,7 @@ fn command_wrapper_is_shadowed_function(
 }
 
 fn contains_span(outer: shuck_ast::Span, inner: shuck_ast::Span) -> bool {
-    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+    outer.start.offset() <= inner.start.offset() && inner.end.offset() <= outer.end.offset()
 }
 
 #[cfg(test)]

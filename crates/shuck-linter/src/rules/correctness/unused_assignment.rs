@@ -91,7 +91,7 @@ pub fn unused_assignment(checker: &mut Checker) {
             suppressed_binding_offsets_by_family
                 .entry(family.clone())
                 .or_default()
-                .push(report_span.start.offset);
+                .push(report_span.start.offset());
         }
 
         if binding.attributes.contains(BindingAttributes::EXPORTED) {
@@ -126,10 +126,10 @@ pub fn unused_assignment(checker: &mut Checker) {
             .and_modify(|current_binding_id| {
                 let current = semantic.binding(*current_binding_id);
                 if binding_follows_in_source(
-                    current.span.start.offset,
-                    current.span.end.offset,
-                    binding.span.start.offset,
-                    binding.span.end.offset,
+                    current.span.start.offset(),
+                    current.span.end.offset(),
+                    binding.span.start.offset(),
+                    binding.span.end.offset(),
                 ) {
                     *current_binding_id = *binding_id;
                 }
@@ -145,7 +145,7 @@ pub fn unused_assignment(checker: &mut Checker) {
 
         if let Some(binding_id) = last_unused_binding_by_family.get(family).copied() {
             let binding = semantic.binding(binding_id);
-            let report_offset = report_span_for_binding(checker, binding).start.offset;
+            let report_offset = report_span_for_binding(checker, binding).start.offset();
             if suppressed_binding_offsets_by_family
                 .get(family)
                 .is_some_and(|offsets| offsets.iter().any(|offset| *offset >= report_offset))
@@ -156,7 +156,7 @@ pub fn unused_assignment(checker: &mut Checker) {
         }
     }
     reportable_bindings
-        .sort_unstable_by_key(|binding_id| semantic.binding(*binding_id).span.start.offset);
+        .sort_unstable_by_key(|binding_id| semantic.binding(*binding_id).span.start.offset());
 
     for binding_id in reportable_bindings {
         let binding = semantic.binding(binding_id);
@@ -500,7 +500,7 @@ done
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
         assert_eq!(diagnostics[0].span.slice(source), "foo");
     }
 
@@ -947,7 +947,7 @@ printf '%s\\n' \"$field\"
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "rest");
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
     }
 
     #[test]
@@ -993,7 +993,7 @@ fi
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 7);
+        assert_eq!(diagnostics[0].span.start.line(), 7);
         assert_eq!(diagnostics[0].span.slice(source), "LIBDIRSUFFIX");
     }
 
@@ -1010,7 +1010,7 @@ fi
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 5);
+        assert_eq!(diagnostics[0].span.start.line(), 5);
         assert_eq!(diagnostics[0].span.slice(source), "foo");
     }
 
@@ -1020,7 +1020,7 @@ fi
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
         assert_eq!(diagnostics[0].span.slice(source), "emoji[smile]");
     }
 
@@ -1044,7 +1044,7 @@ map[dead]=2
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 
     #[test]
@@ -1053,7 +1053,7 @@ map[dead]=2
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 
     #[test]
@@ -1062,7 +1062,7 @@ map[dead]=2
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 
     #[test]
@@ -1077,9 +1077,9 @@ done
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
         assert_eq!(diagnostics[0].span.slice(source), "unused");
-        assert_eq!(diagnostics[1].span.start.line, 3);
+        assert_eq!(diagnostics[1].span.start.line(), 3);
         assert_eq!(diagnostics[1].span.slice(source), "for");
     }
 
@@ -1125,7 +1125,7 @@ done
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 
     #[test]
@@ -1879,7 +1879,7 @@ ordinary=1
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 6);
+        assert_eq!(diagnostics[0].span.start.line(), 6);
         assert_eq!(diagnostics[0].span.slice(source), "foo");
     }
 
@@ -1897,7 +1897,7 @@ ordinary=1
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 5);
+        assert_eq!(diagnostics[0].span.start.line(), 5);
     }
 
     #[test]
@@ -1923,7 +1923,7 @@ f
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 
     #[test]
@@ -1932,7 +1932,7 @@ f
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
     }
 
     #[test]
@@ -1957,7 +1957,7 @@ f
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
         assert_eq!(diagnostics[0].span.slice(source), "foo");
     }
 

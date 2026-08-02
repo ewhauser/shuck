@@ -1048,7 +1048,7 @@ fn records_glued_closing_bracket_operand_spans_for_unary_tests() {
         assert_eq!(
             commands[0]
                 .glued_closing_bracket_operand_span()
-                .map(|span| (span.start.line, span.start.column)),
+                .map(|span| (span.start.line(), span.start.column())),
             Some((2, 6))
         );
         assert_eq!(
@@ -1060,7 +1060,7 @@ fn records_glued_closing_bracket_operand_spans_for_unary_tests() {
         assert_eq!(
             commands[1]
                 .glued_closing_bracket_operand_span()
-                .map(|span| (span.start.line, span.start.column)),
+                .map(|span| (span.start.line(), span.start.column())),
             Some((3, 8))
         );
         assert_eq!(
@@ -1094,21 +1094,21 @@ if [ \"$x\" = y ]; then :; fi
             .collect::<Vec<_>>();
         let broken = commands
             .iter()
-            .find(|fact| fact.static_utility_name_is("[") && fact.span().start.line == 2)
+            .find(|fact| fact.static_utility_name_is("[") && fact.span().start.line() == 2)
             .expect("expected broken bracket test");
         let continued = commands
             .iter()
-            .find(|fact| fact.static_utility_name_is("[") && fact.span().start.line == 4)
+            .find(|fact| fact.static_utility_name_is("[") && fact.span().start.line() == 4)
             .expect("expected continued bracket test");
         let single_line = commands
             .iter()
-            .find(|fact| fact.static_utility_name_is("[") && fact.span().start.line == 6)
+            .find(|fact| fact.static_utility_name_is("[") && fact.span().start.line() == 6)
             .expect("expected single-line bracket test");
 
         assert_eq!(
             broken
                 .linebreak_in_test_anchor_span()
-                .map(|span| (span.start.line, span.start.column)),
+                .map(|span| (span.start.line(), span.start.column())),
             Some((2, 14))
         );
         assert_eq!(

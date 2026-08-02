@@ -275,7 +275,7 @@ pub(crate) fn zsh_option_map_binding_has_prior_assoc_lookup_blocker(
     semantic.bindings_for(owner_name).iter().copied().any(|id| {
         let candidate = semantic.binding(id);
         candidate.scope == binding.scope
-            && candidate.span.start.offset < binding.span.start.offset
+            && candidate.span.start.offset() < binding.span.start.offset()
             && zsh_option_map_binding_blocks_assoc_lookup(candidate)
             && !zsh_option_map_binding_origin(owner_name, candidate, source)
     })
@@ -1584,7 +1584,7 @@ pub(crate) fn var_ref_subscript_has_assoc_semantics(
         return false;
     }
 
-    let scope = semantic.scope_at(subscript.span().start.offset);
+    let scope = semantic.scope_at(subscript.span().start.offset());
     var_ref_name_has_visible_assoc_binding_at(reference, semantic, scope)
 }
 
@@ -1754,7 +1754,7 @@ pub(crate) fn collect_arithmetic_update_operator_spans_in_nested_command_body(
         .command_topology()
         .body(body)
         .for_each_command_visit(true, |_, visit| {
-            let scope = semantic.scope_at(visit.stmt.span.start.offset);
+            let scope = semantic.scope_at(visit.stmt.span.start.offset());
             collect_arithmetic_update_operator_spans_in_command(
                 visit.command,
                 semantic,
@@ -1996,7 +1996,7 @@ fn arithmetic_update_operator_fix_fact(
 }
 
 fn arithmetic_prefix_update_operand_span(operator_span: Span, source: &str) -> Option<Span> {
-    let start = operator_span.end.offset;
+    let start = operator_span.end.offset();
     let end = scan_arithmetic_lvalue_end(source, start)?;
     (end > start).then(|| {
         Span::from_positions(
@@ -2007,7 +2007,7 @@ fn arithmetic_prefix_update_operand_span(operator_span: Span, source: &str) -> O
 }
 
 fn arithmetic_postfix_update_operand_span(operator_span: Span, source: &str) -> Option<Span> {
-    let end = operator_span.start.offset;
+    let end = operator_span.start.offset();
     let start = scan_arithmetic_lvalue_start(source, end)?;
     (start < end).then(|| {
         let start_position = position_at_offset_on_same_line(operator_span.start, start);
@@ -2138,11 +2138,11 @@ fn is_arithmetic_identifier_continue(byte: u8) -> bool {
 }
 
 fn position_at_offset_on_same_line(anchor: Position, offset: usize) -> Position {
-    Position {
-        line: anchor.line,
-        column: anchor.column.saturating_sub(anchor.offset - offset),
+    Position::at(
+        anchor.line(),
+        anchor.column().saturating_sub(anchor.offset() - offset),
         offset,
-    }
+    )
 }
 
 pub(crate) fn find_operator_span(
@@ -2180,8 +2180,8 @@ pub(crate) fn double_paren_grouping_anchor(span: Span, source: &str) -> Option<S
         }
         span.start
     } else if text.starts_with('(')
-        && span.start.offset > 0
-        && source.as_bytes().get(span.start.offset - 1) == Some(&b'(')
+        && span.start.offset() > 0
+        && source.as_bytes().get(span.start.offset() - 1) == Some(&b'(')
     {
         let stripped = text.strip_prefix('(')?;
         let body_start =
@@ -2192,11 +2192,11 @@ pub(crate) fn double_paren_grouping_anchor(span: Span, source: &str) -> Option<S
         if !has_grouping_operator {
             return None;
         }
-        Position {
-            line: span.start.line,
-            column: span.start.column - 1,
-            offset: span.start.offset - 1,
-        }
+        Position::at(
+            span.start.line(),
+            span.start.column() - 1,
+            span.start.offset() - 1,
+        )
     } else {
         return None;
     };

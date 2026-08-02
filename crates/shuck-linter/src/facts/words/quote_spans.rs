@@ -391,7 +391,7 @@ pub(crate) fn mixed_quote_trailing_line_join_between_double_quotes_span(
     };
 
     if !mixed_quote_text_ends_with_unescaped_double_quote(prefix)
-        || !source[word.span.end.offset..].starts_with('"')
+        || !source[word.span.end.offset()..].starts_with('"')
     {
         return None;
     }
@@ -459,7 +459,7 @@ pub(crate) fn mixed_quote_following_line_join_suffix_after_word(
         return None;
     }
 
-    let tail = &source[word.span.end.offset..];
+    let tail = &source[word.span.end.offset()..];
     let suffix = tail
         .strip_prefix("\\\r\n\"")
         .map(|_| "\\\r\n")
@@ -489,7 +489,7 @@ pub(crate) fn mixed_quote_chained_line_join_between_double_quotes_spans(
     }
 
     let mut spans = Vec::new();
-    let mut cursor = word.span.end.offset;
+    let mut cursor = word.span.end.offset();
     let mut cursor_position = word.span.end;
     while source[cursor..].starts_with('"') {
         let Some(closing_quote_relative) =

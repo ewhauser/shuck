@@ -2712,7 +2712,7 @@ enum RenderMode {
 }
 
 fn syntax_source_slice(span: Span, source: &str) -> Option<&str> {
-    (span.start.offset < span.end.offset && span.end.offset <= source.len())
+    (span.start.offset() < span.end.offset() && span.end.offset() <= source.len())
         .then(|| span.slice(source))
 }
 
@@ -3051,7 +3051,7 @@ fn fmt_pattern_part_with_source_mode(
     match part {
         PatternPart::Literal(text) => match (mode, source) {
             (RenderMode::Syntax, Some(source))
-                if text.is_source_backed() && span.end.offset <= source.len() =>
+                if text.is_source_backed() && span.end.offset() <= source.len() =>
             {
                 f.write_str(text.syntax_str(source, span))?
             }
@@ -3060,7 +3060,7 @@ fn fmt_pattern_part_with_source_mode(
         PatternPart::AnyString => f.write_str("*")?,
         PatternPart::AnyChar => f.write_str("?")?,
         PatternPart::CharClass(text) => match source {
-            Some(source) if span.end.offset <= source.len() => f.write_str(span.slice(source))?,
+            Some(source) if span.end.offset() <= source.len() => f.write_str(span.slice(source))?,
             _ => f.write_str(display_source_text(Some(text), source))?,
         },
         PatternPart::Group { kind, patterns } => {
@@ -3092,7 +3092,7 @@ fn fmt_word_part_with_source_mode(
         && let Some(source) = source
         && part_prefers_source_slice_in_syntax(part)
         && part_is_source_backed(part)
-        && span.end.offset <= source.len()
+        && span.end.offset() <= source.len()
     {
         f.write_str(span.slice(source))?;
         return Ok(());
@@ -3101,7 +3101,7 @@ fn fmt_word_part_with_source_mode(
     match part {
         WordPart::Literal(text) => match (mode, source) {
             (RenderMode::Syntax, Some(source))
-                if text.is_source_backed() && span.end.offset <= source.len() =>
+                if text.is_source_backed() && span.end.offset() <= source.len() =>
             {
                 f.write_str(trim_unescaped_trailing_whitespace(span.slice(source)))?;
             }
@@ -3110,7 +3110,7 @@ fn fmt_word_part_with_source_mode(
         WordPart::ZshQualifiedGlob(glob) => {
             if let Some(source) = source
                 && zsh_qualified_glob_is_source_backed(glob)
-                && glob.span.end.offset <= source.len()
+                && glob.span.end.offset() <= source.len()
             {
                 f.write_str(trim_unescaped_trailing_whitespace(glob.span.slice(source)))?;
             } else {
@@ -3128,7 +3128,7 @@ fn fmt_word_part_with_source_mode(
                 Some(source)
                     if value.is_source_backed()
                         && part_is_source_backed(part)
-                        && span.end.offset <= source.len() =>
+                        && span.end.offset() <= source.len() =>
                 {
                     f.write_str(span.slice(source))?;
                 }
@@ -3149,7 +3149,9 @@ fn fmt_word_part_with_source_mode(
                 }
             }
             RenderMode::Syntax => match source {
-                Some(source) if part_is_source_backed(part) && span.end.offset <= source.len() => {
+                Some(source)
+                    if part_is_source_backed(part) && span.end.offset() <= source.len() =>
+                {
                     f.write_str(span.slice(source))?;
                 }
                 _ => {
@@ -3177,7 +3179,7 @@ fn fmt_word_part_with_source_mode(
         },
         WordPart::Variable(name) => write!(f, "${}", name)?,
         WordPart::CommandSubstitution { body, syntax } => match source {
-            Some(source) if span.end.offset <= source.len() => f.write_str(span.slice(source))?,
+            Some(source) if span.end.offset() <= source.len() => f.write_str(span.slice(source))?,
             _ => match syntax {
                 CommandSubstitutionSyntax::DollarParen => write!(f, "$({:?})", body)?,
                 CommandSubstitutionSyntax::Backtick => write!(f, "`{:?}`", body)?,
@@ -3186,7 +3188,7 @@ fn fmt_word_part_with_source_mode(
         WordPart::ArithmeticExpansion {
             expression, syntax, ..
         } => match source {
-            Some(source) if expression.is_source_backed() && span.end.offset <= source.len() => {
+            Some(source) if expression.is_source_backed() && span.end.offset() <= source.len() => {
                 f.write_str(span.slice(source))?
             }
             _ => match syntax {
@@ -3333,7 +3335,7 @@ fn fmt_word_part_with_source_mode(
             f.write_str("}")?;
         }
         WordPart::ArrayAccess(reference) => match source {
-            Some(source) if reference.is_source_backed() && span.end.offset <= source.len() => {
+            Some(source) if reference.is_source_backed() && span.end.offset() <= source.len() => {
                 f.write_str(span.slice(source))?
             }
             _ => {
@@ -3426,7 +3428,7 @@ fn fmt_word_part_with_source_mode(
         }
         WordPart::PrefixMatch { prefix, kind } => write!(f, "${{!{}{}}}", prefix, kind.as_char())?,
         WordPart::ProcessSubstitution { body, is_input } => match source {
-            Some(source) if span.end.offset <= source.len() => f.write_str(span.slice(source))?,
+            Some(source) if span.end.offset() <= source.len() => f.write_str(span.slice(source))?,
             _ => {
                 let prefix = if *is_input { "<" } else { ">" };
                 write!(f, "{}({:?})", prefix, body)?
@@ -3453,7 +3455,7 @@ fn fmt_heredoc_body_part_with_source(
 ) -> fmt::Result {
     if let Some(source) = source
         && heredoc_body_part_is_source_backed(part)
-        && span.end.offset <= source.len()
+        && span.end.offset() <= source.len()
     {
         f.write_str(span.slice(source))?;
         return Ok(());
@@ -4223,42 +4225,9 @@ mod tests {
 
     #[test]
     fn zsh_force_glob_span_helper_finds_nested_expansion_spans() {
-        let outer_span = Span::from_positions(
-            Position {
-                line: 1,
-                column: 1,
-                offset: 0,
-            },
-            Position {
-                line: 1,
-                column: 22,
-                offset: 21,
-            },
-        );
-        let forced_span = Span::from_positions(
-            Position {
-                line: 1,
-                column: 10,
-                offset: 9,
-            },
-            Position {
-                line: 1,
-                column: 19,
-                offset: 18,
-            },
-        );
-        let other_span = Span::from_positions(
-            Position {
-                line: 1,
-                column: 20,
-                offset: 19,
-            },
-            Position {
-                line: 1,
-                column: 21,
-                offset: 20,
-            },
-        );
+        let outer_span = Span::from_positions(Position::at(1, 1, 0), Position::at(1, 22, 21));
+        let forced_span = Span::from_positions(Position::at(1, 10, 9), Position::at(1, 19, 18));
+        let other_span = Span::from_positions(Position::at(1, 20, 19), Position::at(1, 21, 20));
         let word = Word {
             parts: vec![WordPartNode::new(
                 WordPart::DoubleQuoted {
@@ -4316,16 +4285,8 @@ mod tests {
 
     fn span_for_source(source: &str) -> Span {
         Span::from_positions(
-            Position {
-                line: 1,
-                column: 1,
-                offset: 0,
-            },
-            Position {
-                line: 1,
-                column: source.chars().count() + 1,
-                offset: source.len(),
-            },
+            Position::at(1, 1, 0),
+            Position::at(1, source.chars().count() + 1, source.len()),
         )
     }
 
@@ -4453,18 +4414,7 @@ mod tests {
 
     #[test]
     fn word_render_syntax_preserves_source_backed_braced_variable() {
-        let span = Span::from_positions(
-            Position {
-                line: 1,
-                column: 1,
-                offset: 0,
-            },
-            Position {
-                line: 1,
-                column: 5,
-                offset: 4,
-            },
-        );
+        let span = Span::from_positions(Position::at(1, 1, 0), Position::at(1, 5, 4));
         let w = Word {
             parts: vec![WordPartNode::new(WordPart::Variable("1".into()), span)],
             span,
@@ -4476,18 +4426,7 @@ mod tests {
 
     #[test]
     fn word_render_syntax_trims_source_backed_literal_delimiters() {
-        let span = Span::from_positions(
-            Position {
-                line: 1,
-                column: 1,
-                offset: 0,
-            },
-            Position {
-                line: 1,
-                column: 5,
-                offset: 4,
-            },
-        );
+        let span = Span::from_positions(Position::at(1, 1, 0), Position::at(1, 5, 4));
         let w = Word {
             parts: vec![WordPartNode::new(
                 WordPart::Literal(LiteralText::source()),

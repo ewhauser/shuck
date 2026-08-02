@@ -129,7 +129,7 @@ impl<'a> SafeValueIndex<'a> {
                     TerminalFlowKind::Exit | TerminalFlowKind::Stop
                 )
             })
-            .map(|command| (command.span().end.offset, command.id()))
+            .map(|command| (command.span().end.offset(), command.id()))
             .collect::<Vec<_>>();
         terminal_inline_commands
             .sort_unstable_by_key(|(end_offset, command_id)| (*end_offset, command_id.index()));
@@ -442,7 +442,7 @@ impl<'a> SafeValueIndex<'a> {
             .copied()
             .any(|binding_id| {
                 let binding = self.semantic.binding(binding_id);
-                if binding.span.start.offset > span.start.offset {
+                if binding.span.start.offset() > span.start.offset() {
                     return false;
                 }
                 let Some(word) = self
@@ -500,7 +500,7 @@ impl<'a> SafeValueIndex<'a> {
         let mut setup_bindings = Vec::new();
         for binding_id in self.semantic.bindings_for(&name).iter().copied() {
             let binding = self.semantic.binding(binding_id);
-            if binding.span.start.offset >= span.start.offset {
+            if binding.span.start.offset() >= span.start.offset() {
                 continue;
             }
             if binding.attributes.contains(BindingAttributes::LOCAL) {
@@ -529,7 +529,7 @@ impl<'a> SafeValueIndex<'a> {
             && (self.bindings_cover_all_paths_to_reference(&setup_bindings, &name, span)
                 || setup_bindings.iter().copied().any(|binding_id| {
                     let binding = self.semantic.binding(binding_id);
-                    binding.span.end.offset <= span.start.offset
+                    binding.span.end.offset() <= span.start.offset()
                         && self.binding_dominates_reference(binding_id, &name, span)
                 }))
     }
@@ -562,11 +562,11 @@ impl<'a> SafeValueIndex<'a> {
         let mut current = self
             .facts
             .command_facts()
-            .innermost_command_id_at(span.start.offset)
+            .innermost_command_id_at(span.start.offset())
             .or_else(|| {
                 self.facts
                     .command_facts()
-                    .innermost_command_id_containing_offset(span.start.offset)
+                    .innermost_command_id_containing_offset(span.start.offset())
             });
         while let Some(command_id) = current {
             if matches!(
@@ -593,11 +593,11 @@ impl<'a> SafeValueIndex<'a> {
         let mut current = self
             .facts
             .command_facts()
-            .innermost_command_id_at(span.start.offset)
+            .innermost_command_id_at(span.start.offset())
             .or_else(|| {
                 self.facts
                     .command_facts()
-                    .innermost_command_id_containing_offset(span.start.offset)
+                    .innermost_command_id_containing_offset(span.start.offset())
             });
         while let Some(command_id) = current {
             if let Command::Compound(CompoundCommand::If(command)) =
@@ -667,7 +667,7 @@ impl<'a> SafeValueIndex<'a> {
         let behavior = self
             .facts
             .command_facts()
-            .expansion_behavior_at(word.span.start.offset);
+            .expansion_behavior_at(word.span.start.offset());
         let runtime = analyze_literal_runtime(word, self.source, context, Some(&behavior));
         if !runtime.is_runtime_sensitive() {
             return false;
@@ -723,7 +723,7 @@ impl<'a> SafeValueIndex<'a> {
         }
         let case_cli_scope = query
             .is_field_context()
-            .then(|| self.case_cli_dispatch_scope_at(at.start.offset))
+            .then(|| self.case_cli_dispatch_scope_at(at.start.offset()))
             .flatten();
         if bindings.is_empty()
             && self.status_capture_declaration_probe_covers_reference(
@@ -800,7 +800,7 @@ impl<'a> SafeValueIndex<'a> {
             && !direct_bindings.is_empty()
             && self.bindings_cover_all_paths_to_reference(&direct_bindings, name, at);
         let unsafe_helper_binding_writes_visible_local = self
-            .enclosing_function_scope_at(at.start.offset)
+            .enclosing_function_scope_at(at.start.offset())
             .is_some_and(|scope| {
                 helper_bindings.iter().copied().any(|binding_id| {
                     self.binding_writes_visible_local_in_scope_before(binding_id, scope, at)
@@ -811,7 +811,9 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         }
         if direct_bindings_cover_all_paths
-            && self.enclosing_function_scope_at(at.start.offset).is_some()
+            && self
+                .enclosing_function_scope_at(at.start.offset())
+                .is_some()
             && !self.span_is_exit_or_return_argument(at)
             && self.covering_direct_field_safe_bindings_can_stay_safe(&direct_bindings, query)
         {
@@ -865,8 +867,9 @@ impl<'a> SafeValueIndex<'a> {
         }
         let outer_bindings_cover_callers = !needs_arg_path_coverage
             || self.helper_outer_bindings_cover_all_caller_paths(name, at, &bindings);
-        let reference_is_inside_function =
-            self.enclosing_function_scope_at(at.start.offset).is_some();
+        let reference_is_inside_function = self
+            .enclosing_function_scope_at(at.start.offset())
+            .is_some();
         if helper_bindings.is_empty()
             && needs_arg_path_coverage
             && !bindings_cover_all_paths
@@ -949,8 +952,9 @@ impl<'a> SafeValueIndex<'a> {
             if !dispatch_bindings.is_empty() {
                 let mut combined = bindings.clone();
                 combined.extend(dispatch_bindings);
-                combined
-                    .sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+                combined.sort_by_key(|binding_id| {
+                    self.semantic.binding(*binding_id).span.start.offset()
+                });
                 combined.dedup();
                 if let Some(exposure) =
                     self.s001_field_safe_binding_group_exposure(&combined, at, query)
@@ -993,7 +997,7 @@ impl<'a> SafeValueIndex<'a> {
         if !query.is_field_context() || self.span_is_within_command_name(at) {
             return false;
         }
-        let Some(scope) = self.case_cli_reachable_function_scope_at(at.start.offset) else {
+        let Some(scope) = self.case_cli_reachable_function_scope_at(at.start.offset()) else {
             return false;
         };
 
@@ -1062,11 +1066,11 @@ impl<'a> SafeValueIndex<'a> {
     fn span_is_exit_or_return_argument(&self, at: Span) -> bool {
         self.facts
             .command_facts()
-            .innermost_command_id_at(at.start.offset)
+            .innermost_command_id_at(at.start.offset())
             .or_else(|| {
                 self.facts
                     .command_facts()
-                    .innermost_command_id_containing_offset(at.start.offset)
+                    .innermost_command_id_containing_offset(at.start.offset())
             })
             .is_some_and(|command_id| {
                 let command = self.facts.command_facts().command(command_id);
@@ -1105,11 +1109,11 @@ impl<'a> SafeValueIndex<'a> {
     fn span_is_return_argument(&self, at: Span) -> bool {
         self.facts
             .command_facts()
-            .innermost_command_id_at(at.start.offset)
+            .innermost_command_id_at(at.start.offset())
             .or_else(|| {
                 self.facts
                     .command_facts()
-                    .innermost_command_id_containing_offset(at.start.offset)
+                    .innermost_command_id_containing_offset(at.start.offset())
             })
             .is_some_and(|command_id| {
                 let command = self.facts.command_facts().command(command_id);
@@ -1170,9 +1174,10 @@ impl<'a> SafeValueIndex<'a> {
                                     self.definition_command_resolves_at_call(
                                         header.command_id(),
                                         call_span,
-                                    ) && call_span.end.offset <= at.start.offset
-                                        && (call_span.start.offset >= binding.span.end.offset
-                                            || call_span.end.offset <= binding.span.start.offset)
+                                    ) && call_span.end.offset() <= at.start.offset()
+                                        && (call_span.start.offset() >= binding.span.end.offset()
+                                            || call_span.end.offset()
+                                                <= binding.span.start.offset())
                                 }
                         })
             })
@@ -1180,7 +1185,7 @@ impl<'a> SafeValueIndex<'a> {
 
     fn span_is_after_unconditional_inline_terminator(&self, at: Span) -> bool {
         for (end_offset, command_id) in &self.terminal_inline_commands {
-            if *end_offset > at.start.offset {
+            if *end_offset > at.start.offset() {
                 break;
             }
             if self.command_runs_in_unconditional_flow(*command_id, at) {
@@ -1197,8 +1202,8 @@ impl<'a> SafeValueIndex<'a> {
         call_span: Span,
     ) -> bool {
         let command = self.facts.command_facts().command(command_id);
-        let command_scope = self.enclosing_function_scope_at(command.span().start.offset);
-        let call_scope = self.enclosing_function_scope_at(call_span.start.offset);
+        let command_scope = self.enclosing_function_scope_at(command.span().start.offset());
+        let call_scope = self.enclosing_function_scope_at(call_span.start.offset());
         if command_scope.is_some() && command_scope != call_scope {
             return false;
         }
@@ -1226,14 +1231,14 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         let command = self.facts.command_facts().command(command_id);
-        let definition_scope = self.enclosing_function_scope_at(command.span().start.offset);
-        let call_scope = self.enclosing_function_scope_at(call_span.start.offset);
+        let definition_scope = self.enclosing_function_scope_at(command.span().start.offset());
+        let call_scope = self.enclosing_function_scope_at(call_span.start.offset());
 
         if definition_scope.is_none() && call_scope.is_some() {
             return true;
         }
 
-        command.span_in_source(self.source).end.offset <= call_span.start.offset
+        command.span_in_source(self.source).end.offset() <= call_span.start.offset()
     }
 
     fn command_for_name_word_span(
@@ -1267,7 +1272,7 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn s001_reference_function_unset_before_first_call(&mut self, at: Span) -> bool {
-        let Some(scope) = self.enclosing_function_scope_at(at.start.offset) else {
+        let Some(scope) = self.enclosing_function_scope_at(at.start.offset()) else {
             return false;
         };
         if let Some(result) = self.s001_unset_before_call_memo.get(&scope) {
@@ -1283,7 +1288,7 @@ impl<'a> SafeValueIndex<'a> {
         let Some(definition_command) = self.function_definition_command_for_scope(scope) else {
             return false;
         };
-        let after_offset = definition_command.span_in_source(self.source).end.offset;
+        let after_offset = definition_command.span_in_source(self.source).end.offset();
         let Some(first_unset) = self.s001_first_function_unset_event_after(scope, after_offset)
         else {
             return false;
@@ -1333,20 +1338,20 @@ impl<'a> SafeValueIndex<'a> {
                     {
                         continue;
                     }
-                    match self.enclosing_function_scope_at(call_span.start.offset) {
+                    match self.enclosing_function_scope_at(call_span.start.offset()) {
                         Some(caller_scope) => {
                             for mut event_key in self.s001_function_call_event_keys_after_inner(
                                 caller_scope,
                                 after_offset,
                                 seen_scopes,
                             ) {
-                                event_key.push(call_span.start.offset);
+                                event_key.push(call_span.start.offset());
                                 event_keys.push(event_key);
                             }
                         }
                         None => {
-                            if call_span.start.offset > after_offset {
-                                event_keys.push(vec![call_span.start.offset]);
+                            if call_span.start.offset() > after_offset {
+                                event_keys.push(vec![call_span.start.offset()]);
                             }
                         }
                     }
@@ -1386,20 +1391,20 @@ impl<'a> SafeValueIndex<'a> {
             }
 
             let command_span = command.span_in_source(self.source);
-            let event_key = match self.enclosing_function_scope_at(command_span.start.offset) {
+            let event_key = match self.enclosing_function_scope_at(command_span.start.offset()) {
                 Some(unsetter_scope) => {
                     if unsetter_scope == target_scope {
                         None
                     } else {
                         self.s001_first_function_call_event_after(unsetter_scope, after_offset)
                             .map(|mut event_key| {
-                                event_key.push(command_span.start.offset);
+                                event_key.push(command_span.start.offset());
                                 event_key
                             })
                     }
                 }
-                None => (command_span.start.offset > after_offset)
-                    .then(|| vec![command_span.start.offset]),
+                None => (command_span.start.offset() > after_offset)
+                    .then(|| vec![command_span.start.offset()]),
             };
 
             if let Some(event_key) = event_key {
@@ -1430,8 +1435,8 @@ impl<'a> SafeValueIndex<'a> {
         reference_at: Span,
     ) -> bool {
         let command = self.facts.command_facts().command(command_id);
-        if self.enclosing_function_scope_at(command.span().start.offset)
-            != self.enclosing_function_scope_at(reference_at.start.offset)
+        if self.enclosing_function_scope_at(command.span().start.offset())
+            != self.enclosing_function_scope_at(reference_at.start.offset())
         {
             return false;
         }
@@ -1583,7 +1588,7 @@ impl<'a> SafeValueIndex<'a> {
         if !query.is_field_context()
             || bindings.is_empty()
             || bindings.iter().copied().any(|binding_id| {
-                self.semantic.binding(binding_id).span.end.offset > at.start.offset
+                self.semantic.binding(binding_id).span.end.offset() > at.start.offset()
             })
             || !self.bindings_cover_all_paths_to_reference(bindings, name, at)
         {
@@ -1614,20 +1619,20 @@ impl<'a> SafeValueIndex<'a> {
         if !query.is_field_context() || bindings.is_empty() {
             return false;
         }
-        let Some(function_scope) = self.enclosing_function_scope_at(at.start.offset) else {
+        let Some(function_scope) = self.enclosing_function_scope_at(at.start.offset()) else {
             return false;
         };
 
         let mut saw_conditional_literal = false;
-        let mut first_binding_start = at.start.offset;
+        let mut first_binding_start = at.start.offset();
         for binding_id in bindings.iter().copied() {
             let binding = self.semantic.binding(binding_id);
-            if binding.span.end.offset > at.start.offset
+            if binding.span.end.offset() > at.start.offset()
                 || !self.binding_is_in_scope_or_descendant(binding_id, function_scope)
             {
                 return false;
             }
-            first_binding_start = first_binding_start.min(binding.span.start.offset);
+            first_binding_start = first_binding_start.min(binding.span.start.offset());
 
             let Some(value) = self.facts.assignments().binding_value(binding_id) else {
                 return false;
@@ -1655,7 +1660,7 @@ impl<'a> SafeValueIndex<'a> {
                 .copied()
                 .any(|binding_id| {
                     let binding = self.semantic.binding(binding_id);
-                    binding.span.end.offset <= first_binding_start
+                    binding.span.end.offset() <= first_binding_start
                         && self.semantic.binding_visible_at(binding_id, at)
                         && self.binding_is_in_scope_or_descendant(binding_id, function_scope)
                         && self.binding_is_name_only_declaration(binding_id)
@@ -1827,7 +1832,7 @@ impl<'a> SafeValueIndex<'a> {
             if candidate_id == binding_id
                 || candidate.scope != binding.scope
                 || candidate.name != binding.name
-                || candidate.span.start.offset <= binding.span.start.offset
+                || candidate.span.start.offset() <= binding.span.start.offset()
             {
                 continue;
             }
@@ -2120,7 +2125,7 @@ impl<'a> SafeValueIndex<'a> {
             prior_bindings.push(previous.id);
         }
         prior_bindings
-            .sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+            .sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset());
         prior_bindings.dedup();
 
         self.bindings_are_all_plain_empty_static_literals(&prior_bindings)
@@ -2191,7 +2196,7 @@ impl<'a> SafeValueIndex<'a> {
             .iter()
             .copied()
             .filter(|binding_id| {
-                self.semantic.binding(*binding_id).span.end.offset <= at.start.offset
+                self.semantic.binding(*binding_id).span.end.offset() <= at.start.offset()
             })
             .filter(|binding_id| {
                 self.binding_is_standalone_status_capture(*binding_id, at, case_cli_scope)
@@ -2203,20 +2208,20 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         }
 
-        let Some(reference_scope) = self.enclosing_function_scope_at(at.start.offset) else {
+        let Some(reference_scope) = self.enclosing_function_scope_at(at.start.offset()) else {
             return true;
         };
         let first_status_offset = status_bindings
             .iter()
-            .map(|binding_id| self.semantic.binding(*binding_id).span.start.offset)
+            .map(|binding_id| self.semantic.binding(*binding_id).span.start.offset())
             .min()
-            .unwrap_or(at.start.offset);
+            .unwrap_or(at.start.offset());
 
         !bindings.iter().copied().any(|binding_id| {
             let binding = self.semantic.binding(binding_id);
             binding.scope == reference_scope
-                && binding.span.start.offset > first_status_offset
-                && binding.span.start.offset < at.start.offset
+                && binding.span.start.offset() > first_status_offset
+                && binding.span.start.offset() < at.start.offset()
                 && !self.binding_is_standalone_status_capture(binding_id, at, case_cli_scope)
         })
     }
@@ -2288,7 +2293,7 @@ impl<'a> SafeValueIndex<'a> {
         if !self.status_capture_binding_is_in_short_circuit_branch(binding.span) {
             return false;
         }
-        let Some(binding_scope) = self.enclosing_function_scope_at(binding.span.start.offset)
+        let Some(binding_scope) = self.enclosing_function_scope_at(binding.span.start.offset())
         else {
             return false;
         };
@@ -2302,7 +2307,7 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         }
 
-        let at_scope = self.semantic.scope_at(at.start.offset);
+        let at_scope = self.semantic.scope_at(at.start.offset());
         let reference_is_in_binding_scope = self
             .semantic
             .scope_is_in_scope_or_descendant(at_scope, binding_scope);
@@ -2318,7 +2323,7 @@ impl<'a> SafeValueIndex<'a> {
         !relevant_call_sites.is_empty()
             && relevant_call_sites.into_iter().all(|(scope, span)| {
                 let caller_scope = self
-                    .enclosing_function_scope_at(span.start.offset)
+                    .enclosing_function_scope_at(span.start.offset())
                     .unwrap_or(scope);
                 self.scope_has_visible_initialized_local_binding_before(
                     &binding.name,
@@ -2352,10 +2357,10 @@ impl<'a> SafeValueIndex<'a> {
             .command_facts()
             .structural_commands()
             .any(|command| {
-                command.span().end.offset <= at.start.offset
+                command.span().end.offset() <= at.start.offset()
                     && self.command_blocks_cover_all_paths_to_reference(command, name, at)
                     && !case_cli_scope.is_some_and(|scope| {
-                        self.offset_is_in_scope_or_descendant(command.span().start.offset, scope)
+                        self.offset_is_in_scope_or_descendant(command.span().start.offset(), scope)
                     })
                     && command
                         .declaration_assignment_probes()
@@ -2392,8 +2397,8 @@ impl<'a> SafeValueIndex<'a> {
         name: &Name,
         at: Span,
     ) -> bool {
-        if self.enclosing_function_scope_at(command.span().start.offset)
-            != self.enclosing_function_scope_at(at.start.offset)
+        if self.enclosing_function_scope_at(command.span().start.offset())
+            != self.enclosing_function_scope_at(at.start.offset())
         {
             return false;
         }
@@ -2417,7 +2422,7 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         let entry = self
-            .enclosing_function_scope_at(at.start.offset)
+            .enclosing_function_scope_at(at.start.offset())
             .and_then(|scope| self.analysis.cfg().scope_entry(scope))
             .unwrap_or_else(|| self.analysis.cfg().entry());
         let cover_blocks = cover_blocks.iter().copied().collect::<FxHashSet<_>>();
@@ -2430,7 +2435,7 @@ impl<'a> SafeValueIndex<'a> {
             .assignments()
             .unset_commands_for_name(name)
             .any(|command| {
-                command.span().end.offset <= at.start.offset
+                command.span().end.offset() <= at.start.offset()
                     && self.command_runs_in_persistent_shell_context(command.id())
                     && self.command_runs_in_unconditional_flow(command.id(), at)
                     && self.command_blocks_cover_all_paths_to_reference(command, name, at)
@@ -2448,8 +2453,8 @@ impl<'a> SafeValueIndex<'a> {
             .assignments()
             .unset_commands_for_name(name)
             .any(|command| {
-                command.span().start.offset >= binding.span.end.offset
-                    && command.span().end.offset <= at.start.offset
+                command.span().start.offset() >= binding.span.end.offset()
+                    && command.span().end.offset() <= at.start.offset()
                     && self.command_runs_in_persistent_shell_context(command.id())
                     && !self.command_is_in_background_context(command.id())
                     && self.command_blocks_cover_all_paths_to_reference(command, name, at)
@@ -2515,7 +2520,7 @@ impl<'a> SafeValueIndex<'a> {
         {
             prior_bindings.push(previous.id);
         }
-        prior_bindings.sort_by_key(|prior_id| self.semantic.binding(*prior_id).span.start.offset);
+        prior_bindings.sort_by_key(|prior_id| self.semantic.binding(*prior_id).span.start.offset());
         prior_bindings.dedup();
 
         if prior_bindings.is_empty() {
@@ -2565,7 +2570,7 @@ impl<'a> SafeValueIndex<'a> {
         definition_span: Span,
         at: Span,
     ) -> bool {
-        let Some(helper_scope) = self.enclosing_function_scope_at(at.start.offset) else {
+        let Some(helper_scope) = self.enclosing_function_scope_at(at.start.offset()) else {
             return false;
         };
         self.loop_variable_scope_callers_stay_within_body(
@@ -2592,7 +2597,7 @@ impl<'a> SafeValueIndex<'a> {
                     return true;
                 }
 
-                let caller_scope = self.semantic.scope_at(call_span.start.offset);
+                let caller_scope = self.semantic.scope_at(call_span.start.offset());
                 let mut caller_seen = seen_scopes.clone();
                 self.loop_variable_scope_callers_stay_within_body(
                     definition_span,
@@ -2621,13 +2626,13 @@ impl<'a> SafeValueIndex<'a> {
         helper_bindings.extend(self.top_level_transitive_helper_bindings_before(name, at));
         self.retain_value_bindings(&mut helper_bindings);
         helper_bindings
-            .sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+            .sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset());
         helper_bindings.dedup();
         let mut caller_bindings = self.caller_bindings_covering_all_static_call_sites(name, at);
         self.retain_value_bindings(&mut caller_bindings);
         let mut uncalled_function_bindings = self.uncalled_function_outer_bindings_at_end(name, at);
         self.retain_value_bindings(&mut uncalled_function_bindings);
-        let function_scope = self.enclosing_function_scope_at(at.start.offset);
+        let function_scope = self.enclosing_function_scope_at(at.start.offset());
         let function_local_binding = function_scope.is_some_and(|scope| {
             bindings
                 .iter()
@@ -2645,7 +2650,8 @@ impl<'a> SafeValueIndex<'a> {
         {
             bindings = caller_bindings;
             bindings.extend(helper_bindings);
-            bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+            bindings
+                .sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset());
             bindings.dedup();
         } else if !caller_bindings.is_empty()
             && function_scope.is_some()
@@ -2654,16 +2660,19 @@ impl<'a> SafeValueIndex<'a> {
         {
             bindings = caller_bindings;
             bindings.extend(helper_bindings);
-            bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+            bindings
+                .sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset());
             bindings.dedup();
         } else if bindings.is_empty() {
             bindings = caller_bindings;
             bindings.extend(helper_bindings);
-            bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+            bindings
+                .sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset());
             bindings.dedup();
         } else if !helper_bindings.is_empty() {
             bindings.extend(helper_bindings);
-            bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+            bindings
+                .sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset());
             bindings.dedup();
         }
         if let Some(scope) = function_scope
@@ -2680,9 +2689,9 @@ impl<'a> SafeValueIndex<'a> {
                 !self.binding_writes_visible_local_in_scope_before(*binding_id, scope, at)
             });
         }
-        let reference_scope = self.semantic.scope_at(at.start.offset);
+        let reference_scope = self.semantic.scope_at(at.start.offset());
         bindings.retain(|binding_id| {
-            self.semantic.binding(*binding_id).span.start.offset <= at.start.offset
+            self.semantic.binding(*binding_id).span.start.offset() <= at.start.offset()
                 || !self.binding_is_in_scope_or_descendant(*binding_id, reference_scope)
                 || self.future_binding_can_reach_reference(*binding_id, name, at)
         });
@@ -2711,7 +2720,7 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn uncalled_function_outer_bindings_at_end(&mut self, name: &Name, at: Span) -> Vec<BindingId> {
-        let Some(helper_scope) = self.enclosing_function_scope_at(at.start.offset) else {
+        let Some(helper_scope) = self.enclosing_function_scope_at(at.start.offset()) else {
             return Vec::new();
         };
         if self
@@ -2742,17 +2751,18 @@ impl<'a> SafeValueIndex<'a> {
             .iter()
             .copied()
             .filter(|binding_id| !self.binding_is_guarded_before_reference(*binding_id, eof_span))
-            .max_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+            .max_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset());
         let Some(latest_unguarded) = latest_unguarded else {
             return Vec::new();
         };
-        let latest_unguarded_offset = self.semantic.binding(latest_unguarded).span.start.offset;
+        let latest_unguarded_offset = self.semantic.binding(latest_unguarded).span.start.offset();
         bindings.retain(|binding_id| {
             *binding_id == latest_unguarded
-                || (self.semantic.binding(*binding_id).span.start.offset > latest_unguarded_offset
+                || (self.semantic.binding(*binding_id).span.start.offset()
+                    > latest_unguarded_offset
                     && self.binding_is_guarded_before_reference(*binding_id, eof_span))
         });
-        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset());
         bindings.dedup();
         bindings
     }
@@ -2762,7 +2772,7 @@ impl<'a> SafeValueIndex<'a> {
         name: &Name,
         at: Span,
     ) -> Vec<BindingId> {
-        let Some(helper_scope) = self.enclosing_function_scope_at(at.start.offset) else {
+        let Some(helper_scope) = self.enclosing_function_scope_at(at.start.offset()) else {
             return Vec::new();
         };
         self.caller_bindings_covering_static_scope_call_sites(
@@ -2791,7 +2801,7 @@ impl<'a> SafeValueIndex<'a> {
         let mut bindings = Vec::new();
         for (scope, span) in caller_sites {
             let caller_scope = self
-                .enclosing_function_scope_at(span.start.offset)
+                .enclosing_function_scope_at(span.start.offset())
                 .unwrap_or(scope);
             let mut branch = self.caller_branch_bindings_before(name, caller_scope, span);
             self.drop_declarations_shadowed_by_covering_loop_bindings(&mut branch, span);
@@ -2829,7 +2839,7 @@ impl<'a> SafeValueIndex<'a> {
             bindings.extend(transitive);
         }
 
-        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset());
         bindings.dedup();
         Some(bindings)
     }
@@ -2888,7 +2898,8 @@ impl<'a> SafeValueIndex<'a> {
                 }
             }
             bindings.retain(|binding_id| *binding_id != current_binding);
-            bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+            bindings
+                .sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset());
             bindings.dedup();
             return bindings;
         }
@@ -2899,8 +2910,9 @@ impl<'a> SafeValueIndex<'a> {
                     .reaching_value_bindings_bypassing(name, bindings[0], at);
             if !expanded.is_empty() {
                 expanded.push(bindings[0]);
-                expanded
-                    .sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+                expanded.sort_by_key(|binding_id| {
+                    self.semantic.binding(*binding_id).span.start.offset()
+                });
                 expanded.dedup();
                 bindings = expanded;
             }
@@ -2982,7 +2994,7 @@ impl<'a> SafeValueIndex<'a> {
                 (self.loop_variable_reference_stays_within_body(*definition_span, at)
                     || self
                         .loop_variable_reference_stays_within_static_callers(*definition_span, at))
-                .then_some((binding.scope, definition_span.start.offset))
+                .then_some((binding.scope, definition_span.start.offset()))
             })
             .collect::<FxHashSet<_>>();
         if covering_loop_bindings.is_empty() {
@@ -2996,7 +3008,7 @@ impl<'a> SafeValueIndex<'a> {
             }
 
             !covering_loop_bindings.iter().any(|(scope, loop_start)| {
-                binding.scope == *scope && binding.span.start.offset <= *loop_start
+                binding.scope == *scope && binding.span.start.offset() <= *loop_start
             })
         });
     }
@@ -3064,20 +3076,23 @@ impl<'a> SafeValueIndex<'a> {
         name: &Name,
         at: Span,
     ) -> Vec<BindingId> {
-        if self.enclosing_function_scope_at(at.start.offset).is_some() {
+        if self
+            .enclosing_function_scope_at(at.start.offset())
+            .is_some()
+        {
             return Vec::new();
         }
 
         let mut bindings = Vec::new();
-        let scope = self.semantic.scope_at(at.start.offset);
+        let scope = self.semantic.scope_at(at.start.offset());
         let dispatcher_scopes = self
             .value_flow
             .borrow()
-            .called_function_scopes_before(scope, at.start.offset);
+            .called_function_scopes_before(scope, at.start.offset());
         for dispatcher_scope in dispatcher_scopes {
             bindings.extend(self.s001_branch_helper_bindings_in_scope(name, dispatcher_scope));
         }
-        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset());
         bindings.dedup();
         bindings
     }
@@ -3106,9 +3121,9 @@ impl<'a> SafeValueIndex<'a> {
                 }
             }
         }
-        call_sites.sort_by_key(|(_, span)| (span.start.offset, span.end.offset));
+        call_sites.sort_by_key(|(_, span)| (span.start.offset(), span.end.offset()));
         call_sites.dedup_by_key(|(callee_scope, span)| {
-            (*callee_scope, span.start.offset, span.end.offset)
+            (*callee_scope, span.start.offset(), span.end.offset())
         });
         if call_sites.len() < 2 {
             return Vec::new();
@@ -3129,7 +3144,10 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn top_level_transitive_helper_bindings_before(&self, name: &Name, at: Span) -> Vec<BindingId> {
-        if self.enclosing_function_scope_at(at.start.offset).is_some() {
+        if self
+            .enclosing_function_scope_at(at.start.offset())
+            .is_some()
+        {
             return Vec::new();
         }
 
@@ -3153,7 +3171,7 @@ impl<'a> SafeValueIndex<'a> {
         at: Span,
         bindings: &[BindingId],
     ) -> bool {
-        let Some(helper_scope) = self.enclosing_function_scope_at(at.start.offset) else {
+        let Some(helper_scope) = self.enclosing_function_scope_at(at.start.offset()) else {
             return true;
         };
         if !bindings
@@ -3171,7 +3189,7 @@ impl<'a> SafeValueIndex<'a> {
 
         caller_sites.into_iter().all(|(scope, span)| {
             let caller_scope = self
-                .enclosing_function_scope_at(span.start.offset)
+                .enclosing_function_scope_at(span.start.offset())
                 .unwrap_or(scope);
             let mut branch = self.caller_branch_bindings_before(name, caller_scope, span);
             self.drop_declarations_shadowed_by_covering_loop_bindings(&mut branch, span);
@@ -3243,7 +3261,7 @@ impl<'a> SafeValueIndex<'a> {
         if self.scope_has_visible_local_binding_before(name, scope, at) {
             branch.retain(|binding_id| self.semantic.binding(*binding_id).scope == scope);
         }
-        branch.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+        branch.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset());
         branch.dedup();
         branch
     }
@@ -3255,7 +3273,7 @@ impl<'a> SafeValueIndex<'a> {
         let Some(mut command_id) = self
             .facts
             .command_facts()
-            .innermost_command_id_at(call_span.start.offset)
+            .innermost_command_id_at(call_span.start.offset())
         else {
             return false;
         };
@@ -3269,8 +3287,8 @@ impl<'a> SafeValueIndex<'a> {
         let mut current = self.facts.command_facts().command_parent_id(command_id);
         while let Some(command_id) = current {
             let command = self.facts.command_facts().command(command_id);
-            if command.span().start.offset < call_span.start.offset
-                && call_span.end.offset <= command.span().end.offset
+            if command.span().start.offset() < call_span.start.offset()
+                && call_span.end.offset() <= command.span().end.offset()
                 && self
                     .facts
                     .command_facts()
@@ -3328,7 +3346,7 @@ impl<'a> SafeValueIndex<'a> {
             .any(|binding_id| {
                 let binding = self.semantic.binding(binding_id);
                 binding.scope == scope
-                    && binding.span.end.offset <= at.start.offset
+                    && binding.span.end.offset() <= at.start.offset()
                     && binding.attributes.contains(BindingAttributes::LOCAL)
             })
     }
@@ -3347,10 +3365,10 @@ impl<'a> SafeValueIndex<'a> {
             .filter(|binding_id| {
                 let binding = self.semantic.binding(*binding_id);
                 binding.scope == scope
-                    && binding.span.end.offset <= at.start.offset
+                    && binding.span.end.offset() <= at.start.offset()
                     && binding.attributes.contains(BindingAttributes::LOCAL)
             })
-            .map(|binding_id| self.semantic.binding(binding_id).span.start.offset)
+            .map(|binding_id| self.semantic.binding(binding_id).span.start.offset())
             .max();
         let Some(latest_local_start) = latest_local_start else {
             return false;
@@ -3378,8 +3396,8 @@ impl<'a> SafeValueIndex<'a> {
                     }
                 };
                 binding.scope == scope
-                    && binding.span.end.offset <= at.start.offset
-                    && binding.span.start.offset >= latest_local_start
+                    && binding.span.end.offset() <= at.start.offset()
+                    && binding.span.start.offset() >= latest_local_start
                     && initializes_local_value
             })
     }
@@ -3422,7 +3440,7 @@ impl<'a> SafeValueIndex<'a> {
 
     fn call_site_dominates_use(&self, call_span: Span, name: &Name, at: Span) -> bool {
         let _ = name;
-        self.call_site_dominates_offset(call_span, at.start.offset)
+        self.call_site_dominates_offset(call_span, at.start.offset())
     }
 
     fn function_scope_end_span(&self, scope: ScopeId) -> Option<Span> {
@@ -3440,15 +3458,15 @@ impl<'a> SafeValueIndex<'a> {
         at: Span,
         relaxed: bool,
     ) -> Vec<BindingId> {
-        let scope = self.semantic.scope_at(at.start.offset);
+        let scope = self.semantic.scope_at(at.start.offset());
         let callee_scopes = if relaxed {
             self.value_flow
                 .borrow()
-                .transitively_called_function_scopes_before_relaxed(scope, at.start.offset)
+                .transitively_called_function_scopes_before_relaxed(scope, at.start.offset())
         } else {
             self.value_flow
                 .borrow()
-                .transitively_called_function_scopes_before(scope, at.start.offset)
+                .transitively_called_function_scopes_before(scope, at.start.offset())
         };
         let mut bindings = callee_scopes
             .into_iter()
@@ -3464,20 +3482,20 @@ impl<'a> SafeValueIndex<'a> {
                     })
             })
             .collect::<Vec<_>>();
-        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset());
         bindings.dedup();
         bindings
     }
 
     fn call_site_dominates_offset(&self, call_span: Span, limit_offset: usize) -> bool {
-        if call_span.start.offset >= limit_offset {
+        if call_span.start.offset() >= limit_offset {
             return false;
         }
 
         let Some(mut command_id) = self
             .facts
             .command_facts()
-            .innermost_command_id_at(call_span.start.offset)
+            .innermost_command_id_at(call_span.start.offset())
         else {
             return true;
         };
@@ -3491,10 +3509,10 @@ impl<'a> SafeValueIndex<'a> {
         let mut current = self.facts.command_facts().command_parent_id(command_id);
         while let Some(command_id) = current {
             let command = self.facts.command_facts().command(command_id);
-            if command.span().end.offset > limit_offset {
+            if command.span().end.offset() > limit_offset {
                 break;
             }
-            if command.span().start.offset < call_span.start.offset
+            if command.span().start.offset() < call_span.start.offset()
                 && self
                     .facts
                     .command_facts()
@@ -3513,7 +3531,7 @@ impl<'a> SafeValueIndex<'a> {
         let Some(mut current) = self
             .facts
             .command_facts()
-            .innermost_command_id_at(binding.span.start.offset)
+            .innermost_command_id_at(binding.span.start.offset())
             .and_then(|id| self.facts.command_facts().command_parent_id(id))
         else {
             return false;
@@ -3525,7 +3543,7 @@ impl<'a> SafeValueIndex<'a> {
                 .facts
                 .command_facts()
                 .command_is_dominance_barrier(current)
-                && command.span().end.offset <= at.start.offset
+                && command.span().end.offset() <= at.start.offset()
             {
                 return true;
             }
@@ -3679,7 +3697,7 @@ impl<'a> SafeValueIndex<'a> {
             .collect::<Vec<_>>();
         let entry = self
             .analysis
-            .flow_entry_block_for_binding_scopes(&binding_scopes, at.start.offset);
+            .flow_entry_block_for_binding_scopes(&binding_scopes, at.start.offset());
         self.analysis
             .blocks_cover_all_paths_to_block(entry, reference_block, &cover_blocks)
     }
@@ -3693,9 +3711,9 @@ impl<'a> SafeValueIndex<'a> {
             .assignments()
             .unset_commands_for_name(name)
             .filter(|command| {
-                command.span().end.offset <= at.start.offset
-                    && self.enclosing_function_scope_at(command.span().start.offset)
-                        == self.enclosing_function_scope_at(at.start.offset)
+                command.span().end.offset() <= at.start.offset()
+                    && self.enclosing_function_scope_at(command.span().start.offset())
+                        == self.enclosing_function_scope_at(at.start.offset())
                     && self.command_runs_in_persistent_shell_context(command.id())
                     && !self.command_is_in_background_context(command.id())
                     && !self.command_is_in_boolean_list(command.id())
@@ -3764,11 +3782,11 @@ impl<'a> SafeValueIndex<'a> {
         let command_id = self
             .facts
             .command_facts()
-            .innermost_command_id_at(at.start.offset)
+            .innermost_command_id_at(at.start.offset())
             .or_else(|| {
                 self.facts
                     .command_facts()
-                    .innermost_command_id_containing_offset(at.start.offset)
+                    .innermost_command_id_containing_offset(at.start.offset())
             })?;
         self.analysis
             .block_ids_for_span(self.facts.command_facts().command(command_id).span())
@@ -4068,7 +4086,7 @@ impl<'a> SafeValueIndex<'a> {
         name: &Name,
         at: Span,
     ) -> bool {
-        let Some(function_scope) = self.enclosing_function_scope_at(at.start.offset) else {
+        let Some(function_scope) = self.enclosing_function_scope_at(at.start.offset()) else {
             return false;
         };
         if self
@@ -4087,7 +4105,7 @@ impl<'a> SafeValueIndex<'a> {
 
         let Some(file_scope) = self
             .semantic
-            .ancestor_scopes(self.semantic.scope_at(at.start.offset))
+            .ancestor_scopes(self.semantic.scope_at(at.start.offset()))
             .find(|scope| matches!(self.semantic.scope(*scope).kind, ScopeKind::File))
         else {
             return false;
@@ -4132,7 +4150,7 @@ impl<'a> SafeValueIndex<'a> {
         );
         self.retain_value_bindings(&mut transitive_helper_bindings);
         bindings.extend(transitive_helper_bindings.iter().copied());
-        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset());
         bindings.dedup();
         if bindings.is_empty() {
             return false;
@@ -4159,7 +4177,7 @@ impl<'a> SafeValueIndex<'a> {
         let has_covering_binding = self.bindings_cover_all_paths_to_reference(&bindings, name, at)
             || bindings.iter().copied().any(|binding_id| {
                 let binding = self.semantic.binding(binding_id);
-                binding.span.end.offset <= at.start.offset
+                binding.span.end.offset() <= at.start.offset()
                     && self.binding_dominates_reference(binding_id, name, at)
             });
         has_covering_binding
@@ -4223,7 +4241,7 @@ impl<'a> SafeValueIndex<'a> {
         let has_covering_binding = self.bindings_cover_all_paths_to_reference(&bindings, name, at)
             || bindings.iter().copied().any(|binding_id| {
                 let binding = self.semantic.binding(binding_id);
-                binding.span.end.offset <= at.start.offset
+                binding.span.end.offset() <= at.start.offset()
                     && self.binding_dominates_reference(binding_id, name, at)
             });
         has_covering_binding
@@ -4265,7 +4283,7 @@ impl<'a> SafeValueIndex<'a> {
                 | Command::Function(_)
                 | Command::AnonymousFunction(_) => None,
             })
-            .min_by_key(|span| span.end.offset - span.start.offset)
+            .min_by_key(|span| span.end.offset() - span.start.offset())
     }
 
     fn binding_assigns_numeric_operand_value(&mut self, binding_id: BindingId, at: Span) -> bool {
@@ -4371,7 +4389,7 @@ fn plain_scalar_reference_name_from_part(part: &WordPart) -> Option<Name> {
 }
 
 fn span_contains(container: Span, inner: Span) -> bool {
-    container.start.offset <= inner.start.offset && inner.end.offset <= container.end.offset
+    container.start.offset() <= inner.start.offset() && inner.end.offset() <= container.end.offset()
 }
 
 fn shell_name_is_uppercase_setup_value(text: &str) -> bool {
@@ -5444,7 +5462,7 @@ done
             .find(|fact| {
                 fact.expansion_context() == Some(ExpansionContext::CommandArgument)
                     && fact.span().slice(source) == "$i"
-                    && fact.span().start.line == 5
+                    && fact.span().start.line() == 5
             })
             .expect("expected post-loop $i word fact");
         let binding_id = safe_values
@@ -5895,7 +5913,7 @@ exit $?
             .next()
             .expect("expected reaching status binding");
         let case_cli_scope =
-            safe_values.case_cli_dispatch_scope_at(dispatched_use.span().start.offset);
+            safe_values.case_cli_dispatch_scope_at(dispatched_use.span().start.offset());
 
         assert_eq!(
             case_cli_scope,
@@ -6321,7 +6339,8 @@ done
             .word_facts()
             .iter()
             .filter(|fact| {
-                fact.span().slice(source).contains("$i") && matches!(fact.span().start.line, 5 | 8)
+                fact.span().slice(source).contains("$i")
+                    && matches!(fact.span().start.line(), 5 | 8)
             })
             .collect::<Vec<_>>();
 
@@ -6637,7 +6656,7 @@ render() {
             })
             .expect("expected local argument fact");
         let render_scope = analysis
-            .enclosing_function_scope_at(word_fact.span().start.offset)
+            .enclosing_function_scope_at(word_fact.span().start.offset())
             .expect("expected render scope");
         let outer_helper_binding = semantic
             .semantic()

@@ -235,7 +235,7 @@ impl<'a> Parser<'a> {
         shell_profile: ShellProfile,
     ) -> Word {
         let mut parser = Parser::with_limits_and_profile(text, max_depth, max_fuel, shell_profile);
-        let source_backed = span.end.offset <= source.len() && span.slice(source) == text;
+        let source_backed = span.end.offset() <= source.len() && span.slice(source) == text;
         let start = Position::new();
         let fragment_span = Span::from_positions(start, start.advanced_by(text));
         let mut word = parser.parse_word_with_context(text, fragment_span, start, source_backed);

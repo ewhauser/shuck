@@ -261,7 +261,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
         if self
-            .arithmetic_index_uses_associative_word_semantics(owner_name, index.span.start.offset)
+            .arithmetic_index_uses_associative_word_semantics(owner_name, index.span.start.offset())
         {
             self.visit_associative_arithmetic_key_into(index, flow, nested_regions);
             return;
@@ -420,7 +420,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                             name: name.clone(),
                             index: index.clone(),
                         },
-                        span.start.offset,
+                        span.start.offset(),
                     ) | BindingAttributes::SELF_REFERENTIAL_READ,
                 );
             }
@@ -443,7 +443,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         let name_span = arithmetic_name_span(target_span, name);
         let reference_start = self.references.len();
         self.visit_arithmetic_lvalue_indices_into(target, flow, nested_regions);
-        let mut attributes = self.arithmetic_binding_attributes(target, target_span.start.offset);
+        let mut attributes = self.arithmetic_binding_attributes(target, target_span.start.offset());
         if !matches!(op, ArithmeticAssignOp::Assign) {
             self.add_reference(name, self.arithmetic_reference_kind, name_span);
         }

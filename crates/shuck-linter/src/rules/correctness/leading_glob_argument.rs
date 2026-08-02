@@ -44,7 +44,7 @@ fn reportable_glob_diagnostic(
     }
     let active_globs = fact.active_literal_glob_spans(checker.source());
     let first_glob = active_globs.first().copied()?;
-    if first_glob.start.offset != fact.span().start.offset {
+    if first_glob.start.offset() != fact.span().start.offset() {
         return None;
     }
     let prefix = first_glob.slice(checker.source()).chars().next()?;
@@ -66,7 +66,7 @@ fn reportable_glob_diagnostic(
     let word_span = fact.span();
     Some(
         crate::Diagnostic::new(LeadingGlobArgument, anchor_span(word_span)).with_fix(
-            Fix::unsafe_edit(Edit::insertion(word_span.start.offset, "./")),
+            Fix::unsafe_edit(Edit::insertion(word_span.start.offset(), "./")),
         ),
     )
 }

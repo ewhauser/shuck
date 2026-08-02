@@ -45,7 +45,7 @@ trap done EXIT
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+                .map(|diagnostic| (diagnostic.span.start.line(), diagnostic.span.start.column()))
                 .collect::<Vec<_>>(),
             vec![
                 (2, 15),
@@ -84,7 +84,7 @@ select value in do; do :; done
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+                .map(|diagnostic| (diagnostic.span.start.line(), diagnostic.span.start.column()))
                 .collect::<Vec<_>>(),
             vec![(2, 14), (3, 14), (4, 14), (5, 6), (6, 14), (7, 17)]
         );

@@ -154,7 +154,7 @@ test *.sh
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| diagnostic.span.start.line)
+                .map(|diagnostic| diagnostic.span.start.line())
                 .collect::<Vec<_>>(),
             vec![8]
         );
@@ -174,7 +174,7 @@ test foo
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| diagnostic.span.start.line)
+                .map(|diagnostic| diagnostic.span.start.line())
                 .collect::<Vec<_>>(),
             vec![2, 3, 4]
         );
@@ -277,7 +277,7 @@ esac
             diagnostics
                 .iter()
                 .map(|diagnostic| (
-                    diagnostic.span.start.line,
+                    diagnostic.span.start.line(),
                     diagnostic.span.slice(source).to_owned(),
                 ))
                 .collect::<Vec<_>>()
@@ -300,7 +300,7 @@ test x
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| diagnostic.span.start.line)
+                .map(|diagnostic| diagnostic.span.start.line())
                 .collect::<Vec<_>>(),
             vec![2, 4, 5, 6]
         );

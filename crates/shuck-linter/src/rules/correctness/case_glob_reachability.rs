@@ -56,8 +56,8 @@ fn case_pattern_deletion_fix(
         .iter()
         .find(|item| {
             item.item().patterns.iter().any(|pattern| {
-                pattern.span.start.offset == pattern_span.start.offset
-                    && pattern.span.end.offset == pattern_span.end.offset
+                pattern.span.start.offset() == pattern_span.start.offset()
+                    && pattern.span.end.offset() == pattern_span.end.offset()
             })
         })?;
 
@@ -71,8 +71,8 @@ fn case_pattern_deletion_fix(
 
     let all_item_patterns_shadow = item.item().patterns.iter().all(|pattern| {
         shadowing_spans.iter().any(|span| {
-            span.start.offset == pattern.span.start.offset
-                && span.end.offset == pattern.span.end.offset
+            span.start.offset() == pattern.span.start.offset()
+                && span.end.offset() == pattern.span.end.offset()
         })
     });
 
@@ -91,22 +91,22 @@ fn pattern_alternative_deletion_span(
     source: &str,
 ) -> Option<Span> {
     let index = patterns.iter().position(|pattern| {
-        pattern.span.start.offset == pattern_span.start.offset
-            && pattern.span.end.offset == pattern_span.end.offset
+        pattern.span.start.offset() == pattern_span.start.offset()
+            && pattern.span.end.offset() == pattern_span.end.offset()
     })?;
 
     if index + 1 < patterns.len() {
-        let next_start = patterns[index + 1].span.start.offset;
-        let pipe = source[pattern_span.end.offset..next_start].find('|')?;
+        let next_start = patterns[index + 1].span.start.offset();
+        let pipe = source[pattern_span.end.offset()..next_start].find('|')?;
         let end = pattern_span
             .end
-            .advanced_by(&source[pattern_span.end.offset..pattern_span.end.offset + pipe + 1]);
+            .advanced_by(&source[pattern_span.end.offset()..pattern_span.end.offset() + pipe + 1]);
         return Some(Span::from_positions(pattern_span.start, end));
     }
 
     if index > 0 {
-        let previous_end = patterns[index - 1].span.end.offset;
-        let pipe = source[previous_end..pattern_span.start.offset].rfind('|')?;
+        let previous_end = patterns[index - 1].span.end.offset();
+        let pipe = source[previous_end..pattern_span.start.offset()].rfind('|')?;
         let start = patterns[index - 1]
             .span
             .end

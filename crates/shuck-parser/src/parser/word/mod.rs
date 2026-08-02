@@ -15,7 +15,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::parser) fn word_with_parts(&self, parts: Vec<WordPartNode>, span: Span) -> Word {
-        let brace_syntax = self.brace_syntax_from_parts(&parts, span.start.offset);
+        let brace_syntax = self.brace_syntax_from_parts(&parts, span.start.offset());
         Word {
             parts,
             span,
@@ -28,7 +28,7 @@ impl<'a> Parser<'a> {
         parts: WordPartBuffer,
         span: Span,
     ) -> Word {
-        let brace_syntax = self.brace_syntax_from_parts(&parts, span.start.offset);
+        let brace_syntax = self.brace_syntax_from_parts(&parts, span.start.offset());
         let parts = if parts.spilled() {
             parts.into_vec()
         } else {

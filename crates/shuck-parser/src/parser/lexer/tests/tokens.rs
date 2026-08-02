@@ -90,10 +90,10 @@ fn test_comment_token_with_span() {
     let comment = lexer.next_lexed_token_with_comments().unwrap();
     assert_eq!(comment.kind, TokenKind::Comment);
     assert_eq!(token_text(&comment, lexer.input).as_deref(), Some(" lead"));
-    assert_eq!(comment.span.start.line, 1);
-    assert_eq!(comment.span.start.column, 1);
-    assert_eq!(comment.span.end.line, 1);
-    assert_eq!(comment.span.end.column, 7);
+    assert_eq!(comment.span.start.line(), 1);
+    assert_eq!(comment.span.start.column(), 1);
+    assert_eq!(comment.span.end.line(), 1);
+    assert_eq!(comment.span.end.column(), 7);
 
     assert_next_token(&mut lexer, TokenKind::Newline, None);
     assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
@@ -102,8 +102,8 @@ fn test_comment_token_with_span() {
     let inline = lexer.next_lexed_token_with_comments().unwrap();
     assert_eq!(inline.kind, TokenKind::Comment);
     assert_eq!(token_text(&inline, lexer.input).as_deref(), Some(" tail"));
-    assert_eq!(inline.span.start.line, 2);
-    assert_eq!(inline.span.start.column, 9);
+    assert_eq!(inline.span.start.line(), 2);
+    assert_eq!(inline.span.start.column(), 9);
 }
 
 #[test]
@@ -153,8 +153,8 @@ fn test_comment_with_unicode() {
         Some(" café résumé")
     );
     // Span should cover exactly the comment bytes (including #)
-    let start = comment.span.start.offset;
-    let end = comment.span.end.offset;
+    let start = comment.span.start.offset();
+    let end = comment.span.end.offset();
     assert_eq!(start, 0);
     assert_eq!(&source[start..end], "# café résumé");
     assert!(source.is_char_boundary(start));
@@ -176,8 +176,8 @@ fn test_comment_with_cjk_characters() {
         token_text(&comment, lexer.input).as_deref(),
         Some(" 你好世界")
     );
-    let start = comment.span.start.offset;
-    let end = comment.span.end.offset;
+    let start = comment.span.start.offset();
+    let end = comment.span.end.offset();
     assert_eq!(&source[start..end], "# 你好世界");
     assert!(source.is_char_boundary(start));
     assert!(source.is_char_boundary(end));

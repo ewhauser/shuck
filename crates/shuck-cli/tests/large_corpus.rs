@@ -2403,10 +2403,10 @@ fn shuck_compatibility_records(
                     rule_codes: Vec::new(),
                     shellcheck_code: shellcheck_code.clone(),
                     range: DiagnosticRange {
-                        line: diag.span.start.line,
-                        end_line: diag.span.end.line,
-                        column: diag.span.start.column,
-                        end_column: diag.span.end.column,
+                        line: diag.span.start.line(),
+                        end_line: diag.span.end.line(),
+                        column: diag.span.start.column(),
+                        end_column: diag.span.end.column(),
                     },
                     message: diag.message.clone(),
                 })
@@ -3203,10 +3203,11 @@ fn extract_large_corpus_zsh_option_state(
     }
 
     for stmt in output.file.body.iter() {
-        if semantic.zsh_options_at(stmt.span.start.offset).is_none() {
+        if semantic.zsh_options_at(stmt.span.start.offset()).is_none() {
             return Err(format!(
                 "missing zsh option snapshot at {}:{}",
-                stmt.span.start.line, stmt.span.start.column
+                stmt.span.start.line(),
+                stmt.span.start.column()
             ));
         }
     }

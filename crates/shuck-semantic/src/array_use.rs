@@ -49,7 +49,7 @@ impl ArrayUseIndex {
                 continue;
             }
 
-            let scope = model.scope_at(declaration.span.start.offset);
+            let scope = model.scope_at(declaration.span.start.offset());
             let declaration_has_array_flag = declaration.operands.iter().any(|operand| {
                 matches!(
                     operand,
@@ -91,8 +91,8 @@ impl ArrayUseIndex {
                             append_local_declaration_spans.insert((
                                 scope,
                                 name.clone(),
-                                name_span.start.offset,
-                                name_span.end.offset,
+                                name_span.start.offset(),
+                                name_span.end.offset(),
                             ));
                         }
                     }
@@ -110,7 +110,7 @@ impl ArrayUseIndex {
                     .is_some_and(|spans| {
                         spans
                             .iter()
-                            .any(|span| span.end.offset < binding.span.start.offset)
+                            .any(|span| span.end.offset() < binding.span.start.offset())
                     })
             })
             .collect::<Vec<_>>();
@@ -121,8 +121,8 @@ impl ArrayUseIndex {
                 append_local_declaration_spans.contains(&(
                     binding.scope,
                     binding.name.clone(),
-                    binding.span.start.offset,
-                    binding.span.end.offset,
+                    binding.span.start.offset(),
+                    binding.span.end.offset(),
                 ))
             })
             .collect::<Vec<_>>();
@@ -143,7 +143,7 @@ impl ArrayUseIndex {
                 let mut inherited = false;
                 for candidate_id in model.bindings_for(&binding.name).iter().copied().rev() {
                     let candidate = model.binding(candidate_id);
-                    if candidate.span.start.offset >= binding.span.start.offset {
+                    if candidate.span.start.offset() >= binding.span.start.offset() {
                         continue;
                     }
                     if !same_scope_candidate_allowed
@@ -332,7 +332,7 @@ impl SemanticModel {
         }
 
         let latest_barrier = self
-            .ancestor_scopes(self.scope_at(reference.span.start.offset))
+            .ancestor_scopes(self.scope_at(reference.span.start.offset()))
             .flat_map(|scope| {
                 self.array_use_index()
                     .initialized_scalar_local_declarations_by_scope_name
@@ -341,8 +341,8 @@ impl SemanticModel {
                     .flatten()
                     .copied()
             })
-            .filter(|span| span.end.offset < reference.span.start.offset)
-            .max_by_key(|span| span.start.offset);
+            .filter(|span| span.end.offset() < reference.span.start.offset())
+            .max_by_key(|span| span.start.offset());
 
         latest_barrier.is_some_and(|barrier| {
             !self.zsh_array_binding_after_scalar_local_barrier(reference, barrier)
@@ -359,8 +359,8 @@ impl SemanticModel {
             .copied()
             .any(|binding_id| {
                 let binding = self.binding(binding_id);
-                binding.span.start.offset > barrier.start.offset
-                    && binding.span.start.offset < reference.span.start.offset
+                binding.span.start.offset() > barrier.start.offset()
+                    && binding.span.start.offset() < reference.span.start.offset()
                     && self.binding_visible_at(binding_id, reference.span)
                     && self.binding_has_sticky_indexed_array_type(binding_id)
             })
@@ -422,7 +422,7 @@ impl SemanticModel {
         }
 
         Some(
-            self.shell_behavior_at(reference.span.start.offset)
+            self.shell_behavior_at(reference.span.start.offset())
                 .array_reference_policy(),
         )
     }
@@ -437,7 +437,8 @@ fn binding_reset_by_name_only_declaration_before(
         .get(&(binding.scope, binding.name.clone()))
         .is_some_and(|spans| {
             spans.iter().any(|span| {
-                span.start.offset > binding.span.start.offset && span.end.offset < at.start.offset
+                span.start.offset() > binding.span.start.offset()
+                    && span.end.offset() < at.start.offset()
             })
         })
 }

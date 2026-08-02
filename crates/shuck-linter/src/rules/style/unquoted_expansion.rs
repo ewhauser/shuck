@@ -196,7 +196,7 @@ fn collect_numeric_test_operand_spans(checker: &Checker, source: &str) -> Vec<Sp
                 .map(|word| word.span)
         })
         .collect::<Vec<_>>();
-    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.sort_by_key(|span| (span.start.offset(), span.end.offset()));
     spans.dedup_by_key(|span| FactSpan::new(*span));
     spans
 }
@@ -232,7 +232,7 @@ fn collect_array_assignment_split_candidate_spans(checker: &Checker) -> Vec<Span
                 })
         })
         .collect::<Vec<_>>();
-    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.sort_by_key(|span| (span.start.offset(), span.end.offset()));
     spans.dedup();
     spans
 }
@@ -308,7 +308,7 @@ fn should_check_context(context: ExpansionContext, shell: ShellDialect) -> bool 
 }
 
 fn span_contains(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
+    outer.start.offset() <= inner.start.offset() && outer.end.offset() >= inner.end.offset()
 }
 
 fn arithmetic_word_follows_command_substitution(
@@ -317,10 +317,10 @@ fn arithmetic_word_follows_command_substitution(
     command_substitution_spans: &[Span],
 ) -> bool {
     command_substitution_spans.iter().copied().any(|span| {
-        if span.end.offset > word_span.start.offset {
+        if span.end.offset() > word_span.start.offset() {
             return false;
         }
-        let Some(between) = source.get(span.end.offset..word_span.start.offset) else {
+        let Some(between) = source.get(span.end.offset()..word_span.start.offset()) else {
             return false;
         };
         !between.contains('\n') && between.chars().all(char::is_whitespace)
@@ -939,10 +939,10 @@ mkdir_umask=`expr $umask + 22 \\
                 .iter()
                 .map(|diagnostic| {
                     (
-                        diagnostic.span.start.line,
-                        diagnostic.span.start.column,
-                        diagnostic.span.end.line,
-                        diagnostic.span.end.column,
+                        diagnostic.span.start.line(),
+                        diagnostic.span.start.column(),
+                        diagnostic.span.end.line(),
+                        diagnostic.span.end.column(),
                     )
                 })
                 .collect::<Vec<_>>(),
@@ -972,10 +972,10 @@ mkdir_umask=`expr $umask + 22 \\
                 .iter()
                 .map(|diagnostic| {
                     (
-                        diagnostic.span.start.line,
-                        diagnostic.span.start.column,
-                        diagnostic.span.end.line,
-                        diagnostic.span.end.column,
+                        diagnostic.span.start.line(),
+                        diagnostic.span.start.column(),
+                        diagnostic.span.end.line(),
+                        diagnostic.span.end.column(),
                     )
                 })
                 .collect::<Vec<_>>(),
@@ -999,10 +999,10 @@ mkdir_umask=`expr $umask + 22 \\
                 .iter()
                 .map(|diagnostic| {
                     (
-                        diagnostic.span.start.line,
-                        diagnostic.span.start.column,
-                        diagnostic.span.end.line,
-                        diagnostic.span.end.column,
+                        diagnostic.span.start.line(),
+                        diagnostic.span.start.column(),
+                        diagnostic.span.end.line(),
+                        diagnostic.span.end.column(),
                     )
                 })
                 .collect::<Vec<_>>(),
@@ -1816,7 +1816,7 @@ printf '%s\\n' ${z:=fallback}
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.slice(source)))
+                .map(|diagnostic| (diagnostic.span.start.line(), diagnostic.span.slice(source)))
                 .collect::<Vec<_>>(),
             vec![(2, "$other"), (3, "${z:=fallback}")]
         );
@@ -2148,10 +2148,10 @@ printf '%s\\n' `echo \\$1 \\$HOME \\$SAFE \\$PPID`
                 .iter()
                 .map(|diagnostic| {
                     (
-                        diagnostic.span.start.line,
-                        diagnostic.span.start.column,
-                        diagnostic.span.end.line,
-                        diagnostic.span.end.column,
+                        diagnostic.span.start.line(),
+                        diagnostic.span.start.column(),
+                        diagnostic.span.end.line(),
+                        diagnostic.span.end.column(),
                     )
                 })
                 .collect::<Vec<_>>(),
@@ -2177,10 +2177,10 @@ EOF
                 .iter()
                 .map(|diagnostic| {
                     (
-                        diagnostic.span.start.line,
-                        diagnostic.span.start.column,
-                        diagnostic.span.end.line,
-                        diagnostic.span.end.column,
+                        diagnostic.span.start.line(),
+                        diagnostic.span.start.column(),
+                        diagnostic.span.end.line(),
+                        diagnostic.span.end.column(),
                     )
                 })
                 .collect::<Vec<_>>(),
@@ -2202,10 +2202,10 @@ depfile=${depfile-`echo \"$object\" |
                 .iter()
                 .map(|diagnostic| {
                     (
-                        diagnostic.span.start.line,
-                        diagnostic.span.start.column,
-                        diagnostic.span.end.line,
-                        diagnostic.span.end.column,
+                        diagnostic.span.start.line(),
+                        diagnostic.span.start.column(),
+                        diagnostic.span.end.line(),
+                        diagnostic.span.end.column(),
                     )
                 })
                 .collect::<Vec<_>>(),
@@ -2229,10 +2229,10 @@ printf '%s\\n' `echo \\$value`
                 .iter()
                 .map(|diagnostic| {
                     (
-                        diagnostic.span.start.line,
-                        diagnostic.span.start.column,
-                        diagnostic.span.end.line,
-                        diagnostic.span.end.column,
+                        diagnostic.span.start.line(),
+                        diagnostic.span.start.column(),
+                        diagnostic.span.end.line(),
+                        diagnostic.span.end.column(),
                     )
                 })
                 .collect::<Vec<_>>(),
@@ -2253,10 +2253,10 @@ printf '%s\\n' `echo \\${SAFE:-$fallback} \\${SAFE:+$fallback}`
                 .iter()
                 .map(|diagnostic| {
                     (
-                        diagnostic.span.start.line,
-                        diagnostic.span.start.column,
-                        diagnostic.span.end.line,
-                        diagnostic.span.end.column,
+                        diagnostic.span.start.line(),
+                        diagnostic.span.start.column(),
+                        diagnostic.span.end.line(),
+                        diagnostic.span.end.column(),
                     )
                 })
                 .collect::<Vec<_>>(),
@@ -2509,10 +2509,10 @@ echo \"script
             diagnostics
                 .iter()
                 .map(|diagnostic| (
-                    diagnostic.span.start.line,
-                    diagnostic.span.start.column,
-                    diagnostic.span.end.line,
-                    diagnostic.span.end.column,
+                    diagnostic.span.start.line(),
+                    diagnostic.span.start.column(),
+                    diagnostic.span.end.line(),
+                    diagnostic.span.end.column(),
                     diagnostic.span.slice(source),
                 ))
                 .collect::<Vec<_>>(),
@@ -4032,10 +4032,10 @@ exit $RETVAL
                 .iter()
                 .map(|diagnostic| {
                     (
-                        diagnostic.span.start.line,
-                        diagnostic.span.start.column,
-                        diagnostic.span.end.line,
-                        diagnostic.span.end.column,
+                        diagnostic.span.start.line(),
+                        diagnostic.span.start.column(),
+                        diagnostic.span.end.line(),
+                        diagnostic.span.end.column(),
                     )
                 })
                 .collect::<Vec<_>>(),

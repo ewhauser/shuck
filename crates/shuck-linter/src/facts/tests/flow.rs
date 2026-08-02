@@ -44,9 +44,9 @@ fn background_semicolon_facts_report_plain_semicolons() {
 
         assert_eq!(spans.len(), 2);
         assert_eq!(spans[0].slice(source), ";");
-        assert_eq!(spans[0].start.line, 2);
+        assert_eq!(spans[0].start.line(), 2);
         assert_eq!(spans[1].slice(source), ";");
-        assert_eq!(spans[1].start.line, 3);
+        assert_eq!(spans[1].start.line(), 3);
     });
 }
 
@@ -111,11 +111,11 @@ fn commented_continuation_facts_anchor_at_comment_backslash() {
     with_facts(source, None, |_, facts| {
         let spans = facts.source_facts().commented_continuation_comment_spans();
         assert_eq!(spans.len(), 1);
-        assert_eq!(spans[0].start.line, 3);
-        assert_eq!(spans[0].start.column, 11);
+        assert_eq!(spans[0].start.line(), 3);
+        assert_eq!(spans[0].start.column(), 11);
         assert_eq!(spans[0].start, spans[0].end);
         assert_eq!(
-            &source[spans[0].start.offset - 1..spans[0].start.offset],
+            &source[spans[0].start.offset() - 1..spans[0].start.offset()],
             "\\"
         );
     });
@@ -366,7 +366,7 @@ pkg_check() {
     assert_eq!(
         body_spans
             .iter()
-            .map(|span| span.start.line)
+            .map(|span| span.start.line())
             .collect::<Vec<_>>(),
         vec![4, 8]
     );

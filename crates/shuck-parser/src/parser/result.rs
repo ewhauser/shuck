@@ -96,8 +96,8 @@ impl ParseResult {
             };
             Error::parse_at(
                 diagnostic.message.clone(),
-                diagnostic.span.start.line,
-                diagnostic.span.start.column,
+                diagnostic.span.start.line(),
+                diagnostic.span.start.column(),
             )
         })
     }

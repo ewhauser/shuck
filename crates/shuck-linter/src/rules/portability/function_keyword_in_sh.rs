@@ -51,8 +51,8 @@ fn function_keyword_in_sh_fix(header: &FunctionHeaderFact<'_>) -> Option<Fix> {
     let (_, name_span) = header.static_name_entry()?;
 
     Some(Fix::safe_edit(Edit::deletion_at(
-        keyword_span.start.offset,
-        name_span.start.offset,
+        keyword_span.start.offset(),
+        name_span.start.offset(),
     )))
 }
 

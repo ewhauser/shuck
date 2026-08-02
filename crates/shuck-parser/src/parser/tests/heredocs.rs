@@ -322,9 +322,9 @@ EOF
         "$(eval echo \\$$(echo cfgtest_${name}))"
     );
     assert_eq!(inner.span.slice(input), "$(echo cfgtest_${name})");
-    assert_eq!(inner.span.start.line, 4);
-    assert_eq!(inner.span.start.column, 21);
-    assert_eq!(inner.span.end.column, 44);
+    assert_eq!(inner.span.start.line(), 4);
+    assert_eq!(inner.span.start.column(), 21);
+    assert_eq!(inner.span.end.column(), 44);
 }
 
 #[test]

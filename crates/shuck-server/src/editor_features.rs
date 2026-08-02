@@ -101,9 +101,9 @@ where
             let local_wins = completions.items.iter().any(|item| {
                 item.kind == EditorCompletionKind::Function
                     && item.name == sourced.name
-                    && item
-                        .definition_span
-                        .is_some_and(|span| span.start.offset > sourced.import_span.start.offset)
+                    && item.definition_span.is_some_and(|span| {
+                        span.start.offset() > sourced.import_span.start.offset()
+                    })
             });
             if local_wins {
                 continue;
@@ -134,8 +134,8 @@ where
             let data = if let Some(sourced) = sourced {
                 Some(CompletionData::SourcedFunction {
                     path: sourced.path.display().to_string(),
-                    line: sourced.selection_span.start.line,
-                    column: sourced.selection_span.start.column,
+                    line: sourced.selection_span.start.line(),
+                    column: sourced.selection_span.start.column(),
                 })
             } else {
                 match completion.kind {
@@ -144,8 +144,8 @@ where
                             .definition_span
                             .map(|span| CompletionData::Symbol {
                                 symbol_kind: completion_kind_label(completion.kind).to_owned(),
-                                line: span.start.line,
-                                column: span.start.column,
+                                line: span.start.line(),
+                                column: span.start.column(),
                             })
                     }
                     EditorCompletionKind::Function => completion
@@ -162,8 +162,8 @@ where
                         })
                         .map(|span| CompletionData::Symbol {
                             symbol_kind: completion_kind_label(completion.kind).to_owned(),
-                            line: span.start.line,
-                            column: span.start.column,
+                            line: span.start.line(),
+                            column: span.start.column(),
                         }),
                     EditorCompletionKind::RuntimeName => Some(CompletionData::RuntimeName),
                     EditorCompletionKind::Builtin => Some(CompletionData::Builtin),
@@ -357,8 +357,8 @@ pub(crate) fn call_hierarchy_function_item(
         range,
         selection_range,
         data: serde_json::to_value(CallHierarchyData::Function {
-            definition_start: definition_span.start.offset,
-            definition_end: definition_span.end.offset,
+            definition_start: definition_span.start.offset(),
+            definition_end: definition_span.end.offset(),
         })
         .ok(),
     }

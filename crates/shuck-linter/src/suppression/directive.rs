@@ -333,10 +333,10 @@ fn directive_can_apply_to_following_command(
     visits.iter().any(|visit| match visit.command {
         Command::Compound(CompoundCommand::If(command)) => {
             let if_header = command.condition.first().is_some_and(|stmt| {
-                next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+                next_command_starts_after_comment_line(stmt.span.start.offset(), &context)
                     && command_start_segment_matches(
                         source,
-                        visit.stmt.span.start.offset,
+                        visit.stmt.span.start.offset(),
                         context.comment_start,
                         "if",
                     )
@@ -344,24 +344,24 @@ fn directive_can_apply_to_following_command(
 
             let then_header = body_header_matches(
                 source,
-                command.condition.span.end.offset,
+                command.condition.span.end.offset(),
                 &command.then_branch,
                 &context,
                 "then",
             ) || body_opener_matches(
                 source,
-                command.condition.span.end.offset,
+                command.condition.span.end.offset(),
                 &command.then_branch,
                 &context,
                 '{',
             );
 
-            let mut previous_branch_end = command.then_branch.span.end.offset;
+            let mut previous_branch_end = command.then_branch.span.end.offset();
             let mut elif_header = false;
             let mut elif_body_header = false;
             for (condition, branch) in &command.elif_branches {
                 elif_header |= condition.first().is_some_and(|stmt| {
-                    next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+                    next_command_starts_after_comment_line(stmt.span.start.offset(), &context)
                         && gap_segment_ends_with_keyword(
                             source,
                             previous_branch_end,
@@ -371,23 +371,23 @@ fn directive_can_apply_to_following_command(
                 });
                 elif_body_header |= body_header_matches(
                     source,
-                    condition.span.end.offset,
+                    condition.span.end.offset(),
                     branch,
                     &context,
                     "then",
                 ) || body_opener_matches(
                     source,
-                    condition.span.end.offset,
+                    condition.span.end.offset(),
                     branch,
                     &context,
                     '{',
                 );
-                previous_branch_end = branch.span.end.offset;
+                previous_branch_end = branch.span.end.offset();
             }
 
             let else_header = command.else_branch.as_ref().is_some_and(|branch| {
                 branch.first().is_some_and(|stmt| {
-                    next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+                    next_command_starts_after_comment_line(stmt.span.start.offset(), &context)
                         && (gap_segment_ends_with_keyword(
                             source,
                             previous_branch_end,
@@ -407,13 +407,13 @@ fn directive_can_apply_to_following_command(
         Command::Compound(CompoundCommand::For(command)) => {
             body_header_matches(
                 source,
-                visit.stmt.span.start.offset,
+                visit.stmt.span.start.offset(),
                 &command.body,
                 &context,
                 "do",
             ) || body_opener_matches(
                 source,
-                visit.stmt.span.start.offset,
+                visit.stmt.span.start.offset(),
                 &command.body,
                 &context,
                 '{',
@@ -422,13 +422,13 @@ fn directive_can_apply_to_following_command(
         Command::Compound(CompoundCommand::Repeat(command)) => {
             body_header_matches(
                 source,
-                visit.stmt.span.start.offset,
+                visit.stmt.span.start.offset(),
                 &command.body,
                 &context,
                 "do",
             ) || body_opener_matches(
                 source,
-                visit.stmt.span.start.offset,
+                visit.stmt.span.start.offset(),
                 &command.body,
                 &context,
                 '{',
@@ -437,13 +437,13 @@ fn directive_can_apply_to_following_command(
         Command::Compound(CompoundCommand::Foreach(command)) => {
             body_header_matches(
                 source,
-                visit.stmt.span.start.offset,
+                visit.stmt.span.start.offset(),
                 &command.body,
                 &context,
                 "do",
             ) || body_opener_matches(
                 source,
-                visit.stmt.span.start.offset,
+                visit.stmt.span.start.offset(),
                 &command.body,
                 &context,
                 '{',
@@ -452,13 +452,13 @@ fn directive_can_apply_to_following_command(
         Command::Compound(CompoundCommand::ArithmeticFor(command)) => {
             body_header_matches(
                 source,
-                visit.stmt.span.start.offset,
+                visit.stmt.span.start.offset(),
                 &command.body,
                 &context,
                 "do",
             ) || body_opener_matches(
                 source,
-                visit.stmt.span.start.offset,
+                visit.stmt.span.start.offset(),
                 &command.body,
                 &context,
                 '{',
@@ -467,19 +467,19 @@ fn directive_can_apply_to_following_command(
         Command::Compound(CompoundCommand::While(command)) => {
             loop_header_matches(
                 source,
-                visit.stmt.span.start.offset,
+                visit.stmt.span.start.offset(),
                 &command.condition,
                 context,
                 "while",
             ) || body_header_matches(
                 source,
-                command.condition.span.end.offset,
+                command.condition.span.end.offset(),
                 &command.body,
                 &context,
                 "do",
             ) || body_opener_matches(
                 source,
-                command.condition.span.end.offset,
+                command.condition.span.end.offset(),
                 &command.body,
                 &context,
                 '{',
@@ -488,19 +488,19 @@ fn directive_can_apply_to_following_command(
         Command::Compound(CompoundCommand::Until(command)) => {
             loop_header_matches(
                 source,
-                visit.stmt.span.start.offset,
+                visit.stmt.span.start.offset(),
                 &command.condition,
                 context,
                 "until",
             ) || body_header_matches(
                 source,
-                command.condition.span.end.offset,
+                command.condition.span.end.offset(),
                 &command.body,
                 &context,
                 "do",
             ) || body_opener_matches(
                 source,
-                command.condition.span.end.offset,
+                command.condition.span.end.offset(),
                 &command.body,
                 &context,
                 '{',
@@ -509,24 +509,24 @@ fn directive_can_apply_to_following_command(
         Command::Compound(CompoundCommand::Select(command)) => {
             body_header_matches(
                 source,
-                visit.stmt.span.start.offset,
+                visit.stmt.span.start.offset(),
                 &command.body,
                 &context,
                 "do",
             ) || body_opener_matches(
                 source,
-                visit.stmt.span.start.offset,
+                visit.stmt.span.start.offset(),
                 &command.body,
                 &context,
                 '{',
             )
         }
         Command::Compound(CompoundCommand::Subshell(body)) => body.first().is_some_and(|stmt| {
-            next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+            next_command_starts_after_comment_line(stmt.span.start.offset(), &context)
                 && context.prefix.trim_end().ends_with('(')
         }),
         Command::Compound(CompoundCommand::BraceGroup(body)) => body.first().is_some_and(|stmt| {
-            next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+            next_command_starts_after_comment_line(stmt.span.start.offset(), &context)
                 && context.prefix.trim_end().ends_with('{')
         }),
         _ => false,
@@ -554,17 +554,18 @@ fn case_label_directive(case: &CaseItem, comment: &NormalizedComment<'_>) -> boo
         return false;
     };
 
-    let Some(pattern_line) = u32::try_from(pattern.span.end.line).ok() else {
+    let Some(pattern_line) = u32::try_from(pattern.span.end.line()).ok() else {
         return false;
     };
-    if pattern_line != comment.line || usize::from(comment.range.start()) <= pattern.span.end.offset
+    if pattern_line != comment.line
+        || usize::from(comment.range.start()) <= pattern.span.end.offset()
     {
         return false;
     }
 
     case.body
         .first()
-        .is_none_or(|stmt| u32::try_from(stmt.span.start.line).ok() != Some(comment.line))
+        .is_none_or(|stmt| u32::try_from(stmt.span.start.line()).ok() != Some(comment.line))
 }
 
 fn strip_comment_prefix(text: &str) -> &str {
@@ -680,7 +681,7 @@ fn loop_header_matches(
     keyword: &str,
 ) -> bool {
     condition.first().is_some_and(|stmt| {
-        next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+        next_command_starts_after_comment_line(stmt.span.start.offset(), &context)
             && command_start_segment_matches(source, command_start, context.comment_start, keyword)
     })
 }
@@ -693,7 +694,7 @@ fn body_header_matches(
     keyword: &str,
 ) -> bool {
     body.first().is_some_and(|stmt| {
-        next_command_starts_after_comment_line(stmt.span.start.offset, context)
+        next_command_starts_after_comment_line(stmt.span.start.offset(), context)
             && gap_segment_ends_with_keyword(source, header_end, context.comment_start, keyword)
     })
 }
@@ -706,7 +707,7 @@ fn body_opener_matches(
     opener: char,
 ) -> bool {
     body.first().is_some_and(|stmt| {
-        next_command_starts_after_comment_line(stmt.span.start.offset, context)
+        next_command_starts_after_comment_line(stmt.span.start.offset(), context)
             && gap_segment_ends_with_char(source, header_end, context.comment_start, opener)
     })
 }

@@ -518,17 +518,17 @@ amoeba=\"\" [ \"${AMOEBA:-yes}\" = \"yes\" ]
     let line2 = facts
         .commands()
         .iter()
-        .find(|fact| fact.literal_name() == Some("[") && fact.span().start.line == 2)
+        .find(|fact| fact.literal_name() == Some("[") && fact.span().start.line() == 2)
         .expect("expected inline test command");
     let line3 = facts
         .commands()
         .iter()
-        .find(|fact| fact.literal_name() == Some("[") && fact.span().start.line == 3)
+        .find(|fact| fact.literal_name() == Some("[") && fact.span().start.line() == 3)
         .expect("expected redirected bracket command");
     let line4 = facts
         .commands()
         .iter()
-        .find(|fact| fact.literal_name() == Some("[") && fact.span().start.line == 4)
+        .find(|fact| fact.literal_name() == Some("[") && fact.span().start.line() == 4)
         .expect("expected plain bracket command");
 
     assert!(line2.bracket_command_name_needs_separator(source));
@@ -1060,10 +1060,10 @@ EC2_REGION=\"`echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e 's:\\([0-9][0-9]*\\)[a-z]*\\
         let spans = facts.words().echo_to_sed_substitution_spans();
         assert_eq!(spans.len(), 1);
         let span = spans[0];
-        assert_eq!(span.start.line, 2);
-        assert_eq!(span.start.column, 14);
-        assert_eq!(span.end.line, 2);
-        assert_eq!(span.end.column, 76);
+        assert_eq!(span.start.line(), 2);
+        assert_eq!(span.start.column(), 14);
+        assert_eq!(span.end.line(), 2);
+        assert_eq!(span.end.column(), 76);
     });
 }
 
@@ -1078,10 +1078,10 @@ A=\"`echo \\\"$A\\\" | sed 's/foo\\\\$/é/'`\"
         let spans = facts.words().echo_to_sed_substitution_spans();
         assert_eq!(spans.len(), 1);
         let span = spans[0];
-        assert_eq!(span.start.line, 2);
-        assert_eq!(span.start.column, 5);
-        assert_eq!(span.end.line, 2);
-        assert_eq!(span.end.column, 33);
+        assert_eq!(span.start.line(), 2);
+        assert_eq!(span.start.column(), 5);
+        assert_eq!(span.end.line(), 2);
+        assert_eq!(span.end.column(), 33);
         assert_eq!(span.slice(source), "echo \\\"$A\\\" | sed 's/foo\\\\$/");
     });
 }

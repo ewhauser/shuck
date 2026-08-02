@@ -527,7 +527,7 @@ impl<'facts, 'a> CommandFactQueries<'facts, 'a> {
     }
 
     fn command_id_for_exact_span(self, span: Span) -> Option<CommandId> {
-        let mut current = self.innermost_command_id_at(span.start.offset)?;
+        let mut current = self.innermost_command_id_at(span.start.offset())?;
         loop {
             if self.command(current).span() == span {
                 return Some(current);
@@ -959,13 +959,13 @@ impl<'facts, 'a> AssignmentFacts<'facts, 'a> {
             .c006_suppressing_reference_offsets_by_name
             .get(name)
             .is_some_and(|offsets| {
-                offsets.partition_point(|offset| *offset < span.start.offset) > 0
+                offsets.partition_point(|offset| *offset < span.start.offset()) > 0
             })
     }
 
     pub(crate) fn assignment_value_target_name_for_span(self, span: Span) -> Option<&'facts Name> {
-        let query_start = span.start.offset;
-        let query_end = span.end.offset;
+        let query_start = span.start.offset();
+        let query_end = span.end.offset();
         let upper = self
             .facts
             .assignments
@@ -1049,7 +1049,7 @@ impl<'facts, 'a> AssignmentFacts<'facts, 'a> {
                     .flatten()
                     .map(|presence| presence.tested_span()),
             )
-            .min_by_key(|span| (span.start.offset, span.end.offset))
+            .min_by_key(|span| (span.start.offset(), span.end.offset()))
     }
 
     pub(crate) fn subshell_assignment_sites(self) -> &'facts [NamedSpan] {
@@ -1193,7 +1193,7 @@ impl<'facts, 'a> SourceFacts<'facts, 'a> {
                     .command_facts()
                     .structural_commands()
                     .filter_map(|command| command.command_name_word())
-                    .map(|word| word.span.start.offset)
+                    .map(|word| word.span.start.offset())
                     .collect::<Vec<_>>();
                 command_name_offsets.sort_unstable();
                 command_name_offsets.dedup();
@@ -2171,10 +2171,11 @@ pub(crate) fn collect_array_assignment_split_scalar_expansion_spans(
     if !unquoted_command_substitution_spans.is_empty() {
         // commands is sorted by start offset (compare_command_facts_by_offset),
         // so binary-search the subrange whose start lies inside fact_span.
-        let start = commands.partition_point(|c| c.span().start.offset < fact_span.start.offset);
+        let start =
+            commands.partition_point(|c| c.span().start.offset() < fact_span.start.offset());
         for command in &commands[start..] {
             let command_span = command.span();
-            if command_span.start.offset > fact_span.end.offset {
+            if command_span.start.offset() > fact_span.end.offset() {
                 break;
             }
             if !contains_span_strictly(fact_span, command_span) {
@@ -2342,8 +2343,8 @@ pub(crate) fn push_assignment_value_target_entry(
 ) {
     if let Some(value_span) = assignment_value_span(&assignment.value) {
         entries.push(AssignmentValueTargetEntry {
-            value_start: value_span.start.offset,
-            value_end: value_span.end.offset,
+            value_start: value_span.start.offset(),
+            value_end: value_span.end.offset(),
             target_name: assignment.target.name.clone(),
         });
     }

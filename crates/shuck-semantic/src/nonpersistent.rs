@@ -164,8 +164,8 @@ impl SemanticModel {
             candidate_bindings_by_scope
                 .entry((
                     binding.name.clone(),
-                    nonpersistent_scope.span.start.offset,
-                    nonpersistent_scope.span.end.offset,
+                    nonpersistent_scope.span.start.offset(),
+                    nonpersistent_scope.span.end.offset(),
                 ))
                 .or_insert(CandidateNonpersistentAssignment {
                     binding_id: binding.id,
@@ -174,8 +174,8 @@ impl SemanticModel {
                     execution_context: self
                         .innermost_transient_scope_within_function(binding.scope),
                     assignment_span: binding.span,
-                    subshell_start: nonpersistent_scope.span.start.offset,
-                    subshell_end: nonpersistent_scope.span.end.offset,
+                    subshell_start: nonpersistent_scope.span.start.offset(),
+                    subshell_end: nonpersistent_scope.span.end.offset(),
                 });
         }
 
@@ -194,8 +194,8 @@ impl SemanticModel {
             candidates.sort_by_key(|candidate| {
                 (
                     candidate.subshell_end,
-                    candidate.assignment_span.start.offset,
-                    candidate.assignment_span.end.offset,
+                    candidate.assignment_span.start.offset(),
+                    candidate.assignment_span.end.offset(),
                 )
             });
         }
@@ -210,8 +210,8 @@ impl SemanticModel {
             persistent_reset_offsets_by_name
                 .entry(binding.name.clone())
                 .or_default()
-                .push(binding.span.start.offset);
-            command_query_offsets.push(binding.span.start.offset);
+                .push(binding.span.start.offset());
+            command_query_offsets.push(binding.span.start.offset());
         }
 
         for reference in self.references() {
@@ -222,7 +222,7 @@ impl SemanticModel {
                 continue;
             }
             if candidate_bindings_by_name.contains_key(&reference.name) {
-                command_query_offsets.push(reference.span.start.offset);
+                command_query_offsets.push(reference.span.start.offset());
                 relevant_references.push(reference);
             }
         }
@@ -232,7 +232,7 @@ impl SemanticModel {
                 continue;
             }
             if candidate_bindings_by_name.contains_key(synthetic_read.name()) {
-                command_query_offsets.push(synthetic_read.span().start.offset);
+                command_query_offsets.push(synthetic_read.span().start.offset());
                 relevant_synthetic_reads.push(synthetic_read);
             }
         }
@@ -242,7 +242,7 @@ impl SemanticModel {
                 continue;
             }
             if candidate_bindings_by_name.contains_key(&read.name) {
-                command_query_offsets.push(read.span.start.offset);
+                command_query_offsets.push(read.span.start.offset());
             }
         }
 
@@ -258,7 +258,7 @@ impl SemanticModel {
                                 precomputed_command_index_for_offset(&command_offsets, offset);
                             let command_end_offset = command_index
                                 .and_then(|index| context.commands.get(index))
-                                .map(|command| command.span.end.offset)
+                                .map(|command| command.span.end.offset())
                                 .unwrap_or(offset);
 
                             PersistentReset {
@@ -282,27 +282,29 @@ impl SemanticModel {
                 .get(&reference.name)
                 .map(Vec::as_slice)
                 .unwrap_or(&[]);
-            let event_command_index =
-                precomputed_command_index_for_offset(&command_offsets, reference.span.start.offset);
+            let event_command_index = precomputed_command_index_for_offset(
+                &command_offsets,
+                reference.span.start.offset(),
+            );
             let resolved = self.resolved_binding(reference.id);
             let reference_function_scope = self.enclosing_function_scope(reference.scope);
             if let Some(candidate) = candidates.iter().rev().find(|candidate| {
-                reference.span.start.offset > candidate.subshell_end
+                reference.span.start.offset() > candidate.subshell_end
                     && !has_intervening_persistent_reset(
                         reset_offsets,
                         candidate.subshell_end,
-                        reference.span.start.offset,
+                        reference.span.start.offset(),
                         event_command_index,
                     )
                     && resolved_binding_allows_subshell_later_use(
                         resolved,
                         candidate,
-                        reference.span.start.offset,
+                        reference.span.start.offset(),
                         reference_function_scope,
                     )
                     && self.return_later_use_allows_candidate(
                         candidate,
-                        reference.span.start.offset,
+                        reference.span.start.offset(),
                         context.options.require_return_use_same_execution_context,
                     )
             }) {
@@ -326,7 +328,7 @@ impl SemanticModel {
                 .unwrap_or(&[]);
             let synthetic_command_index = precomputed_command_index_for_offset(
                 &command_offsets,
-                synthetic_read.span().start.offset,
+                synthetic_read.span().start.offset(),
             );
             let same_command_prefix_reset = synthetic_command_index
                 .and_then(|index| context.commands.get(index))
@@ -338,11 +340,11 @@ impl SemanticModel {
                 });
             let synthetic_command_end_offset = synthetic_command_index
                 .and_then(|index| context.commands.get(index))
-                .map(|command| command.span.end.offset)
-                .unwrap_or(synthetic_read.span().start.offset);
+                .map(|command| command.span.end.offset())
+                .unwrap_or(synthetic_read.span().start.offset());
             let synthetic_function_scope = self.enclosing_function_scope(synthetic_read.scope());
             if let Some(candidate) = candidates.iter().rev().find(|candidate| {
-                synthetic_read.span().start.offset > candidate.subshell_end
+                synthetic_read.span().start.offset() > candidate.subshell_end
                     && !same_command_prefix_reset
                     && candidate_allows_unresolved_later_use(candidate, synthetic_function_scope)
                     && !has_intervening_persistent_reset(
@@ -371,15 +373,15 @@ impl SemanticModel {
                 .map(Vec::as_slice)
                 .unwrap_or(&[]);
             let event_command_index =
-                precomputed_command_index_for_offset(&command_offsets, read.span.start.offset);
+                precomputed_command_index_for_offset(&command_offsets, read.span.start.offset());
             let read_function_scope = self.enclosing_function_scope(read.scope);
             if let Some(candidate) = candidates.iter().rev().find(|candidate| {
-                read.span.start.offset > candidate.subshell_end
+                read.span.start.offset() > candidate.subshell_end
                     && candidate_allows_unresolved_later_use(candidate, read_function_scope)
                     && !has_intervening_persistent_reset(
                         reset_offsets,
                         candidate.subshell_end,
-                        read.span.start.offset,
+                        read.span.start.offset(),
                         event_command_index,
                     )
             }) {
@@ -410,12 +412,12 @@ impl SemanticModel {
                 .unwrap_or(&[]);
             let binding_function_scope = self.enclosing_function_scope(binding.scope);
             if let Some(candidate) = candidates.iter().rev().find(|candidate| {
-                binding.span.start.offset > candidate.subshell_end
+                binding.span.start.offset() > candidate.subshell_end
                     && candidate_allows_unresolved_later_use(candidate, binding_function_scope)
                     && !has_intervening_persistent_reset(
                         reset_offsets,
                         candidate.subshell_end,
-                        binding.span.start.offset,
+                        binding.span.start.offset(),
                         None,
                     )
             }) {
@@ -432,17 +434,17 @@ impl SemanticModel {
         effects.retain(|effect| {
             seen.insert((
                 effect.assignment_binding,
-                effect.later_use_span.start.offset,
-                effect.later_use_span.end.offset,
+                effect.later_use_span.start.offset(),
+                effect.later_use_span.end.offset(),
                 effect.name.clone(),
             ))
         });
         effects.sort_by_key(|effect| {
             (
-                effect.later_use_span.start.offset,
-                effect.later_use_span.end.offset,
-                effect.assignment_span.start.offset,
-                effect.assignment_span.end.offset,
+                effect.later_use_span.start.offset(),
+                effect.later_use_span.end.offset(),
+                effect.assignment_span.start.offset(),
+                effect.assignment_span.end.offset(),
             )
         });
 
@@ -588,10 +590,10 @@ fn resolved_binding_allows_subshell_later_use(
     if resolved.id == candidate.binding_id {
         return false;
     }
-    if resolved.span.start.offset > reference_offset {
+    if resolved.span.start.offset() > reference_offset {
         return true;
     }
-    if resolved.span.start.offset < candidate.subshell_start {
+    if resolved.span.start.offset() < candidate.subshell_start {
         return true;
     }
 
@@ -659,9 +661,9 @@ fn build_command_offset_lookup(
         let right_span = commands[*right].span;
         left_span
             .start
-            .offset
-            .cmp(&right_span.start.offset)
-            .then_with(|| right_span.end.offset.cmp(&left_span.end.offset))
+            .offset()
+            .cmp(&right_span.start.offset())
+            .then_with(|| right_span.end.offset().cmp(&left_span.end.offset()))
             .then_with(|| right.cmp(left))
     });
 
@@ -673,13 +675,13 @@ fn build_command_offset_lookup(
 
         while let Some(index) = command_order.get(next_command).copied() {
             let span = commands[index].span;
-            if span.start.offset > offset {
+            if span.start.offset() > offset {
                 break;
             }
 
-            pop_finished_commands(&mut active_commands, span.start.offset);
+            pop_finished_commands(&mut active_commands, span.start.offset());
             active_commands.push(OpenCommand {
-                end_offset: span.end.offset,
+                end_offset: span.end.offset(),
                 index,
             });
             next_command += 1;

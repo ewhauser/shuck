@@ -119,7 +119,7 @@ fn declaration_anchor_end(
     source: &str,
 ) -> shuck_ast::Position {
     for redirect in fact.redirects() {
-        if redirect.span.end.offset > end.offset {
+        if redirect.span.end.offset() > end.offset() {
             end = redirect.span.end;
         }
     }
@@ -141,7 +141,7 @@ fn clip_terminator(
     _source: &str,
 ) -> shuck_ast::Position {
     if let Some(terminator_span) = fact.stmt().terminator_span
-        && terminator_span.start.offset < end.offset
+        && terminator_span.start.offset() < end.offset()
     {
         end = terminator_span.start;
     }

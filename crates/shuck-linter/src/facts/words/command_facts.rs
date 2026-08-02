@@ -56,7 +56,7 @@ pub(crate) fn build_function_in_alias_facts(
             }
         }
     }
-    facts.sort_by_key(|fact| (fact.span().start.offset, fact.span().end.offset));
+    facts.sort_by_key(|fact| (fact.span().start.offset(), fact.span().end.offset()));
     facts.dedup_by_key(|fact| FactSpan::new(fact.span()));
     facts
 }
@@ -90,7 +90,7 @@ pub(crate) fn build_alias_definition_expansion_facts(
             })
         })
         .collect::<Vec<_>>();
-    facts.sort_by_key(|fact| (fact.span().start.offset, fact.span().end.offset));
+    facts.sort_by_key(|fact| (fact.span().start.offset(), fact.span().end.offset()));
     facts.dedup_by_key(|fact| FactSpan::new(fact.span()));
     facts
 }
@@ -122,7 +122,7 @@ fn alias_definition_first_active_expansion_span(
                 .iter()
                 .copied()
         })
-        .min_by_key(|span| (span.start.offset, span.end.offset))
+        .min_by_key(|span| (span.start.offset(), span.end.offset()))
 }
 
 pub(crate) fn alias_definition_word_groups_for_command<'a>(
@@ -143,7 +143,7 @@ pub(crate) fn alias_definition_word_groups_for_command<'a>(
         let mut definition_len = 1usize;
         while word_ends_with_literal_equals(last_word, source)
             && let Some(next_word) = body_args.get(index + definition_len).copied()
-            && last_word.span.end.offset == next_word.span.start.offset
+            && last_word.span.end.offset() == next_word.span.start.offset()
         {
             last_word = next_word;
             definition_len += 1;
@@ -172,21 +172,21 @@ pub(crate) fn word_chars_outside_expansions<'a>(
 ) -> impl Iterator<Item = (usize, char)> + 'a {
     let text = word.span.slice(source);
     let mut excluded = expansion_part_spans(word);
-    excluded.sort_by_key(|span| span.start.offset);
+    excluded.sort_by_key(|span| span.start.offset());
     let mut excluded = excluded.into_iter().peekable();
 
     text.char_indices().filter(move |(offset, _)| {
-        let absolute_offset = word.span.start.offset + offset;
+        let absolute_offset = word.span.start.offset() + offset;
         while matches!(
             excluded.peek(),
-            Some(span) if absolute_offset >= span.end.offset
+            Some(span) if absolute_offset >= span.end.offset()
         ) {
             excluded.next();
         }
 
         !matches!(
             excluded.peek(),
-            Some(span) if absolute_offset >= span.start.offset && absolute_offset < span.end.offset
+            Some(span) if absolute_offset >= span.start.offset() && absolute_offset < span.end.offset()
         )
     })
 }
@@ -230,11 +230,11 @@ fn alias_definition_single_quoted_replacement(
 ) -> Option<(Span, Box<str>)> {
     let span = alias_definition_span(words)?;
     let equals_offset = alias_definition_equals_offset(words, source)?;
-    let name = source.get(span.start.offset..equals_offset)?;
+    let name = source.get(span.start.offset()..equals_offset)?;
     if !literal_alias_name_is_fixable(name) {
         return None;
     }
-    let value = source.get(equals_offset + 1..span.end.offset)?;
+    let value = source.get(equals_offset + 1..span.end.offset())?;
     let body = strip_simple_alias_value_quotes(value).unwrap_or(value);
     Some((
         span,
@@ -245,7 +245,7 @@ fn alias_definition_single_quoted_replacement(
 fn alias_definition_equals_offset(words: &[&Word], source: &str) -> Option<usize> {
     words.iter().find_map(|word| {
         word_chars_outside_expansions(word, source)
-            .find_map(|(offset, ch)| (ch == '=').then_some(word.span.start.offset + offset))
+            .find_map(|(offset, ch)| (ch == '=').then_some(word.span.start.offset() + offset))
     })
 }
 
@@ -907,13 +907,13 @@ pub(crate) fn sc2001_like_backtick_sed_script_end(
     let raw_script_end = match script_words {
         [script] => backtick_sed_script_content_end_offset(
             script.span.slice(source),
-            script.span.end.offset,
+            script.span.end.offset(),
         )?,
         [first, .., last]
             if first.span.slice(source).starts_with("\\\"")
                 && last.span.slice(source).ends_with("\\\"") =>
         {
-            last.span.end.offset.checked_sub(2)?
+            last.span.end.offset().checked_sub(2)?
         }
         _ => return None,
     };
@@ -1265,14 +1265,14 @@ pub(crate) fn detect_sudo_family_invoker(
     let Command::Simple(command) = command else {
         return None;
     };
-    let body_start = normalized.body_span.start.offset;
+    let body_start = normalized.body_span.start.offset();
     let scan_all_words = normalized.body_words.is_empty();
 
     std::iter::once(&command.name)
         .chain(command.args.iter())
         // Unresolved sudo-family wrappers intentionally keep the wrapper marker
         // even when there is no statically known inner command.
-        .take_while(|word| scan_all_words || word.span.start.offset < body_start)
+        .take_while(|word| scan_all_words || word.span.start.offset() < body_start)
         .filter_map(|word| static_word_text(word, source))
         .map(|word| word.strip_prefix('\\').unwrap_or(word.as_ref()).to_owned())
         .filter_map(|word| match word.as_str() {

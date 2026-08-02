@@ -26,8 +26,8 @@ pub fn chained_test_branches(checker: &mut Checker) {
 
     lists.sort_by_key(|list| {
         (
-            list.span().start.offset,
-            Reverse(list.span().end.offset - list.span().start.offset),
+            list.span().start.offset(),
+            Reverse(list.span().end.offset() - list.span().start.offset()),
         )
     });
 
@@ -52,9 +52,9 @@ pub fn chained_test_branches(checker: &mut Checker) {
 }
 
 fn span_strictly_contains(outer: shuck_ast::Span, inner: shuck_ast::Span) -> bool {
-    outer.start.offset <= inner.start.offset
-        && inner.end.offset <= outer.end.offset
-        && (outer.start.offset < inner.start.offset || inner.end.offset < outer.end.offset)
+    outer.start.offset() <= inner.start.offset()
+        && inner.end.offset() <= outer.end.offset()
+        && (outer.start.offset() < inner.start.offset() || inner.end.offset() < outer.end.offset())
 }
 
 fn matches_mixed_short_circuit(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
@@ -383,7 +383,7 @@ check && {
             test_snippet(source, &LinterSettings::for_rule(Rule::ChainedTestBranches));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "&&");
     }
 }

@@ -42,7 +42,7 @@ pub fn set_flags_without_dashes(checker: &mut Checker) {
     for span in spans {
         checker.report_diagnostic_dedup(
             Diagnostic::new(SetFlagsWithoutDashes, span)
-                .with_fix(Fix::safe_edit(Edit::insertion(span.start.offset, "-- "))),
+                .with_fix(Fix::safe_edit(Edit::insertion(span.start.offset(), "-- "))),
         );
     }
 }

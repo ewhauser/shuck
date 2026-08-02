@@ -5,8 +5,8 @@ impl<'a> Parser<'a> {
     pub(super) fn error(&self, message: impl Into<String>) -> Error {
         Error::parse_at(
             message,
-            self.current_span.start.line,
-            self.current_span.start.column,
+            self.current_span.start.line(),
+            self.current_span.start.column(),
         )
     }
 

@@ -87,8 +87,8 @@ fn build_sorted_single_quoted_bounds(
         .map(|fragment| {
             let span = fragment.span();
             SingleQuotedFragmentBounds {
-                start: span.start.offset,
-                end: span.end.offset,
+                start: span.start.offset(),
+                end: span.end.offset(),
             }
         })
         .collect();
@@ -420,8 +420,8 @@ fn is_regex_like_context(context: Option<ExpansionContext>) -> bool {
 }
 
 fn span_within_single_quoted_fragment(span: Span, bounds: &[SingleQuotedFragmentBounds]) -> bool {
-    let span_start = span.start.offset;
-    let span_end = span.end.offset;
+    let span_start = span.start.offset();
+    let span_end = span.end.offset();
     let index = bounds.partition_point(|b| b.start <= span_start);
     if index == 0 {
         return false;
@@ -431,9 +431,9 @@ fn span_within_single_quoted_fragment(span: Span, bounds: &[SingleQuotedFragment
 }
 
 fn span_within_any(span: Span, hosts: &[Span]) -> bool {
-    hosts
-        .iter()
-        .any(|host| span.start.offset >= host.start.offset && span.end.offset <= host.end.offset)
+    hosts.iter().any(|host| {
+        span.start.offset() >= host.start.offset() && span.end.offset() <= host.end.offset()
+    })
 }
 
 fn lookup_command_fact<'facts, 'a>(
@@ -620,7 +620,7 @@ echo foo\tbar
                     .copied()
                     .find(|escape| {
                         escape.escaped_byte() == b't'
-                            && escape.span().start.line == 2
+                            && escape.span().start.line() == 2
                             && escape.source_kind() == EscapeScanSourceKind::WordLiteralPart
                     })
                     .expect("expected grep argument match");
@@ -631,7 +631,7 @@ echo foo\tbar
                     .copied()
                     .find(|escape| {
                         escape.escaped_byte() == b't'
-                            && escape.span().start.line == 3
+                            && escape.span().start.line() == 3
                             && escape.source_kind() == EscapeScanSourceKind::WordLiteralPart
                     })
                     .expect("expected ordinary argument match");
@@ -658,7 +658,7 @@ echo foo\.bar
                     .copied()
                     .find(|escape| {
                         escape.escaped_byte() == b'.'
-                            && escape.span().start.line == 2
+                            && escape.span().start.line() == 2
                             && escape.source_kind() == EscapeScanSourceKind::WordLiteralPart
                     })
                     .expect("expected tr operand match");
@@ -669,7 +669,7 @@ echo foo\.bar
                     .copied()
                     .find(|escape| {
                         escape.escaped_byte() == b'.'
-                            && escape.span().start.line == 3
+                            && escape.span().start.line() == 3
                             && escape.source_kind() == EscapeScanSourceKind::WordLiteralPart
                     })
                     .expect("expected ordinary word match");
@@ -696,7 +696,7 @@ name="${name//[^a-zA-Z0-9_\-]/}"
                     .copied()
                     .find(|escape| {
                         escape.escaped_byte() == b'-'
-                            && escape.span().start.line == 2
+                            && escape.span().start.line() == 2
                             && escape.source_kind() == EscapeScanSourceKind::PatternCharClass
                     })
                     .expect("expected case-pattern char class match");
@@ -706,7 +706,7 @@ name="${name//[^a-zA-Z0-9_\-]/}"
                     .copied()
                     .find(|escape| {
                         escape.escaped_byte() == b'-'
-                            && escape.span().start.line == 3
+                            && escape.span().start.line() == 3
                             && escape.source_kind()
                                 == EscapeScanSourceKind::ParameterPatternCharClass
                     })

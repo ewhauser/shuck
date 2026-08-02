@@ -157,8 +157,8 @@ impl<'model> SemanticAnalysis<'model> {
                     let name = Name::from(name.as_str());
                     let Some(binding_id) = self.visible_function_binding_defined_before(
                         &name,
-                        self.model.scope_at(dispatcher_span.start.offset),
-                        dispatcher_span.start.offset,
+                        self.model.scope_at(dispatcher_span.start.offset()),
+                        dispatcher_span.start.offset(),
                     ) else {
                         continue;
                     };
@@ -182,19 +182,19 @@ impl<'model> SemanticAnalysis<'model> {
     ) -> Vec<ScopeId> {
         let dispatcher_offset = dispatches
             .iter()
-            .map(|dispatch| dispatch.dispatcher_span().start.offset)
+            .map(|dispatch| dispatch.dispatcher_span().start.offset())
             .min();
         let top_level_exit_offset = file
             .body
             .iter()
             .find(|stmt| stmt_is_standalone_exit(stmt))
-            .map(|stmt| stmt.span.start.offset);
+            .map(|stmt| stmt.span.start.offset());
         let mut scopes = self
             .function_bindings_by_scope()
             .filter_map(|(scope, bindings)| {
                 let function_start = bindings
                     .iter()
-                    .map(|binding_id| self.model.binding(*binding_id).span.start.offset)
+                    .map(|binding_id| self.model.binding(*binding_id).span.start.offset())
                     .min()?;
                 (self.function_scope_is_nested(scope)
                     || dispatcher_offset.is_some_and(|offset| function_start < offset)
@@ -202,7 +202,7 @@ impl<'model> SemanticAnalysis<'model> {
                 .then_some(scope)
             })
             .collect::<Vec<_>>();
-        scopes.sort_by_key(|scope| self.model.scope(*scope).span.start.offset);
+        scopes.sort_by_key(|scope| self.model.scope(*scope).span.start.offset());
         scopes.dedup();
         scopes
     }
@@ -230,7 +230,7 @@ impl<'model> SemanticAnalysis<'model> {
             .iter()
             .copied()
             .find_map(|scope| {
-                self.latest_function_binding_before(name, scope, site.name_span.start.offset)
+                self.latest_function_binding_before(name, scope, site.name_span.start.offset())
             })
             .or_else(|| {
                 scopes
@@ -251,8 +251,8 @@ impl<'model> SemanticAnalysis<'model> {
             .iter()
             .copied()
             .filter(|candidate| self.model.binding(*candidate).scope == scope)
-            .filter(|candidate| self.model.binding(*candidate).span.start.offset < offset)
-            .max_by_key(|candidate| self.model.binding(*candidate).span.start.offset)
+            .filter(|candidate| self.model.binding(*candidate).span.start.offset() < offset)
+            .max_by_key(|candidate| self.model.binding(*candidate).span.start.offset())
     }
 
     fn earliest_function_binding_in_scope(&self, name: &Name, scope: ScopeId) -> Option<BindingId> {
@@ -261,7 +261,7 @@ impl<'model> SemanticAnalysis<'model> {
             .iter()
             .copied()
             .filter(|candidate| self.model.binding(*candidate).scope == scope)
-            .min_by_key(|candidate| self.model.binding(*candidate).span.start.offset)
+            .min_by_key(|candidate| self.model.binding(*candidate).span.start.offset())
     }
 
     fn visible_function_call_bindings(&self) -> &FxHashMap<SpanKey, BindingId> {
@@ -404,7 +404,7 @@ impl<'model> SemanticAnalysis<'model> {
         }
 
         let binding_scope = self.model.binding(binding_id).scope;
-        let entry = self.flow_entry_block_for_binding_scopes(&[binding_scope], at.start.offset);
+        let entry = self.flow_entry_block_for_binding_scopes(&[binding_scope], at.start.offset());
         self.blocks_cover_all_paths_to_block(
             entry,
             reference_block,

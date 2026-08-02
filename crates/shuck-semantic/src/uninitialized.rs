@@ -45,16 +45,16 @@ impl<'model> SemanticAnalysis<'model> {
             self.model.references[reference_id.index()]
                 .span
                 .start
-                .offset
-                < at.start.offset
+                .offset()
+                < at.start.offset()
         });
 
         references[first_candidate..]
             .iter()
             .find_map(|reference_id| {
                 let reference = &self.model.references[reference_id.index()];
-                (reference.span.start.offset >= at.start.offset
-                    && reference.span.end.offset <= at.end.offset
+                (reference.span.start.offset() >= at.start.offset()
+                    && reference.span.end.offset() <= at.end.offset()
                     && !matches!(
                         reference.kind,
                         ReferenceKind::DeclarationName | ReferenceKind::ImplicitRead

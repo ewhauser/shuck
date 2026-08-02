@@ -126,9 +126,9 @@ pub(crate) fn build_call_graph(
                         .into_iter()
                         .flat_map(|sites| sites.iter())
                         .any(|site| {
-                            let first = bindings[pair[0].index()].span.start.offset;
-                            let second = bindings[pair[1].index()].span.start.offset;
-                            site.span.start.offset > first && site.span.start.offset < second
+                            let first = bindings[pair[0].index()].span.start.offset();
+                            let second = bindings[pair[1].index()].span.start.offset();
+                            site.span.start.offset() > first && site.span.start.offset() < second
                         }),
                 })
         })

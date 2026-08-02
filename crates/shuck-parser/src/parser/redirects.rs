@@ -377,10 +377,10 @@ impl<'a> Parser<'a> {
         let mut redirects = SmallVec::<[Redirect; 1]>::new();
         let mut pending_fd_var = None;
         loop {
-            let current_end = self.current_span.end.offset;
+            let current_end = self.current_span.end.offset();
             let next_token = self
                 .peek_next()
-                .map(|token| (token.kind, token.span.start.offset));
+                .map(|token| (token.kind, token.span.start.offset()));
             let input_len = self.input.len();
             if pending_fd_var.is_none()
                 && let Some((fd_var, fd_var_span)) = self.current_fd_var()

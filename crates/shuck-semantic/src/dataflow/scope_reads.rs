@@ -340,7 +340,7 @@ pub(super) fn build_scope_read_plans(
             plan.direct_reads.insert(compact);
         }
         plan.events.push(ScopeReadEvent {
-            offset: reference.span.start.offset,
+            offset: reference.span.start.offset(),
             block: reference_blocks[reference_index],
             kind: ScopeReadEventKind::Direct(name_id),
         });
@@ -353,7 +353,7 @@ pub(super) fn build_scope_read_plans(
             plan.direct_reads.insert(compact);
         }
         plan.events.push(ScopeReadEvent {
-            offset: synthetic_read.span.start.offset,
+            offset: synthetic_read.span.start.offset(),
             block: command_block_for_span(cfg, synthetic_read.span),
             kind: ScopeReadEventKind::Direct(name_id),
         });
@@ -559,8 +559,8 @@ pub(super) fn binding_has_future_reads_before_local_shadow(
             escape_reads_visible
                 || future_reads_contain_after_without_shadow(
                     binding.scope,
-                    binding.span.start.offset,
-                    shadow.span.start.offset,
+                    binding.span.start.offset(),
+                    shadow.span.start.offset(),
                     binding_block,
                     shadow_block,
                     name_id,
@@ -573,8 +573,8 @@ pub(super) fn binding_has_future_reads_before_local_shadow(
             escape_reads_visible
                 || future_reads_contain_after_until(
                     binding.scope,
-                    binding.span.start.offset,
-                    shadow.span.start.offset,
+                    binding.span.start.offset(),
+                    shadow.span.start.offset(),
                     name_id,
                     compact_name,
                     read_plans,
@@ -584,7 +584,7 @@ pub(super) fn binding_has_future_reads_before_local_shadow(
     } else {
         future_reads_contain_after(
             binding.scope,
-            binding.span.start.offset,
+            binding.span.start.offset(),
             compact_name,
             read_plans,
             future_reads,
@@ -760,7 +760,7 @@ pub(super) fn resolved_calls_by_scope(
             .entry(call.site.scope)
             .or_default()
             .push(ResolvedCallSite {
-                offset: call.site.span.start.offset,
+                offset: call.site.span.start.offset(),
                 span: call.site.span,
                 callee_scope: call.callee_scope,
             });

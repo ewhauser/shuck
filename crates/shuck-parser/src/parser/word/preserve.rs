@@ -101,7 +101,7 @@ impl<'a> Parser<'a> {
         ch: char,
     ) -> bool {
         self.input
-            .get(start.offset..end.offset)
+            .get(start.offset()..end.offset())
             .is_some_and(|slice| slice.ends_with(ch))
     }
 
@@ -116,10 +116,10 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::parser) fn source_matches(&self, span: Span, text: &str) -> bool {
-        span.start.offset <= span.end.offset
+        span.start.offset() <= span.end.offset()
             && self
                 .input
-                .get(span.start.offset..span.end.offset)
+                .get(span.start.offset()..span.end.offset())
                 .is_some_and(|slice| slice == text)
     }
 }

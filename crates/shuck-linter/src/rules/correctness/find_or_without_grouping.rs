@@ -44,8 +44,8 @@ pub fn find_or_without_grouping(checker: &mut Checker) {
         let diagnostic = Diagnostic::new(FindOrWithoutGrouping, span);
         if let Some(fix_span) = fix_span {
             checker.report_diagnostic_dedup(diagnostic.with_fix(Fix::safe_edits([
-                Edit::insertion(fix_span.branch_start.start.offset, "\\( "),
-                Edit::insertion(fix_span.action_span.end.offset, " \\)"),
+                Edit::insertion(fix_span.branch_start.start.offset(), "\\( "),
+                Edit::insertion(fix_span.action_span.end.offset(), " \\)"),
             ])));
         } else {
             checker.report_diagnostic_dedup(diagnostic);

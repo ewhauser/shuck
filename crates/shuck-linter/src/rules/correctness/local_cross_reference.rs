@@ -121,9 +121,9 @@ fn split_declaration_fix<'a>(source: &str, fact: crate::CommandFactRef<'_, 'a>) 
         return None;
     }
 
-    let indent = line_indent_before_offset(source, declaration.span.start.offset)?;
+    let indent = line_indent_before_offset(source, declaration.span.start.offset())?;
     let head = source
-        .get(declaration.span.start.offset..first_assignment.span.start.offset)?
+        .get(declaration.span.start.offset()..first_assignment.span.start.offset())?
         .trim_end();
     if head.is_empty() {
         return None;
@@ -195,7 +195,7 @@ local a=1 a=2 c=$a
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
-            diagnostics[0].span.start.offset,
+            diagnostics[0].span.start.offset(),
             source.find("a=2").unwrap()
         );
     }

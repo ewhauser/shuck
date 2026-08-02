@@ -642,17 +642,17 @@ impl<'a> SurfaceFragmentSink<'a> {
     pub(crate) fn finish(mut self) -> SurfaceFragmentFacts {
         self.facts
             .plain_unindexed_references
-            .sort_by_key(|span| (span.start.offset, span.end.offset));
+            .sort_by_key(|span| (span.start.offset(), span.end.offset()));
         self.facts
             .plain_unindexed_references
-            .dedup_by_key(|span| (span.start.offset, span.end.offset));
+            .dedup_by_key(|span| (span.start.offset(), span.end.offset()));
         self.facts
     }
 
     fn opening_backtick_is_escaped(&self, span: Span) -> bool {
         let source = self.source.as_bytes();
-        let start = span.start.offset;
-        let Some(fragment) = self.source.get(start..span.end.offset) else {
+        let start = span.start.offset();
+        let Some(fragment) = self.source.get(start..span.end.offset()) else {
             return false;
         };
         let Some(first_backtick) = fragment.find('`') else {
@@ -1814,10 +1814,10 @@ fn single_quoted_body_contains_expansion(body: &str) -> bool {
 }
 
 fn continued_line_chain_start(target: Position, source: &str) -> Option<Position> {
-    let mut line_start_offset = source[..target.offset]
+    let mut line_start_offset = source[..target.offset()]
         .rfind('\n')
         .map_or(0, |index| index + 1);
-    let mut line = target.line;
+    let mut line = target.line();
     let original_start = line_start_offset;
 
     while line_start_offset > 0 {
@@ -1833,11 +1833,7 @@ fn continued_line_chain_start(target: Position, source: &str) -> Option<Position
         line -= 1;
     }
 
-    (line_start_offset != original_start).then_some(Position {
-        line,
-        column: 1,
-        offset: line_start_offset,
-    })
+    (line_start_offset != original_start).then_some(Position::at(line, 1, line_start_offset))
 }
 
 fn shellcheck_collapsed_position(
@@ -1845,9 +1841,9 @@ fn shellcheck_collapsed_position(
     target: Position,
     source: &str,
 ) -> Position {
-    let mut line = chain_start.line;
-    let mut column = chain_start.column;
-    let prefix = &source[chain_start.offset..target.offset];
+    let mut line = chain_start.line();
+    let mut column = chain_start.column();
+    let prefix = &source[chain_start.offset()..target.offset()];
     let mut index = 0usize;
 
     while index < prefix.len() {
@@ -1874,11 +1870,7 @@ fn shellcheck_collapsed_position(
         index += ch.len_utf8();
     }
 
-    Position {
-        line,
-        column,
-        offset: target.offset,
-    }
+    Position::at(line, column, target.offset())
 }
 
 fn adjust_end_column(span: Span, display_escape_count: usize) -> Span {
@@ -1886,8 +1878,12 @@ fn adjust_end_column(span: Span, display_escape_count: usize) -> Span {
         return span;
     }
 
-    let mut end = span.end;
-    end.column = end.column.saturating_sub(display_escape_count);
+    let end = span.end;
+    let end = Position::at(
+        end.line(),
+        end.column().saturating_sub(display_escape_count),
+        end.offset(),
+    );
     Span::from_positions(span.start, end)
 }
 
@@ -2629,7 +2625,7 @@ fn positional_parameter_part_has_identifier_like_prefix(
         return false;
     };
 
-    let prefix = &source[word.span.start.offset..part.span.start.offset];
+    let prefix = &source[word.span.start.offset()..part.span.start.offset()];
     prefix_starts_with_identifier_like_text(prefix)
 }
 
@@ -2736,7 +2732,7 @@ fn build_subscript_reference_spans_with_filter(
 }
 
 fn span_contains(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+    outer.start.offset() <= inner.start.offset() && inner.end.offset() <= outer.end.offset()
 }
 
 fn word_looks_like_unset_array_target(word: &Word, source: &str) -> bool {
@@ -3122,7 +3118,7 @@ fn collect_split_suspect_closing_quote_spans(
         let Some(span) = closing_quote_span(current, source) else {
             continue;
         };
-        if span.start.column == 1
+        if span.start.column() == 1
             || (index > 0
                 && double_quoted_part_is_empty(&word.parts[index - 1], source)
                 && has_later_words)

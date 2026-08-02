@@ -142,11 +142,11 @@ impl<'a> SourceMap<'a> {
             .map(usize::from)
             .unwrap_or(0);
         let text = self.source.get(start..end).unwrap_or("");
-        let start_position = Position {
+        let start_position = Position::at(
             line,
-            column: self.source[line_start..start].chars().count() + 1,
-            offset: start,
-        };
+            self.source[line_start..start].chars().count() + 1,
+            start,
+        );
         let end_position = start_position.advanced_by(text);
         Span::from_positions(start_position, end_position)
     }
@@ -207,10 +207,10 @@ impl<'a> SourceMap<'a> {
 
     #[must_use]
     pub(crate) fn suffix_comment_after_span(&self, span: Span) -> Option<SourceComment<'a>> {
-        if span.start.line != span.end.line {
+        if span.start.line() != span.end.line() {
             return None;
         }
-        let start = span.end.offset.min(self.source.len());
+        let start = span.end.offset().min(self.source.len());
         let (_, line_end) = self.line_bounds_for_offset(start)?;
         let comment_start = self.first_comment_between(start, line_end)?;
         let prefix = self.source.get(start..comment_start)?;
@@ -278,8 +278,8 @@ impl<'a> SourceMap<'a> {
 
     #[must_use]
     pub(crate) fn operator_starts_or_ends_line(&self, operator_span: Span) -> bool {
-        let start = operator_span.start.offset;
-        let end = operator_span.end.offset;
+        let start = operator_span.start.offset();
+        let end = operator_span.end.offset();
         if start >= end || end > self.source.len() {
             return false;
         }
@@ -498,7 +498,7 @@ impl<'a> CommentAttachmentModel<'a> {
             .filter(|comment| !indexer.region_index().is_heredoc(comment.range.start()))
             .filter_map(|comment| source_map.source_comment_for_indexed(comment))
             .collect::<Vec<_>>();
-        comments.sort_by_key(|comment| comment.span().start.offset);
+        comments.sort_by_key(|comment| comment.span().start.offset());
 
         Self {
             comments: comments.into_boxed_slice(),
@@ -518,7 +518,7 @@ impl<'a> CommentAttachmentModel<'a> {
                 .iter()
                 .copied()
                 .filter(|comment| {
-                    upper_bound.is_none_or(|limit| comment.span().end.offset <= limit)
+                    upper_bound.is_none_or(|limit| comment.span().end.offset() <= limit)
                 })
                 .filter(|comment| {
                     skip_span.is_none_or(|span| !span_contains_comment(span, *comment))
@@ -542,10 +542,10 @@ impl<'a> CommentAttachmentModel<'a> {
     ) -> &[SourceComment<'a>] {
         let start_index = self
             .comments
-            .partition_point(|comment| comment.span().start.offset < lower_bound);
+            .partition_point(|comment| comment.span().start.offset() < lower_bound);
         let end_index = upper_bound.map_or(self.comments.len(), |limit| {
             self.comments
-                .partition_point(|comment| comment.span().start.offset < limit)
+                .partition_point(|comment| comment.span().start.offset() < limit)
         });
 
         &self.comments[start_index..end_index.max(start_index)]
@@ -648,10 +648,10 @@ fn compute_sequence_attachment<'a>(
         return attachment;
     }
 
-    let first_child_start = child_spans[0].start.offset;
+    let first_child_start = child_spans[0].start.offset();
     let last_child_end = child_spans
         .last()
-        .map(|span| span.end.offset)
+        .map(|span| span.end.offset())
         .unwrap_or(first_child_start);
     let limit_end = upper_bound.unwrap_or(usize::MAX);
     let mut child_cursor = 0;
@@ -659,8 +659,8 @@ fn compute_sequence_attachment<'a>(
     let mut index = 0;
     while index < items.len() {
         let comment = items[index];
-        let start = comment.span.start.offset;
-        let end = comment.span.end.offset;
+        let start = comment.span.start.offset();
+        let end = comment.span.end.offset();
         if start >= limit_end {
             break;
         }
@@ -673,17 +673,17 @@ fn compute_sequence_attachment<'a>(
             continue;
         }
 
-        while child_cursor < child_spans.len() && child_spans[child_cursor].end.offset <= start {
+        while child_cursor < child_spans.len() && child_spans[child_cursor].end.offset() <= start {
             child_cursor += 1;
         }
 
         let prev = child_cursor.checked_sub(1);
         let next = child_spans
             .get(child_cursor)
-            .and_then(|span| (span.start.offset >= end).then_some(child_cursor));
+            .and_then(|span| (span.start.offset() >= end).then_some(child_cursor));
         let current = child_spans.get(child_cursor);
         let inside_current =
-            current.is_some_and(|span| span.start.offset <= start && end <= span.end.offset);
+            current.is_some_and(|span| span.start.offset() <= start && end <= span.end.offset());
 
         if inside_current {
             index += 1;
@@ -692,8 +692,8 @@ fn compute_sequence_attachment<'a>(
 
         if comment.inline {
             if let Some(prev_idx) = prev
-                && child_spans[prev_idx].end.line == comment.line
-                && child_spans[prev_idx].start.offset <= start
+                && child_spans[prev_idx].end.line() == comment.line
+                && child_spans[prev_idx].start.offset() <= start
             {
                 attachment.trailing_mut(prev_idx).push(comment);
                 index += 1;
@@ -703,7 +703,7 @@ fn compute_sequence_attachment<'a>(
             match (prev, next) {
                 (Some(prev_idx), next_idx)
                     if next_idx.is_none_or(|next_idx| prev_idx + 1 == next_idx)
-                        && child_spans[prev_idx].end.line == comment.line =>
+                        && child_spans[prev_idx].end.line() == comment.line =>
                 {
                     attachment.trailing_mut(prev_idx).push(comment);
                 }
@@ -715,7 +715,7 @@ fn compute_sequence_attachment<'a>(
 
         if end <= first_child_start {
             let run_end = advance_comment_run(items, index, limit_end, skip_span, |candidate| {
-                candidate.span.end.offset <= first_child_start
+                candidate.span.end.offset() <= first_child_start
             });
             for item in &items[index..run_end] {
                 attachment.leading_mut(0).push(*item);
@@ -723,11 +723,11 @@ fn compute_sequence_attachment<'a>(
             index = run_end;
         } else if let Some(next_idx) = next {
             let gap_start = prev
-                .map(|prev_idx| child_spans[prev_idx].end.offset)
+                .map(|prev_idx| child_spans[prev_idx].end.offset())
                 .unwrap_or(0);
-            let gap_end = child_spans[next_idx].start.offset;
+            let gap_end = child_spans[next_idx].start.offset();
             let run_end = advance_comment_run(items, index, limit_end, skip_span, |candidate| {
-                candidate.span.start.offset >= gap_start && candidate.span.end.offset <= gap_end
+                candidate.span.start.offset() >= gap_start && candidate.span.end.offset() <= gap_end
             });
             for item in &items[index..run_end] {
                 attachment.leading_mut(next_idx).push(*item);
@@ -735,7 +735,7 @@ fn compute_sequence_attachment<'a>(
             index = run_end;
         } else if start >= last_child_end {
             let run_end = advance_comment_run(items, index, limit_end, skip_span, |candidate| {
-                candidate.span.start.offset >= last_child_end
+                candidate.span.start.offset() >= last_child_end
             });
             for item in &items[index..run_end] {
                 attachment.dangling.push(*item);
@@ -759,9 +759,9 @@ fn advance_comment_run<'a>(
     let mut index = start_index;
     while index < items.len() {
         let comment = items[index];
-        if comment.span.start.offset >= limit_end
+        if comment.span.start.offset() >= limit_end
             || comment.inline
-            || comment.span.end.offset > limit_end
+            || comment.span.end.offset() > limit_end
             || skip_span.is_some_and(|span| span_contains_comment(span, comment))
             || !belongs(comment)
         {
@@ -773,7 +773,8 @@ fn advance_comment_run<'a>(
 }
 
 fn span_contains_comment(span: Span, comment: SourceComment<'_>) -> bool {
-    span.start.offset <= comment.span.start.offset && comment.span.end.offset <= span.end.offset
+    span.start.offset() <= comment.span.start.offset()
+        && comment.span.end.offset() <= span.end.offset()
 }
 
 fn contains_offset_in_range(offsets: &[usize], start: usize, end: usize) -> bool {
@@ -848,7 +849,7 @@ mod tests {
         let starts = attachments
             .comments
             .iter()
-            .map(|comment| comment.span().start.offset)
+            .map(|comment| comment.span().start.offset())
             .collect::<Vec<_>>();
 
         assert!(!starts.contains(&source.find("# not a comment").unwrap()));

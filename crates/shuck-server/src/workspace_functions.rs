@@ -539,7 +539,7 @@ fn insert_file(
         .source_refs()
         .iter()
         .filter_map(|source_ref| {
-            let scope = model.scope_at(source_ref.span.start.offset);
+            let scope = model.scope_at(source_ref.span.start.offset());
             source_ref_candidate_paths(
                 input.path,
                 source_ref,

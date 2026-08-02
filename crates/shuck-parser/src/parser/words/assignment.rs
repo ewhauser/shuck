@@ -14,8 +14,8 @@ impl<'a> Parser<'a> {
         let mut in_backtick = false;
         let mut escaped = false;
 
-        while cursor.offset < self.input.len() {
-            let rest = &self.input[cursor.offset..];
+        while cursor.offset() < self.input.len() {
+            let rest = &self.input[cursor.offset()..];
             let ch = rest.chars().next()?;
             let ch_start = cursor;
             cursor.advance(ch);
@@ -26,13 +26,13 @@ impl<'a> Parser<'a> {
             }
 
             if ch == '$' && !in_single {
-                let next_offset = ch_start.offset + ch.len_utf8();
+                let next_offset = ch_start.offset() + ch.len_utf8();
                 if self.input[next_offset..].starts_with("((")
                     && let Some(consumed) =
                         Self::scan_array_arithmetic_expansion_len(&self.input[next_offset + 2..])
                 {
                     let end = next_offset + 2 + consumed;
-                    cursor = ch_start.advanced_by(&self.input[ch_start.offset..end]);
+                    cursor = ch_start.advanced_by(&self.input[ch_start.offset()..end]);
                     continue;
                 }
 
@@ -41,14 +41,14 @@ impl<'a> Parser<'a> {
                         Self::scan_array_parameter_expansion_len(&self.input[next_offset + 1..])
                 {
                     let end = next_offset + 1 + consumed;
-                    cursor = ch_start.advanced_by(&self.input[ch_start.offset..end]);
+                    cursor = ch_start.advanced_by(&self.input[ch_start.offset()..end]);
                     continue;
                 }
 
                 if let Some(end) =
-                    Self::scan_raw_dollar_paren_substitution_end(self.input, ch_start.offset)
+                    Self::scan_raw_dollar_paren_substitution_end(self.input, ch_start.offset())
                 {
-                    cursor = ch_start.advanced_by(&self.input[ch_start.offset..end]);
+                    cursor = ch_start.advanced_by(&self.input[ch_start.offset()..end]);
                     continue;
                 }
             }
@@ -60,10 +60,10 @@ impl<'a> Parser<'a> {
                     && bracket_depth == 0
                     && brace_depth == 0
                     && paren_depth == 0
-                    && Self::raw_source_hash_starts_comment(self.input, ch_start.offset) =>
+                    && Self::raw_source_hash_starts_comment(self.input, ch_start.offset()) =>
                 {
-                    while cursor.offset < self.input.len() {
-                        let Some(comment_ch) = self.input[cursor.offset..].chars().next() else {
+                    while cursor.offset() < self.input.len() {
+                        let Some(comment_ch) = self.input[cursor.offset()..].chars().next() else {
                             break;
                         };
                         cursor.advance(comment_ch);
@@ -108,9 +108,9 @@ impl<'a> Parser<'a> {
     ) -> (ArrayExpr, Span) {
         if let Some(closing_span) = self.scan_compound_array_close(open_paren_span) {
             let inner =
-                self.input[open_paren_span.end.offset..closing_span.start.offset].to_string();
+                self.input[open_paren_span.end.offset()..closing_span.start.offset()].to_string();
             while self.current_token.is_some()
-                && self.current_span.start.offset < closing_span.end.offset
+                && self.current_span.start.offset() < closing_span.end.offset()
             {
                 self.advance();
             }
@@ -147,10 +147,10 @@ impl<'a> Parser<'a> {
         }
 
         let inner = if closing_span != Span::new()
-            && inner_start.offset <= closing_span.start.offset
-            && closing_span.start.offset <= self.input.len()
+            && inner_start.offset() <= closing_span.start.offset()
+            && closing_span.start.offset() <= self.input.len()
         {
-            self.input[inner_start.offset..closing_span.start.offset].to_string()
+            self.input[inner_start.offset()..closing_span.start.offset()].to_string()
         } else {
             fallback
         };
@@ -170,10 +170,10 @@ impl<'a> Parser<'a> {
         span: Span,
         start: Position,
     ) -> Option<(LiteralText, Span)> {
-        if start.offset <= span.start.offset {
+        if start.offset() <= span.start.offset() {
             return Some((literal, span));
         }
-        if start.offset >= span.end.offset {
+        if start.offset() >= span.end.offset() {
             return None;
         }
 
@@ -181,7 +181,7 @@ impl<'a> Parser<'a> {
         let literal = match literal {
             LiteralText::Source => LiteralText::source(),
             LiteralText::Owned(text) | LiteralText::CookedSource(text) => {
-                let split_at = start.offset.saturating_sub(span.start.offset);
+                let split_at = start.offset().saturating_sub(span.start.offset());
                 LiteralText::owned(text.get(split_at..)?.to_string())
             }
         };
@@ -194,10 +194,10 @@ impl<'a> Parser<'a> {
         span: Span,
         start: Position,
     ) -> Option<(WordPart, Span)> {
-        if start.offset <= span.start.offset {
+        if start.offset() <= span.start.offset() {
             return Some((part, span));
         }
-        if start.offset >= span.end.offset {
+        if start.offset() >= span.end.offset() {
             return None;
         }
 
@@ -278,7 +278,7 @@ impl<'a> Parser<'a> {
         explicit_array_kind: Option<ArrayKind>,
         subscript_interpretation: SubscriptInterpretation,
     ) -> Option<Assignment> {
-        let source_backed = assignment_span.end.offset <= self.input.len()
+        let source_backed = assignment_span.end.offset() <= self.input.len()
             && assignment_span.slice(self.input) == w;
         let word = self.decode_word_text_preserving_quotes_if_needed(
             w,
@@ -583,7 +583,7 @@ impl<'a> Parser<'a> {
 
         let span = Span::from_positions(raw_body_start, *cursor);
         let raw_body = if source_backed
-            && span.end.offset <= self.input.len()
+            && span.end.offset() <= self.input.len()
             && span.slice(self.input) == raw_body_text
         {
             span.slice(self.input).to_owned()
@@ -876,12 +876,12 @@ impl<'a> Parser<'a> {
 
         let open_paren_span = self.current_span;
         if let Some(closing_span) = self.scan_compound_array_close(open_paren_span) {
-            let paren_text = &self.input[open_paren_span.start.offset..closing_span.end.offset];
+            let paren_text = &self.input[open_paren_span.start.offset()..closing_span.end.offset()];
             let mut compound = String::with_capacity(saved_w.len() + paren_text.len());
             compound.push_str(saved_w);
             compound.push_str(paren_text);
             while self.current_token.is_some()
-                && self.current_span.start.offset < closing_span.end.offset
+                && self.current_span.start.offset() < closing_span.end.offset()
             {
                 self.advance();
             }
@@ -921,8 +921,8 @@ impl<'a> Parser<'a> {
             saved_span.merge(closing_span)
         };
 
-        if saved_span.start.offset <= span.end.offset && span.end.offset <= self.input.len() {
-            let source = &self.input[saved_span.start.offset..span.end.offset];
+        if saved_span.start.offset() <= span.end.offset() && span.end.offset() <= self.input.len() {
+            let source = &self.input[saved_span.start.offset()..span.end.offset()];
             return Ok(Some(self.decode_word_text(
                 source,
                 span,

@@ -94,7 +94,7 @@ fn pipeline_ls_command_span(
 }
 
 fn span_contains(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+    outer.start.offset() <= inner.start.offset() && inner.end.offset() <= outer.end.offset()
 }
 
 fn trim_trailing_whitespace(span: Span, source: &str) -> Span {

@@ -11,19 +11,19 @@ pub(super) enum SimpleCommandPart<'a> {
 impl SimpleCommandPart<'_> {
     fn start_offset(&self, command: &SimpleCommand) -> usize {
         match self {
-            Self::Assignment(assignment) => assignment.span.start.offset,
-            Self::Name => command.name.span.start.offset,
-            Self::Argument(word) => word.span.start.offset,
-            Self::Redirect(redirect) => redirect.span.start.offset,
+            Self::Assignment(assignment) => assignment.span.start.offset(),
+            Self::Name => command.name.span.start.offset(),
+            Self::Argument(word) => word.span.start.offset(),
+            Self::Redirect(redirect) => redirect.span.start.offset(),
         }
     }
 
     fn end_offset(&self, command: &SimpleCommand) -> usize {
         match self {
-            Self::Assignment(assignment) => assignment.span.end.offset,
-            Self::Name => command.name.span.end.offset,
-            Self::Argument(word) => word.span.end.offset,
-            Self::Redirect(redirect) => redirect.span.end.offset,
+            Self::Assignment(assignment) => assignment.span.end.offset(),
+            Self::Name => command.name.span.end.offset(),
+            Self::Argument(word) => word.span.end.offset(),
+            Self::Redirect(redirect) => redirect.span.end.offset(),
         }
     }
 
@@ -147,11 +147,11 @@ where
                     .leading_for(0)
                     .iter()
                     .copied()
-                    .filter(|comment| comment.span().end.offset <= span.start.offset)
+                    .filter(|comment| comment.span().end.offset() <= span.start.offset())
                     .collect::<Vec<_>>();
                 self.emit_leading_comments(
                     &leading,
-                    self.facts().stmt(first).render_span().start.line,
+                    self.facts().stmt(first).render_span().start.line(),
                 );
             }
             self.write_verbatim(span.slice(source));
@@ -171,7 +171,7 @@ where
                         .leading_for(index)
                         .iter()
                         .copied()
-                        .filter(|comment| comment.span().start.offset >= min_offset)
+                        .filter(|comment| comment.span().start.offset() >= min_offset)
                         .collect::<Vec<_>>();
                     self.emit_leading_comments(&leading, next_line);
                 } else {
@@ -244,7 +244,7 @@ where
             && stmt
                 .redirects
                 .iter()
-                .all(|redirect| redirect.span.start.offset < command_span.start.offset);
+                .all(|redirect| redirect.span.start.offset() < command_span.start.offset());
 
         if emit_redirects_first {
             self.format_redirect_list(&stmt.redirects);
@@ -262,10 +262,10 @@ where
                 self.format_simple_command_with_redirects(command, &stmt.redirects);
             }
             Command::Compound(CompoundCommand::BraceGroup(commands)) => {
-                self.format_brace_group(commands, Some(stmt_span(stmt).end.offset))?;
+                self.format_brace_group(commands, Some(stmt_span(stmt).end.offset()))?;
             }
             Command::Compound(CompoundCommand::Subshell(commands)) => {
-                self.format_subshell(commands, Some(stmt_span(stmt).end.offset))?;
+                self.format_subshell(commands, Some(stmt_span(stmt).end.offset()))?;
             }
             _ => self.format_command(&stmt.command)?,
         }
@@ -346,9 +346,9 @@ where
     pub(super) fn format_assignments(&mut self, assignments: &[Assignment]) -> Option<usize> {
         let mut previous_end = None;
         for assignment in assignments {
-            self.write_command_gap(previous_end, assignment.span.start.offset);
+            self.write_command_gap(previous_end, assignment.span.start.offset());
             self.write_assignment(assignment);
-            previous_end = Some(assignment.span.end.offset);
+            previous_end = Some(assignment.span.end.offset());
         }
         previous_end
     }
@@ -469,7 +469,7 @@ where
         let Some(previous_end) = previous_end else {
             return;
         };
-        if previous_end == redirect.span.start.offset {
+        if previous_end == redirect.span.start.offset() {
             if redirect_has_adjacent_numeric_fd_prefix(
                 previous_part,
                 redirect,
@@ -483,7 +483,7 @@ where
             }
             return;
         }
-        self.write_command_gap(Some(previous_end), redirect.span.start.offset);
+        self.write_command_gap(Some(previous_end), redirect.span.start.offset());
     }
 
     pub(super) fn format_builtin_command(&mut self, command: &BuiltinCommand) -> Result<()> {
@@ -501,36 +501,36 @@ where
     ) -> Result<()> {
         let mut previous_end = self.format_assignments(assignments);
         let name_span = Span::from_positions(start, start.advanced_by(name));
-        self.write_command_gap(previous_end, name_span.start.offset);
+        self.write_command_gap(previous_end, name_span.start.offset());
         self.write_text(name);
-        previous_end = Some(name_span.end.offset);
+        previous_end = Some(name_span.end.offset());
         if let Some(primary) = primary {
-            self.write_command_gap(previous_end, primary.span.start.offset);
+            self.write_command_gap(previous_end, primary.span.start.offset());
             self.write_word(primary);
-            previous_end = Some(primary.span.end.offset);
+            previous_end = Some(primary.span.end.offset());
         }
         for argument in extra_args {
-            self.write_command_gap(previous_end, argument.span.start.offset);
+            self.write_command_gap(previous_end, argument.span.start.offset());
             self.write_word(argument);
-            previous_end = Some(argument.span.end.offset);
+            previous_end = Some(argument.span.end.offset());
         }
         Ok(())
     }
 
     pub(super) fn format_decl_clause(&mut self, command: &DeclClause) -> Result<()> {
         let mut previous_end = self.format_assignments(&command.assignments);
-        self.write_command_gap(previous_end, command.variant_span.start.offset);
+        self.write_command_gap(previous_end, command.variant_span.start.offset());
         self.write_text(command.variant.as_ref());
-        previous_end = Some(command.variant_span.end.offset);
+        previous_end = Some(command.variant_span.end.offset());
         for operand in &command.operands {
             let span = match operand {
                 DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => word.span,
                 DeclOperand::Name(name) => name.span,
                 DeclOperand::Assignment(assignment) => assignment.span,
             };
-            self.write_command_gap(previous_end, span.start.offset);
+            self.write_command_gap(previous_end, span.start.offset());
             self.write_decl_operand(operand);
-            previous_end = Some(span.end.offset);
+            previous_end = Some(span.end.offset());
         }
         Ok(())
     }
@@ -562,7 +562,7 @@ where
         let mut previous_end = first_previous_end;
         for word in words {
             if let Some(previous_end) = previous_end {
-                self.write_command_gap(Some(previous_end), word.span.start.offset);
+                self.write_command_gap(Some(previous_end), word.span.start.offset());
             } else {
                 self.write_space();
             }
@@ -866,21 +866,21 @@ where
             self.source_map()
                 .source_comment(*comment)
                 .is_some_and(|comment| {
-                    !comment.inline() && comment.span().start.offset >= operator_span.end.offset
+                    !comment.inline() && comment.span().start.offset() >= operator_span.end.offset()
                 })
         }) {
             return;
         }
         let command_start = interstitial_comment_end(
             stmt,
-            operator_span.end.offset,
+            operator_span.end.offset(),
             self.source(),
             self.source_map(),
         );
-        if command_start <= operator_span.end.offset {
+        if command_start <= operator_span.end.offset() {
             return;
         }
-        let comments = self.own_line_comments_in_region(operator_span.end.offset, command_start);
+        let comments = self.own_line_comments_in_region(operator_span.end.offset(), command_start);
         for comment in comments {
             self.with_extra_prefix_indent(self.pipeline_continuation_indent, |formatter| {
                 formatter.write_text(&comment.text);
@@ -906,7 +906,7 @@ where
         stmt: &Stmt,
         operator_span: Span,
     ) -> Result<()> {
-        self.format_pipeline_stmt_with_leading_comment_start(stmt, Some(operator_span.end.offset))
+        self.format_pipeline_stmt_with_leading_comment_start(stmt, Some(operator_span.end.offset()))
     }
 
     pub(super) fn format_pipeline_stmt_with_leading_comment_start(
@@ -915,7 +915,7 @@ where
         min_comment_start: Option<usize>,
     ) -> Result<()> {
         let stmt_facts = self.facts().stmt(stmt);
-        let statement_start = stmt_facts.attachment_span().start.offset;
+        let statement_start = stmt_facts.attachment_span().start.offset();
         let next_line = stmt_facts.rendered_start_line();
         let leading = stmt
             .leading_comments
@@ -923,9 +923,9 @@ where
             .filter_map(|comment| self.source_map().source_comment(*comment))
             .filter(|comment| {
                 !comment.inline()
-                    && comment.span().end.offset <= statement_start
+                    && comment.span().end.offset() <= statement_start
                     && min_comment_start
-                        .is_none_or(|min_start| comment.span().start.offset >= min_start)
+                        .is_none_or(|min_start| comment.span().start.offset() >= min_start)
             })
             .collect::<Vec<_>>();
         if let Some(operator_end) = min_comment_start {
@@ -989,14 +989,14 @@ where
     ) -> bool {
         let command_start = interstitial_comment_end(
             stmt,
-            operator_span.end.offset,
+            operator_span.end.offset(),
             self.source(),
             self.source_map(),
         );
-        if command_start <= operator_span.end.offset {
+        if command_start <= operator_span.end.offset() {
             return false;
         }
-        let comments = self.own_line_comments_in_region(operator_span.end.offset, command_start);
+        let comments = self.own_line_comments_in_region(operator_span.end.offset(), command_start);
         let emitted = !comments.is_empty();
         for comment in comments {
             self.write_text(&comment.text);
@@ -1130,14 +1130,14 @@ fn redirect_has_adjacent_numeric_fd_prefix(
     let Some(SimpleCommandPart::Argument(word)) = previous_part else {
         return false;
     };
-    if word.span.end.offset != redirect.span.start.offset {
+    if word.span.end.offset() != redirect.span.start.offset() {
         return false;
     }
-    let Some(raw) = source.get(word.span.start.offset..word.span.end.offset) else {
+    let Some(raw) = source.get(word.span.start.offset()..word.span.end.offset()) else {
         return false;
     };
     raw.chars().all(|ch| ch.is_ascii_digit())
-        && word.span.start.offset > command.name.span.end.offset
+        && word.span.start.offset() > command.name.span.end.offset()
 }
 
 fn sequence_verbatim_span(statements: &StmtSeq, source_map: &SourceMap<'_>) -> Option<Span> {

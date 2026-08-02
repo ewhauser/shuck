@@ -75,7 +75,7 @@ mod layout_plan_tests {
     }
 
     fn function_body(function: &FunctionDef) -> (&Stmt, usize) {
-        (function.body.as_ref(), function.span.end.offset)
+        (function.body.as_ref(), function.span.end.offset())
     }
 
     #[test]

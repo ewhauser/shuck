@@ -14,10 +14,10 @@ fn captures_c074_anchor_and_whitespace_span() {
             .space_after_hash_bang_whitespace_span()
             .expect("expected C074 whitespace span");
 
-        assert_eq!(anchor.start.line, 1);
-        assert_eq!(anchor.start.column, 2);
-        assert_eq!(whitespace.start.column, 2);
-        assert_eq!(whitespace.end.column, 4);
+        assert_eq!(anchor.start.line(), 1);
+        assert_eq!(anchor.start.column(), 2);
+        assert_eq!(whitespace.start.column(), 2);
+        assert_eq!(whitespace.end.column(), 4);
         assert_eq!(whitespace.slice(source), " \t");
     });
 }
@@ -49,8 +49,8 @@ fn captures_c075_move_span_with_existing_newline() {
             .shebang_not_on_first_line_fix_span()
             .expect("expected C075 move span");
 
-        assert_eq!(anchor.start.line, 2);
-        assert_eq!(anchor.start.column, 1);
+        assert_eq!(anchor.start.line(), 2);
+        assert_eq!(anchor.start.column(), 1);
         assert_eq!(fix_span.slice(source), "#!/bin/sh\n");
         assert_eq!(
             facts

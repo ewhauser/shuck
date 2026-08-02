@@ -9,7 +9,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn current_zsh_options(&self) -> Option<&ZshOptionState> {
-        self.zsh_options_at_offset(self.current_span.start.offset)
+        self.zsh_options_at_offset(self.current_span.start.offset())
     }
 
     pub(super) fn zsh_short_loops_enabled(&self) -> bool {

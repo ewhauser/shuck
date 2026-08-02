@@ -701,7 +701,7 @@ pub(crate) fn build_assignment_spacing_spans(
         collect_assignment_spacing_spans_in_command(fact.command(), source, &mut spans);
     }
 
-    spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+    spans.sort_unstable_by_key(|span| (span.start.offset(), span.end.offset()));
     spans.dedup();
     spans
 }
@@ -933,14 +933,14 @@ fn is_assignment_spacing_exempt_target(target: &str) -> bool {
 fn first_word_start_after(command_span: Span, assignments: &[Assignment], source: &str) -> Span {
     let start = assignments
         .last()
-        .map_or(command_span.start.offset, |assignment| {
-            assignment.span.end.offset
+        .map_or(command_span.start.offset(), |assignment| {
+            assignment.span.end.offset()
         });
-    let end = command_span.end.offset.min(source.len());
+    let end = command_span.end.offset().min(source.len());
     let next = first_command_word_offset_in_gap(source, start, end);
     let position = command_span
         .start
-        .advanced_by(&source[command_span.start.offset..next]);
+        .advanced_by(&source[command_span.start.offset()..next]);
     Span::from_positions(position, position)
 }
 
@@ -967,10 +967,10 @@ fn horizontal_whitespace_span_between(
     end: Position,
     source: &str,
 ) -> Option<Span> {
-    if start.offset >= end.offset || end.offset > source.len() {
+    if start.offset() >= end.offset() || end.offset() > source.len() {
         return None;
     }
-    let gap = source.get(start.offset..end.offset)?;
+    let gap = source.get(start.offset()..end.offset())?;
     if gap_is_assignment_spacing_whitespace(gap) {
         Some(Span::from_positions(start, end))
     } else {
@@ -1005,7 +1005,7 @@ fn gap_is_assignment_spacing_whitespace(gap: &str) -> bool {
 }
 
 fn span_is_empty(span: Span) -> bool {
-    span.start.offset == span.end.offset
+    span.start.offset() == span.end.offset()
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
@@ -1214,7 +1214,7 @@ fn spacey_time_assignment_fact(
         return Some(fact);
     }
 
-    let prefix = source.get(command.span.start.offset..inner.name.span.start.offset)?;
+    let prefix = source.get(command.span.start.offset()..inner.name.span.start.offset())?;
     if prefix.trim() != "time" {
         return None;
     }
@@ -1252,11 +1252,11 @@ pub(crate) fn zsh_declaration_brace_assignment_target(
     let Some(target_end) = prefix.find("+=").or_else(|| prefix.find('=')) else {
         return false;
     };
-    let target_end_offset = word.span.start.offset + target_end;
+    let target_end_offset = word.span.start.offset() + target_end;
 
     word.brace_syntax()
         .iter()
-        .any(|brace| brace.expands() && brace.span.end.offset <= target_end_offset)
+        .any(|brace| brace.expands() && brace.span.end.offset() <= target_end_offset)
 }
 
 pub(crate) fn bare_command_name_assignment_span<'a>(
@@ -1711,14 +1711,14 @@ pub(crate) fn build_env_prefix_scope_spans(
 
     scope_spans
         .assignment_scope_spans
-        .sort_by_key(|span| (span.start.offset, span.end.offset));
+        .sort_by_key(|span| (span.start.offset(), span.end.offset()));
     scope_spans
         .expansion_scope_spans
-        .sort_by_key(|span| (span.start.offset, span.end.offset));
+        .sort_by_key(|span| (span.start.offset(), span.end.offset()));
     scope_spans.expansion_fix_facts.sort_by_key(|fact| {
         (
-            fact.diagnostic_span.start.offset,
-            fact.diagnostic_span.end.offset,
+            fact.diagnostic_span.start.offset(),
+            fact.diagnostic_span.end.offset(),
         )
     });
     scope_spans
@@ -1747,15 +1747,15 @@ pub(crate) fn env_prefix_expansion_fix_seed(
     let first_assignment = assignments.first()?;
     let last_assignment = assignments.last()?;
     let prefix = source.get(
-        line_start_offset(source, first_assignment.span.start.offset)
-            ..first_assignment.span.start.offset,
+        line_start_offset(source, first_assignment.span.start.offset())
+            ..first_assignment.span.start.offset(),
     )?;
     if !prefix.bytes().all(|byte| matches!(byte, b' ' | b'\t')) {
         return None;
     }
 
     let body_start = skip_env_prefix_separator(source, last_assignment.span.end)?;
-    if body_start.offset <= last_assignment.span.end.offset {
+    if body_start.offset() <= last_assignment.span.end.offset() {
         return None;
     }
 
@@ -1776,7 +1776,7 @@ pub(crate) fn line_start_offset(source: &str, offset: usize) -> usize {
 
 pub(crate) fn skip_env_prefix_separator(source: &str, start: Position) -> Option<Position> {
     let mut position = start;
-    let mut tail = source.get(start.offset..)?;
+    let mut tail = source.get(start.offset()..)?;
     while let Some(ch) = tail.chars().next() {
         if matches!(ch, ' ' | '\t' | '\r' | '\n') {
             position.advance(ch);
@@ -2323,8 +2323,8 @@ pub(crate) fn build_nonpersistent_assignment_spans(
         if let Some(extra_reset_sites) = &extra_reset_sites
             && extra_reset_sites.iter().any(|reset| {
                 reset.name == effect.name
-                    && reset.span.start.offset > effect.assignment_span.end.offset
-                    && reset.flow_span.end.offset <= effect.later_use_span.start.offset
+                    && reset.span.start.offset() > effect.assignment_span.end.offset()
+                    && reset.flow_span.end.offset() <= effect.later_use_span.start.offset()
                     && nonpersistent_reset_site_covers_later_use(
                         semantic,
                         semantic_analysis,
@@ -2361,11 +2361,11 @@ pub(crate) fn build_nonpersistent_assignment_spans(
 
     let mut seen = FxHashSet::default();
     later_use_sites.retain(|site| seen.insert((FactSpan::new(site.span), site.name.clone())));
-    later_use_sites.sort_by_key(|site| (site.span.start.offset, site.span.end.offset));
+    later_use_sites.sort_by_key(|site| (site.span.start.offset(), site.span.end.offset()));
 
     seen.clear();
     assignment_sites.retain(|site| seen.insert((FactSpan::new(site.span), site.name.clone())));
-    assignment_sites.sort_by_key(|site| (site.span.start.offset, site.span.end.offset));
+    assignment_sites.sort_by_key(|site| (site.span.start.offset(), site.span.end.offset()));
 
     NonpersistentAssignmentSpans {
         subshell_assignment_sites: assignment_sites,
@@ -2379,7 +2379,7 @@ pub(crate) fn nonpersistent_assignment_reaches_later_use(
 ) -> bool {
     let assignment_scope = semantic.binding(effect.assignment_binding).scope;
     let assignment_transient = semantic.innermost_transient_scope_within_function(assignment_scope);
-    let later_use_scope = semantic.scope_at(effect.later_use_span.start.offset);
+    let later_use_scope = semantic.scope_at(effect.later_use_span.start.offset());
     let later_use_transient = semantic.innermost_transient_scope_within_function(later_use_scope);
     if let Some(later_use_transient) = later_use_transient {
         let Some(assignment_transient) = assignment_transient else {
@@ -2398,13 +2398,13 @@ pub(crate) fn nonpersistent_assignment_reaches_later_use(
 }
 
 pub(crate) fn zsh_later_use_is_parameter_subscript_flag(source: &str, span: Span) -> bool {
-    if span.start.offset + 1 != span.end.offset {
+    if span.start.offset() + 1 != span.end.offset() {
         return false;
     }
 
     let bytes = source.as_bytes();
-    let start = span.start.offset;
-    let end = span.end.offset;
+    let start = span.start.offset();
+    let end = span.end.offset();
     if start == 0
         || end >= bytes.len()
         || bytes[start - 1] != b'('
@@ -2451,7 +2451,7 @@ pub(crate) fn nonpersistent_reset_site_covers_later_use(
     }
 
     let Some(later_use_command) =
-        semantic.innermost_command_id_at(effect.later_use_span.start.offset)
+        semantic.innermost_command_id_at(effect.later_use_span.start.offset())
     else {
         return false;
     };
@@ -2464,7 +2464,7 @@ pub(crate) fn nonpersistent_reset_site_covers_later_use(
     let assignment_scope = semantic.binding(effect.assignment_binding).scope;
     let entry = semantic_analysis.flow_entry_block_for_binding_scopes(
         &[assignment_scope],
-        effect.later_use_span.start.offset,
+        effect.later_use_span.start.offset(),
     );
     later_use_blocks.iter().copied().all(|target| {
         semantic_analysis.blocks_cover_all_paths_to_block(entry, target, &reset_blocks)
@@ -2472,7 +2472,7 @@ pub(crate) fn nonpersistent_reset_site_covers_later_use(
 }
 
 pub(crate) fn span_contains(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+    outer.start.offset() <= inner.start.offset() && inner.end.offset() <= outer.end.offset()
 }
 
 pub(crate) fn build_subshell_loop_assignment_report_spans(
@@ -2648,15 +2648,20 @@ pub(crate) fn build_nonpersistent_assignment_extra_reset_sites(
         left.name
             .as_str()
             .cmp(right.name.as_str())
-            .then_with(|| left.span.start.offset.cmp(&right.span.start.offset))
-            .then_with(|| left.span.end.offset.cmp(&right.span.end.offset))
+            .then_with(|| left.span.start.offset().cmp(&right.span.start.offset()))
+            .then_with(|| left.span.end.offset().cmp(&right.span.end.offset()))
             .then_with(|| {
                 left.flow_span
                     .start
-                    .offset
-                    .cmp(&right.flow_span.start.offset)
+                    .offset()
+                    .cmp(&right.flow_span.start.offset())
             })
-            .then_with(|| left.flow_span.end.offset.cmp(&right.flow_span.end.offset))
+            .then_with(|| {
+                left.flow_span
+                    .end
+                    .offset()
+                    .cmp(&right.flow_span.end.offset())
+            })
             .then_with(|| left.command_id.index().cmp(&right.command_id.index()))
     });
     resets.dedup_by(|left, right| {
@@ -2683,12 +2688,13 @@ pub(crate) fn reset_flow_span_for_command(
             if span_contains(parent_span, command_span)
                 && !semantic_analysis.block_ids_for_span(parent_span).is_empty()
             {
-                let before_command = &source[parent_span.start.offset..command_span.start.offset];
+                let before_command =
+                    &source[parent_span.start.offset()..command_span.start.offset()];
                 if text_ends_with_pipeline_operator(before_command.trim_end()) {
                     let previous_len = pipeline_span
-                        .map(|span: Span| span.end.offset - span.start.offset)
+                        .map(|span: Span| span.end.offset() - span.start.offset())
                         .unwrap_or(usize::MAX);
-                    let parent_len = parent_span.end.offset - parent_span.start.offset;
+                    let parent_len = parent_span.end.offset() - parent_span.start.offset();
                     if parent_len < previous_len {
                         pipeline_span = Some(parent_span);
                     }
@@ -2822,7 +2828,7 @@ pub(crate) fn binding_command_is_unconditional_in_function(
     semantic_analysis: &SemanticAnalysis<'_>,
     binding: &Binding,
 ) -> bool {
-    let Some(current) = semantic.innermost_command_id_at(binding.span.start.offset) else {
+    let Some(current) = semantic.innermost_command_id_at(binding.span.start.offset()) else {
         return true;
     };
 
@@ -2979,7 +2985,7 @@ pub(crate) fn fallback_function_binding_is_callable_from_function_body(
     binding: BindingId,
 ) -> bool {
     let binding = semantic.binding(binding);
-    if binding.span.start.offset <= call_name_span.start.offset {
+    if binding.span.start.offset() <= call_name_span.start.offset() {
         return true;
     }
 
@@ -2994,7 +3000,7 @@ pub(crate) fn fallback_function_binding_is_callable_from_function_body(
         semantic,
         semantic_analysis,
         command_function_scope,
-        binding.span.start.offset,
+        binding.span.start.offset(),
     )
 }
 
@@ -3012,7 +3018,8 @@ pub(crate) fn function_scope_may_run_before_offset(
                 let name = &semantic.binding(function_binding).name;
                 semantic_analysis.resolved_function_call_sites(name).any(
                     |(site, resolved_binding)| {
-                        resolved_binding == function_binding && site.name_span.start.offset < offset
+                        resolved_binding == function_binding
+                            && site.name_span.start.offset() < offset
                     },
                 )
             })
@@ -3114,23 +3121,23 @@ pub(crate) fn binary_child_pipe_tail_relation(
     let parent_span = semantic.command_syntax_span(parent);
     let child_span = semantic.command_syntax_span(child);
     if child_span.start == parent_span.start {
-        let after_child = &source[child_span.end.offset..parent_span.end.offset];
+        let after_child = &source[child_span.end.offset()..parent_span.end.offset()];
         return text_starts_with_pipeline_operator(after_child.trim_start()).map(|_| false);
     }
 
-    let before_child = &source[parent_span.start.offset..child_span.start.offset];
+    let before_child = &source[parent_span.start.offset()..child_span.start.offset()];
     let before_child = before_child.trim_end();
     text_ends_with_pipeline_operator(before_child).then_some(true)
 }
 
 pub(crate) fn command_is_textual_pipeline_tail_operand(command_span: Span, source: &str) -> bool {
-    let before_command = &source[..command_span.start.offset];
+    let before_command = &source[..command_span.start.offset()];
     let before_command = before_command.trim_end();
     if !text_ends_with_pipeline_operator(before_command) {
         return false;
     }
 
-    let after_command = &source[command_span.end.offset..];
+    let after_command = &source[command_span.end.offset()..];
     let after_command = after_command.trim_start();
     !after_command.starts_with('|')
 }
@@ -3334,13 +3341,13 @@ pub(crate) fn build_innermost_command_ids_by_offset(
 
         while let Some(command) = commands.get(next_command) {
             let span = command.span();
-            if span.start.offset > offset {
+            if span.start.offset() > offset {
                 break;
             }
 
-            pop_finished_commands(&mut active_commands, span.start.offset);
+            pop_finished_commands(&mut active_commands, span.start.offset());
             active_commands.push(OpenCommand {
-                end_offset: span.end.offset,
+                end_offset: span.end.offset(),
                 id: command.id(),
             });
             next_command += 1;
@@ -3416,7 +3423,7 @@ pub(crate) fn build_dollar_question_after_command_spans(
 
     let mut seen = FxHashSet::default();
     spans.retain(|span| seen.insert(FactSpan::new(*span)));
-    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.sort_by_key(|span| (span.start.offset(), span.end.offset()));
     spans
 }
 
@@ -3524,7 +3531,8 @@ pub(crate) fn word_for_declaration_value_span(command: &Command, span: Span) -> 
     };
 
     command.args.iter().find(|word| {
-        span.start.offset >= word.span.start.offset && span.end.offset <= word.span.end.offset
+        span.start.offset() >= word.span.start.offset()
+            && span.end.offset() <= word.span.end.offset()
     })
 }
 
@@ -3542,7 +3550,8 @@ pub(crate) fn word_parts_in_span(word: &Word, span: Span) -> Vec<&WordPartNode> 
     word.parts
         .iter()
         .filter(|part| {
-            span.start.offset <= part.span.start.offset && part.span.end.offset <= span.end.offset
+            span.start.offset() <= part.span.start.offset()
+                && part.span.end.offset() <= span.end.offset()
         })
         .collect()
 }

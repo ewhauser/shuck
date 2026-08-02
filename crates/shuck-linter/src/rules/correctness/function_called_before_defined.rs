@@ -51,8 +51,8 @@ pub fn function_called_before_defined(checker: &mut Checker) {
             }
 
             let key = CallKey {
-                start: call.name_span.start.offset,
-                end: call.name_span.end.offset,
+                start: call.name_span.start.offset(),
+                end: call.name_span.end.offset(),
             };
             if reported.insert(key) {
                 violations.push((call.name_span, call.callee.as_str().into()));
@@ -60,7 +60,7 @@ pub fn function_called_before_defined(checker: &mut Checker) {
         }
     }
 
-    violations.sort_unstable_by_key(|(span, _)| span.start.offset);
+    violations.sort_unstable_by_key(|(span, _)| span.start.offset());
     for (span, name) in violations {
         checker.report(FunctionCalledBeforeDefined { name }, span);
     }
@@ -71,7 +71,7 @@ fn call_is_reportable_for_function(
     call: &CallSite,
     function: &Binding,
 ) -> bool {
-    if call.name_span.start.offset >= function.span.start.offset {
+    if call.name_span.start.offset() >= function.span.start.offset() {
         return false;
     }
     let call_runtime_scope = checker.semantic().enclosing_function_scope(call.scope);
@@ -103,7 +103,7 @@ fn call_is_reportable_for_function(
         .visible_function_binding_defined_before(
             &call.callee,
             call.scope,
-            call.name_span.start.offset,
+            call.name_span.start.offset(),
         );
     if prior_visible_definition
         .is_some_and(|prior| prior_visible_definition_guaranteed_before_call(checker, prior, call))
@@ -144,7 +144,7 @@ fn prior_visible_definition_guaranteed_before_call(
     }
 
     let entry = analysis
-        .flow_entry_block_for_binding_scopes(&[definition.scope], call.name_span.start.offset);
+        .flow_entry_block_for_binding_scopes(&[definition.scope], call.name_span.start.offset());
     call_blocks
         .iter()
         .copied()
@@ -213,7 +213,7 @@ fn function_scope_callers_can_run_before_definition(
                 .call_sites_for(&caller.name)
                 .iter()
                 .any(|site| {
-                    if site.span.start.offset >= function.span.start.offset
+                    if site.span.start.offset() >= function.span.start.offset()
                         || !call_site_resolves_to_binding(checker, site, function_binding)
                         || !span_can_run(checker, site.span)
                     {
@@ -272,9 +272,9 @@ fn has_prior_source_ref(checker: &Checker<'_>, call: &CallSite) -> bool {
 
         let source_runtime_scope = checker
             .semantic()
-            .enclosing_function_scope(checker.semantic().scope_at(source_ref.span.start.offset));
+            .enclosing_function_scope(checker.semantic().scope_at(source_ref.span.start.offset()));
         if source_runtime_scope == call_runtime_scope {
-            return source_ref.span.start.offset < call.name_span.start.offset
+            return source_ref.span.start.offset() < call.name_span.start.offset()
                 && span_can_run_before_call(checker, source_ref.span, call_blocks);
         }
 
@@ -317,15 +317,15 @@ fn has_source_ref_before_later_definition(
     checker.semantic().source_refs().iter().any(|source_ref| {
         if matches!(source_ref.kind, SourceRefKind::DirectiveDevNull)
             || !source_ref_has_runtime_source_command(checker, source_ref)
-            || source_ref.span.start.offset <= call.name_span.start.offset
-            || source_ref.span.start.offset >= function.span.start.offset
+            || source_ref.span.start.offset() <= call.name_span.start.offset()
+            || source_ref.span.start.offset() >= function.span.start.offset()
         {
             return false;
         }
 
         let source_runtime_scope = checker
             .semantic()
-            .enclosing_function_scope(checker.semantic().scope_at(source_ref.span.start.offset));
+            .enclosing_function_scope(checker.semantic().scope_at(source_ref.span.start.offset()));
         source_runtime_scope == call_runtime_scope
             && span_can_run_before_definition(checker, source_ref.span, function)
     })
@@ -349,14 +349,14 @@ fn has_branch_local_loader_source_after_definition(
     checker.semantic().source_refs().iter().any(|source_ref| {
         if matches!(source_ref.kind, SourceRefKind::DirectiveDevNull)
             || !source_ref_has_runtime_source_command(checker, source_ref)
-            || source_ref.span.start.offset <= function.span.start.offset
+            || source_ref.span.start.offset() <= function.span.start.offset()
         {
             return false;
         }
 
         let source_runtime_scope = checker
             .semantic()
-            .enclosing_function_scope(checker.semantic().scope_at(source_ref.span.start.offset));
+            .enclosing_function_scope(checker.semantic().scope_at(source_ref.span.start.offset()));
         source_runtime_scope == definition_runtime_scope
             && definition_can_run_before_source_ref(checker, function, source_ref.span)
     })
@@ -372,7 +372,7 @@ fn definition_can_run_before_source_ref(
         .blocks_containing_binding(function.id);
     let source_blocks = checker.semantic_analysis().block_ids_for_span(source_span);
     if definition_blocks.is_empty() || source_blocks.is_empty() {
-        return function.span.start.offset < source_span.start.offset;
+        return function.span.start.offset() < source_span.start.offset();
     }
 
     let reachable_definition_blocks = definition_blocks
@@ -394,7 +394,7 @@ fn definition_can_run_before_source_ref(
 fn source_ref_has_runtime_source_command(checker: &Checker<'_>, source_ref: &SourceRef) -> bool {
     checker.facts().commands().iter().any(|fact| {
         (fact.effective_name_is("source") || fact.effective_name_is("."))
-            && fact.span().start.offset == source_ref.span.start.offset
+            && fact.span().start.offset() == source_ref.span.start.offset()
     })
 }
 
@@ -499,7 +499,7 @@ fn span_in_scope_can_run_before_scope(
     active_target_scopes: &mut FxHashSet<ScopeId>,
 ) -> bool {
     if source_runtime_scope == target.runtime_scope {
-        return source_span.start.offset < target.span.start.offset
+        return source_span.start.offset() < target.span.start.offset()
             && span_can_run_before_blocks(checker, source_span, target.blocks);
     }
 
@@ -554,7 +554,7 @@ fn span_in_scope_can_run_before_span(
     active_source_scopes: &mut FxHashSet<ScopeId>,
 ) -> bool {
     if source_runtime_scope == target.runtime_scope {
-        return source_span.start.offset < target.span.start.offset
+        return source_span.start.offset() < target.span.start.offset()
             && span_can_run_before_blocks(checker, source_span, target.blocks);
     }
 
@@ -619,7 +619,7 @@ fn call_site_resolves_to_binding(
                 .visible_function_binding_defined_before(
                     &function.name,
                     site.scope,
-                    site.name_span.start.offset,
+                    site.name_span.start.offset(),
                 )
         })
         == Some(function_binding)
@@ -650,7 +650,7 @@ fn span_can_run_before_definition(
         .semantic_analysis()
         .blocks_containing_binding(function.id);
     if function_blocks.is_empty() {
-        return source_span.start.offset < function.span.start.offset;
+        return source_span.start.offset() < function.span.start.offset();
     }
 
     span_can_run_before_blocks(checker, source_span, function_blocks)
@@ -683,7 +683,7 @@ fn span_can_run_before_blocks(
 }
 
 fn span_contains(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
+    outer.start.offset() <= inner.start.offset() && outer.end.offset() >= inner.end.offset()
 }
 
 fn call_is_unreachable(checker: &Checker<'_>, call: &CallSite) -> bool {
@@ -714,7 +714,7 @@ fn call_path_terminates_before_function(
     if function_blocks.is_empty()
         && let Some(command_id) = checker
             .semantic()
-            .innermost_command_id_at(function.span.start.offset)
+            .innermost_command_id_at(function.span.start.offset())
     {
         function_blocks.extend(
             checker
@@ -746,7 +746,7 @@ fn innermost_block_for_span(checker: &Checker<'_>, span: Span) -> Option<shuck_s
         .or_else(|| {
             checker
                 .semantic()
-                .innermost_command_id_at(span.start.offset)
+                .innermost_command_id_at(span.start.offset())
                 .and_then(|command_id| {
                     checker
                         .semantic_analysis()
@@ -773,8 +773,8 @@ fn terminator_blocks_between_call_and_function(
         })
         .filter(|fact| fact.enclosing_function_scope() == call_runtime_scope)
         .filter(|fact| {
-            fact.body_span().start.offset > call.name_span.start.offset
-                && fact.body_span().start.offset < function.span.start.offset
+            fact.body_span().start.offset() > call.name_span.start.offset()
+                && fact.body_span().start.offset() < function.span.start.offset()
         })
         .flat_map(|fact| {
             let blocks = checker.semantic_analysis().block_ids_for_span(fact.span());
@@ -811,7 +811,7 @@ fn exit_command_terminates_runtime_scope(
         .visible_function_binding_defined_before(
             &Name::from("exit"),
             fact.scope(),
-            fact.body_span().start.offset,
+            fact.body_span().start.offset(),
         )
         .is_none()
 }
@@ -841,7 +841,7 @@ fn function_definition_is_branch_local(checker: &Checker<'_>, function: &Binding
 fn call_is_in_condition_context(checker: &Checker<'_>, call: &CallSite) -> bool {
     checker
         .semantic()
-        .innermost_command_id_at(call.name_span.start.offset)
+        .innermost_command_id_at(call.name_span.start.offset())
         .and_then(|id| checker.semantic().command_condition_role(id))
         .is_some()
 }

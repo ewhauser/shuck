@@ -58,7 +58,7 @@ done
         assert!(
             diagnostics
                 .iter()
-                .all(|diagnostic| diagnostic.span.start.line == 2)
+                .all(|diagnostic| diagnostic.span.start.line() == 2)
         );
         assert_eq!(
             diagnostics
@@ -111,7 +111,7 @@ done
             diagnostics[0].message,
             "getopts option -b is not handled by this case statement"
         );
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
     }
 
     #[test]

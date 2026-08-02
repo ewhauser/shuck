@@ -86,7 +86,7 @@ fn is_adjacent_to_runtime_expansion(
     arithmetic_expansion_spans: &[Span],
     command_substitution_spans: &[Span],
 ) -> bool {
-    let Some(previous_offset) = previous_non_quote_offset(source, span.start.offset) else {
+    let Some(previous_offset) = previous_non_quote_offset(source, span.start.offset()) else {
         return false;
     };
     let Some(previous) = source.as_bytes().get(previous_offset) else {
@@ -102,7 +102,7 @@ fn is_adjacent_to_runtime_expansion(
 fn any_span_end_is_quote_adjacent(source: &str, spans: &[Span], span: Span) -> bool {
     spans
         .iter()
-        .any(|runtime| quote_only_between(source, runtime.end.offset, span.start.offset))
+        .any(|runtime| quote_only_between(source, runtime.end.offset(), span.start.offset()))
 }
 
 fn previous_non_quote_offset(source: &str, end_offset: usize) -> Option<usize> {
@@ -142,7 +142,8 @@ fn is_plain_suppressed_subscript_literal(
 
 fn span_is_within_any(span: Span, containers: &[Span]) -> bool {
     containers.iter().any(|container| {
-        container.start.offset <= span.start.offset && span.end.offset <= container.end.offset
+        container.start.offset() <= span.start.offset()
+            && span.end.offset() <= container.end.offset()
     })
 }
 
@@ -304,7 +305,7 @@ printf '%s\\n' \"))\"
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.start.line(), 4);
         assert_eq!(diagnostics[0].span.slice(source), "08");
     }
 

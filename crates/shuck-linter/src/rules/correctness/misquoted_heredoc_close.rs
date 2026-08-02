@@ -88,7 +88,7 @@ x
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
     }
 
     #[test]

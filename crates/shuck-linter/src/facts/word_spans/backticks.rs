@@ -31,16 +31,19 @@ pub(crate) fn shellcheck_deescaped_backtick_part_span(
 ) -> Option<Span> {
     let source = locator.source();
     let containing_span = containing_backtick_substitution_span(span, backtick_spans)?;
-    let content_start = containing_span.start.offset.saturating_add('`'.len_utf8());
-    let start_removed = backtick_removed_escape_count(source, content_start, span.start.offset)?;
-    let end_removed = backtick_removed_escape_count(source, content_start, span.end.offset)?;
+    let content_start = containing_span
+        .start
+        .offset()
+        .saturating_add('`'.len_utf8());
+    let start_removed = backtick_removed_escape_count(source, content_start, span.start.offset())?;
+    let end_removed = backtick_removed_escape_count(source, content_start, span.end.offset())?;
     if start_removed == 0 && end_removed == 0 {
         return None;
     }
 
     Some(Span::from_positions(
-        locator.position_at_offset(span.start.offset.checked_sub(start_removed)?)?,
-        locator.position_at_offset(span.end.offset.checked_sub(end_removed)?)?,
+        locator.position_at_offset(span.start.offset().checked_sub(start_removed)?)?,
+        locator.position_at_offset(span.end.offset().checked_sub(end_removed)?)?,
     ))
 }
 
@@ -99,8 +102,8 @@ pub(crate) fn backtick_escaped_parameters(
     let mut spans = Vec::new();
 
     for backtick_span in backtick_spans {
-        let mut index = backtick_span.start.offset.saturating_add('`'.len_utf8());
-        let end = backtick_span.end.offset.saturating_sub('`'.len_utf8());
+        let mut index = backtick_span.start.offset().saturating_add('`'.len_utf8());
+        let end = backtick_span.end.offset().saturating_sub('`'.len_utf8());
         let mut in_single_quote = false;
         let mut in_double_quote = false;
         let mut removed_escapes = 0usize;
@@ -187,10 +190,10 @@ pub(crate) fn backtick_escaped_parameters(
 
     spans.sort_by_key(|parameter| {
         (
-            parameter.diagnostic_span.start.offset,
-            parameter.diagnostic_span.end.offset,
-            parameter.reference_span.start.offset,
-            parameter.reference_span.end.offset,
+            parameter.diagnostic_span.start.offset(),
+            parameter.diagnostic_span.end.offset(),
+            parameter.reference_span.start.offset(),
+            parameter.reference_span.end.offset(),
         )
     });
     spans.dedup();
@@ -205,8 +208,8 @@ pub(crate) fn backtick_escaped_parameter_reference_spans(
     let mut spans = Vec::new();
 
     for backtick_span in backtick_spans {
-        let base_offset = backtick_span.start.offset.saturating_add('`'.len_utf8());
-        let end = backtick_span.end.offset.saturating_sub('`'.len_utf8());
+        let base_offset = backtick_span.start.offset().saturating_add('`'.len_utf8());
+        let end = backtick_span.end.offset().saturating_sub('`'.len_utf8());
         let Some(text) = source.get(base_offset..end) else {
             continue;
         };
@@ -233,7 +236,7 @@ pub(crate) fn backtick_escaped_parameter_reference_spans(
         }
     }
 
-    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.sort_by_key(|span| (span.start.offset(), span.end.offset()));
     spans.dedup();
     spans
 }
@@ -246,8 +249,8 @@ pub(crate) fn backtick_double_escaped_parameter_spans(
     let mut spans = Vec::new();
 
     for backtick_span in backtick_spans {
-        let mut index = backtick_span.start.offset.saturating_add('`'.len_utf8());
-        let end = backtick_span.end.offset.saturating_sub('`'.len_utf8());
+        let mut index = backtick_span.start.offset().saturating_add('`'.len_utf8());
+        let end = backtick_span.end.offset().saturating_sub('`'.len_utf8());
         let mut in_single_quote = false;
         let mut in_double_quote = false;
 
@@ -302,7 +305,7 @@ pub(crate) fn backtick_double_escaped_parameter_spans(
         }
     }
 
-    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.sort_by_key(|span| (span.start.offset(), span.end.offset()));
     spans.dedup();
     spans
 }
@@ -315,7 +318,7 @@ pub(crate) fn escaped_backtick_parameter_is_standalone_command_name(
 ) -> bool {
     let segment_start = backtick_command_segment_start(
         source,
-        backtick_span.start.offset.saturating_add('`'.len_utf8()),
+        backtick_span.start.offset().saturating_add('`'.len_utf8()),
         slash_offset,
     );
     let Some(prefix) = source.get(segment_start..slash_offset) else {
@@ -325,7 +328,7 @@ pub(crate) fn escaped_backtick_parameter_is_standalone_command_name(
         return false;
     }
 
-    let suffix_limit = backtick_span.end.offset.saturating_sub('`'.len_utf8());
+    let suffix_limit = backtick_span.end.offset().saturating_sub('`'.len_utf8());
     escaped_reference_ends_standalone_word(source, expansion_end, suffix_limit)
 }
 
@@ -559,10 +562,10 @@ pub(crate) fn continued_line_chain_start(
     locator: Locator<'_>,
 ) -> Option<Position> {
     let source = locator.source();
-    let original_start = source[..target.offset]
+    let original_start = source[..target.offset()]
         .rfind('\n')
         .map_or(0, |index| index + 1);
-    let containing_line_start = source[..containing_span.start.offset]
+    let containing_line_start = source[..containing_span.start.offset()]
         .rfind('\n')
         .map_or(0, |index| index + 1);
     let mut chain_start = containing_line_start;
@@ -571,9 +574,9 @@ pub(crate) fn continued_line_chain_start(
     let mut in_comment = false;
     let mut previous_char = None;
     let mut trailing_backslashes = 0usize;
-    let mut index = containing_span.start.offset.saturating_add(1);
+    let mut index = containing_span.start.offset().saturating_add(1);
 
-    while index < target.offset {
+    while index < target.offset() {
         if source[index..].starts_with("\r\n") {
             index += "\r\n".len();
             if !in_comment && !in_single_quote && trailing_backslashes % 2 == 1 {
@@ -655,10 +658,10 @@ pub(crate) fn shellcheck_collapsed_position(
     target: Position,
     source: &str,
 ) -> Position {
-    let mut line = chain_start.line;
-    let mut column = chain_start.column;
+    let mut line = chain_start.line();
+    let mut column = chain_start.column();
     let mut in_collapsed_continuation = false;
-    let prefix = &source[chain_start.offset..target.offset];
+    let prefix = &source[chain_start.offset()..target.offset()];
     let mut index = 0usize;
 
     while index < prefix.len() {
@@ -690,11 +693,7 @@ pub(crate) fn shellcheck_collapsed_position(
         index += ch.len_utf8();
     }
 
-    Position {
-        line,
-        column,
-        offset: target.offset,
-    }
+    Position::at(line, column, target.offset())
 }
 
 #[cfg(test)]
@@ -820,10 +819,10 @@ mod tests {
 
         let adjusted = shellcheck_collapsed_backtick_part_span_in_source(span, source);
 
-        assert_eq!(adjusted.start.line, span.start.line);
-        assert_eq!(adjusted.end.line, span.end.line);
-        assert_eq!(adjusted.start.column, span.start.column - 2);
-        assert_eq!(adjusted.end.column, span.end.column - 2);
+        assert_eq!(adjusted.start.line(), span.start.line());
+        assert_eq!(adjusted.end.line(), span.end.line());
+        assert_eq!(adjusted.start.column(), span.start.column() - 2);
+        assert_eq!(adjusted.end.column(), span.end.column() - 2);
     }
 
     #[test]
@@ -833,8 +832,8 @@ mod tests {
 
         let adjusted = shellcheck_collapsed_backtick_part_span_in_source(span, source);
 
-        assert_eq!(adjusted.start.column, span.start.column - 1);
-        assert_eq!(adjusted.end.column, span.end.column - 1);
+        assert_eq!(adjusted.start.column(), span.start.column() - 1);
+        assert_eq!(adjusted.end.column(), span.end.column() - 1);
     }
 
     #[test]

@@ -61,7 +61,7 @@ pub fn unquoted_array_split(checker: &mut Checker) {
 }
 
 fn span_contains(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
+    outer.start.offset() <= inner.start.offset() && outer.end.offset() >= inner.end.offset()
 }
 
 fn is_excluded_special_parameter_span(span: Span, source: &str) -> bool {

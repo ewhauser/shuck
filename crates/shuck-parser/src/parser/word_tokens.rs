@@ -9,7 +9,7 @@ impl<'a> Parser<'a> {
         let word = token.word()?;
         let source_backed = !token.flags.is_synthetic();
 
-        if self.zsh_glob_word_parsing_enabled_at(span.start.offset)
+        if self.zsh_glob_word_parsing_enabled_at(span.start.offset())
             && let Some(segment) = word.single_segment()
             && segment.kind() == LexedWordSegmentKind::Plain
             && let Some(word) = self.maybe_parse_zsh_qualified_glob_word(
@@ -439,7 +439,8 @@ impl<'a> Parser<'a> {
             .current_token
             .as_ref()
             .is_some_and(|token| token.flags.is_synthetic());
-        while self.current_token.is_some() && self.current_span.start.offset < word.span.end.offset
+        while self.current_token.is_some()
+            && self.current_span.start.offset() < word.span.end.offset()
         {
             self.advance();
             if stop_after_synthetic
@@ -463,7 +464,7 @@ impl<'a> Parser<'a> {
     pub(super) fn current_conditional_literal_word(&self) -> Option<Word> {
         match self.current_token_kind? {
             TokenKind::LeftBrace | TokenKind::RightBrace => Some(Word::literal_with_span(
-                self.input[self.current_span.start.offset..self.current_span.end.offset]
+                self.input[self.current_span.start.offset()..self.current_span.end.offset()]
                     .to_string(),
                 self.current_span,
             )),

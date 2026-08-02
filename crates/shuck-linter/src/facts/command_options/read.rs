@@ -175,10 +175,10 @@ fn read_attached_array_target_name_use(
 fn read_option_attached_target_span(span: Span, source: &str, start: usize, end: usize) -> Span {
     let start_pos = span
         .start
-        .advanced_by(&source[span.start.offset..span.start.offset + start]);
+        .advanced_by(&source[span.start.offset()..span.start.offset() + start]);
     let end_pos = span
         .start
-        .advanced_by(&source[span.start.offset..span.start.offset + end]);
+        .advanced_by(&source[span.start.offset()..span.start.offset() + end]);
     Span::from_positions(start_pos, end_pos)
 }
 

@@ -70,9 +70,9 @@ mod tests {
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 1);
-        assert_eq!(diagnostics[0].span.end.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
+        assert_eq!(diagnostics[0].span.end.column(), 1);
     }
 
     #[test]
@@ -84,7 +84,7 @@ mod tests {
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.line(), 2);
     }
 
     #[test]
@@ -96,9 +96,9 @@ mod tests {
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 3);
-        assert_eq!(diagnostics[0].span.start.column, 1);
-        assert_eq!(diagnostics[0].span.end.column, 1);
+        assert_eq!(diagnostics[0].span.start.line(), 3);
+        assert_eq!(diagnostics[0].span.start.column(), 1);
+        assert_eq!(diagnostics[0].span.end.column(), 1);
     }
 
     #[test]
