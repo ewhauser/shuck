@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.1](https://github.com/ewhauser/shuck/compare/v0.1.0...v0.1.1) (2026-08-03)
+
+
+### Features
+
+* **server:** enable cross-file rename by default ([#1243](https://github.com/ewhauser/shuck/issues/1243)) ([1d5cdc4](https://github.com/ewhauser/shuck/commit/1d5cdc4b2e263d36e1f46230e82fb769181bd2f8))
+* **server:** enable workspace diagnostics by default ([#1242](https://github.com/ewhauser/shuck/issues/1242)) ([8814c4a](https://github.com/ewhauser/shuck/commit/8814c4a98f6e5a5819a55f142117e1cb190a373d))
+* **server:** link resolvable source targets ([#1235](https://github.com/ewhauser/shuck/issues/1235)) ([c04d166](https://github.com/ewhauser/shuck/commit/c04d1662e5ed1a0e89343a4bfb90be872ffb299c))
+* **server:** provide AST-based selection ranges ([#1240](https://github.com/ewhauser/shuck/issues/1240)) ([04a37e1](https://github.com/ewhauser/shuck/commit/04a37e156181c65aef6e9bd194148dc6209716b2))
+* **server:** provide shell folding ranges ([#1239](https://github.com/ewhauser/shuck/issues/1239)) ([c017109](https://github.com/ewhauser/shuck/commit/c0171091d98550f0dfa8421bd39c73ae5fa18625))
+* **server:** support bounded workspace diagnostics ([#1241](https://github.com/ewhauser/shuck/issues/1241)) ([1a4571b](https://github.com/ewhauser/shuck/commit/1a4571b354fb567765ba801f62174e0496563c35))
+
 ## [0.1.0](https://github.com/ewhauser/shuck/compare/v0.0.46...v0.1.0) (2026-08-02)
 
 
