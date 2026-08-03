@@ -288,12 +288,24 @@ impl RenameFeatureOptionsOverrides {
 }
 
 /// Configuration for rename requests.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RenameFeatureOptions {
     /// Allow rename edits outside the current document.
-    #[serde(default)]
+    #[serde(default = "default_cross_file_rename_enabled")]
     pub allow_cross_file: bool,
+}
+
+impl Default for RenameFeatureOptions {
+    fn default() -> Self {
+        Self {
+            allow_cross_file: default_cross_file_rename_enabled(),
+        }
+    }
+}
+
+fn default_cross_file_rename_enabled() -> bool {
+    true
 }
 
 impl Default for WorkspaceSymbolFeatureOptions {

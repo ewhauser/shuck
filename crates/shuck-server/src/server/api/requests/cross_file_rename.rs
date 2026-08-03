@@ -41,7 +41,7 @@ pub(super) fn prepare(
     client: &Client,
     params: types::TextDocumentPositionParams,
 ) -> crate::server::Result<editor_features::PrepareRenameResponse> {
-    if !snapshot.client_settings().rename().allow_cross_file {
+    if !cross_file_rename_supported(&snapshot) {
         return editor_features::prepare_rename(snapshot, client, params);
     }
     let position = params.position;
@@ -51,9 +51,6 @@ pub(super) fn prepare(
         }
         FunctionResolution::Unavailable => Ok(None),
         FunctionResolution::Resolved(target) => {
-            if !snapshot.resolved_client_capabilities().document_changes {
-                return Ok(None);
-            }
             if collect_rename_spans(&target, &workspace).is_err() {
                 return Ok(None);
             }
@@ -79,7 +76,7 @@ pub(super) fn rename(
     client: &Client,
     params: types::RenameParams,
 ) -> crate::server::Result<editor_features::RenameResponse> {
-    if !snapshot.client_settings().rename().allow_cross_file {
+    if !cross_file_rename_supported(&snapshot) {
         return editor_features::rename(snapshot, client, params);
     }
     let position = params.text_document_position.position;
@@ -94,11 +91,6 @@ pub(super) fn rename(
         }
         FunctionResolution::Resolved(target) => target,
     };
-    if !snapshot.resolved_client_capabilities().document_changes {
-        return Err(rename_error(
-            "cross-file function rename requires client support for documentChanges",
-        ));
-    }
     if !editor_features::valid_function_name(&params.new_name) {
         return Err(Error::new(
             anyhow!("new name is not valid for a shell function"),
@@ -109,6 +101,11 @@ pub(super) fn rename(
     let edit = workspace_edit(&target.index, spans, &params.new_name);
     validate_workspace_snapshot(&target.index, &workspace).map_err(rename_error)?;
     Ok(Some(edit))
+}
+
+fn cross_file_rename_supported(snapshot: &DocumentSnapshot) -> bool {
+    snapshot.client_settings().rename().allow_cross_file
+        && snapshot.resolved_client_capabilities().document_changes
 }
 
 fn resolve_function(

@@ -3,15 +3,15 @@
 ## Status
 
 Implemented (document-local v1 plus statically resolved source-aware
-completion, definition, hover, references, document links, opt-in cross-file
-rename, syntax-aware folding ranges, and AST-based selection ranges).
+completion, definition, hover, references, document links, cross-file rename,
+syntax-aware folding ranges, and AST-based selection ranges).
 
 Delivered: completion, semantic hover, go-to-definition, references, document
 links, document highlights, document and workspace symbols, conservative
 rename, AST-based selection ranges, document/range formatting, and folding
 ranges. Function completion follows the statically resolvable source graph, and
 resolvable source paths are exposed as document links. Definition, hover,
-references, and opt-in cross-file function rename require exact source bindings.
+references, and cross-file function rename require exact source bindings.
 Cross-file call hierarchy is specified separately in spec 025.
 
 ## Summary
@@ -583,8 +583,8 @@ Defaults:
   and `max_source_bytes = 32 MiB`; enabling them advertises and serves
   `workspace/diagnostic` without starting a background scan;
 - runtime-name and keyword completions enabled;
-- cross-file function rename disabled by default and enabled with
-  `server.rename.allowCrossFile = true`.
+- cross-file function rename enabled by default and disabled with
+  `server.rename.allowCrossFile = false`.
 
 ### Implementation Stages
 
@@ -598,7 +598,7 @@ Defaults:
    same symbol target resolution.
 5. **Completion.** Add context classification and semantic completions.
 6. **Rename.** Add conservative rename sets, `prepareRename`, and same-file
-   `rename`, then opt-in cross-file function rename once closed-file edit
+   `rename`, then guarded cross-file function rename once closed-file edit
    safety and exact workspace references are available.
 
 Each stage must advertise only the capabilities implemented in that stage.
@@ -707,7 +707,7 @@ Manual editor black-box scenarios should cover:
   contents when a file is edited;
 - prepare-rename rejects positional parameters, special parameters, dynamic
   names, namerefs, imported bindings, and ambiguous references;
-- rename edits only the proven symbol set; opt-in cross-file function rename
+- rename edits only the proven symbol set; cross-file function rename
   rejects partial indexes, ambiguous calls, stale files, out-of-workspace
   dependencies, and overlapping edits;
 - formatting and range formatting return stable, minimal edits and do not

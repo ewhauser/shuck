@@ -597,9 +597,6 @@ fn cross_file_rename_for_encoding(
         serde_json::json!({
             "capabilities": capabilities,
             "rootUri": Url::from_file_path(workspace.path()).unwrap(),
-            "initializationOptions": {
-                "shuck": { "server": { "rename": { "allowCrossFile": true } } }
-            },
         }),
     );
     let initialize = recv_response(&client_connection, 1);
@@ -615,24 +612,32 @@ fn cross_file_rename_for_encoding(
     open_document(&client_connection, &main_uri, main_source);
 
     if !supports_document_changes {
+        change_document(
+            &client_connection,
+            &main_uri,
+            2,
+            "local_name() { :; }\nlocal_name\n",
+        );
         send_request(
             &client_connection,
             2,
             "textDocument/rename",
             serde_json::json!({
                 "textDocument": { "uri": main_uri },
-                "position": { "line": 2, "character": name_start },
-                "newName": "unsafe_without_versions",
+                "position": { "line": 1, "character": 0 },
+                "newName": "renamed_locally",
             }),
         );
-        let unsupported = recv_lsp_response(&client_connection, 2);
-        let unsupported_error = unsupported
-            .error
-            .expect("cross-file rename should require versioned document changes");
+        let local = recv_response(&client_connection, 2);
+        assert!(local["documentChanges"].is_null());
+        let edits = local["changes"][main_uri.as_str()]
+            .as_array()
+            .expect("local fallback should return changes for the current document");
+        assert_eq!(edits.len(), 2);
         assert!(
-            unsupported_error
-                .message
-                .contains("requires client support")
+            edits
+                .iter()
+                .all(|edit| edit["newText"] == "renamed_locally")
         );
         send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
         let _ = recv_response(&client_connection, 99);
@@ -794,7 +799,7 @@ fn cross_file_rename_uses_utf32_positions() {
 }
 
 #[test]
-fn cross_file_rename_requires_versioned_document_changes() {
+fn cross_file_rename_falls_back_without_versioned_document_changes() {
     cross_file_rename_for_encoding("utf-16", 8, false);
 }
 
