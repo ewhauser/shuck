@@ -2161,7 +2161,6 @@ fn workspace_diagnostics_are_incremental_and_shadow_open_buffers() {
                 "shuck": {
                     "server": {
                         "workspaceDiagnostics": {
-                            "enabled": true,
                             "maxFiles": 10,
                             "maxSourceBytes": 1048576,
                         }

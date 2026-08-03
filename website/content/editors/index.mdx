@@ -14,7 +14,7 @@ files.
 | Feature | LSP methods | Scope and limitations |
 | --- | --- | --- |
 | Document synchronization | `textDocument/didOpen`, `didChange`, `didClose` | Incremental synchronization for open shell buffers. Dialect inference uses the buffer `languageId`, shebang, and file path. |
-| Diagnostics | `textDocument/diagnostic`, `textDocument/publishDiagnostics`, opt-in `workspace/diagnostic` | Pull diagnostics when the client supports them, with push diagnostics as a fallback. Workspace pulls are disabled by default; when enabled they discover shell files lazily, honor workspace and ignore boundaries, prefer open buffers, reuse stable result IDs, report partial progress, and stop at configurable file, visited-entry, and source-byte limits. Inter-file diagnostic dependencies are not supported. |
+| Diagnostics | `textDocument/diagnostic`, `textDocument/publishDiagnostics`, `workspace/diagnostic` | Pull diagnostics when the client supports them, with push diagnostics as a fallback. Workspace pulls are enabled by default and discover shell files lazily, honor workspace and ignore boundaries, prefer open buffers, reuse stable result IDs, report partial progress, and stop at configurable file, visited-entry, and source-byte limits. Inter-file diagnostic dependencies are not supported. |
 | Code actions | `textDocument/codeAction`, `codeAction/resolve` | Quick fixes, disable-this-line actions, and `source.fixAll.shuck` for the active document. |
 | Completion | `textDocument/completion`, `completionItem/resolve` | Variables, declaration names, runtime names, builtins, shell keywords, and functions visible in the active document or through unconditional static `source`/`.` edges. Literal paths, valid source hints, configured source paths, and unsaved open buffers participate; dynamic or unresolved sources do not. Command-specific option completion is not supported. |
 | Hover | `textDocument/hover` | Semantic symbol information plus help for suppression codes in `# shuck:` and `# shellcheck` directives. Function calls can resolve through the same exact static source graph as go-to-definition, including source hints, configured source paths, and open buffers. Dynamic or ambiguous sources are not guessed, and Shuck does not fetch command manuals. |
@@ -43,17 +43,15 @@ Shuck does not currently advertise semantic tokens, inlay hints, signature
 help, or notebook documents. These are not permanent
 prohibitions, but there is no accepted implementation design for them today.
 
-Enable bounded workspace pulls through initialization options:
+Workspace pulls are enabled by default. Disable them through initialization
+options if an editor should only request diagnostics for open documents:
 
 ```json
 {
   "shuck": {
     "server": {
       "workspaceDiagnostics": {
-        "enabled": true,
-        "maxFiles": 1000,
-        "maxEntries": 10000,
-        "maxSourceBytes": 33554432
+        "enabled": false
       }
     }
   }
@@ -61,9 +59,10 @@ Enable bounded workspace pulls through initialization options:
 ```
 
 Shuck does not scan a workspace at startup. Each request performs a cancellable
-bounded discovery, and embedded host documents remain excluded until their
-diagnostic position mapping is available. Once advertised, dynamic
-configuration can change the limits or disable subsequent workspace pulls.
+bounded discovery with defaults of 1,000 files, 10,000 visited entries, and 32
+MiB of source text. Embedded host documents remain excluded until their
+diagnostic position mapping is available. Dynamic configuration can change the
+limits or disable subsequent workspace pulls.
 
 This page is the user-facing support contract. The repository's
 [design specs](https://github.com/ewhauser/shuck/tree/main/specs) record the

@@ -51,14 +51,10 @@ impl Server {
             workspace_folders,
             ..
         } = init_params;
-        let AllOptions { global, workspace } =
+        let all_options =
             AllOptions::from_value(initialization_options.unwrap_or(serde_json::Value::Null));
-        let workspace_diagnostics_enabled = global.workspace_diagnostics_enabled()
-            || workspace.as_ref().is_some_and(|workspaces| {
-                workspaces
-                    .values()
-                    .any(|options| options.server.workspace_diagnostics.enabled)
-            });
+        let workspace_diagnostics_enabled = all_options.workspace_diagnostics_enabled();
+        let AllOptions { global, workspace } = all_options;
         let server_capabilities =
             Self::server_capabilities(position_encoding, workspace_diagnostics_enabled);
         let connection = connection.initialize_finish(
