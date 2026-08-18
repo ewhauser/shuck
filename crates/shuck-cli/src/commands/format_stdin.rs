@@ -23,12 +23,21 @@ pub(crate) fn format_stdin(
     let display_path = display_path(path);
     let cwd = std::env::current_dir()?;
     let project_root = stdin_project_root(path, &cwd, config_arguments.use_config_roots())?;
-    let options = resolve_project_format_settings(
+    let settings = resolve_project_format_settings(
         &project_root,
         config_arguments,
         args.format_settings_patch(),
-    )?
-    .to_shell_format_options();
+    )?;
+
+    if path.is_some_and(|path| settings.is_file_excluded(&cwd.join(path))) {
+        if mode.is_write() {
+            let mut stdout = io::stdout().lock();
+            stdout.write_all(source.as_bytes())?;
+        }
+        return Ok(ExitStatus::Success);
+    }
+
+    let options = settings.to_shell_format_options();
 
     if matches!(mode, FormatMode::Check) {
         return match source_is_formatted(&source, path, &options) {

@@ -1854,6 +1854,49 @@ fn format_stdin_uses_current_project_config() {
 }
 
 #[test]
+fn format_stdin_filename_respects_project_config_exclude() {
+    let tempdir = tempdir().unwrap();
+    let generated = tempdir.path().join("generated");
+    fs::create_dir_all(&generated).unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "[format]\nexclude = ['generated/**']\n",
+    )
+    .unwrap();
+
+    let source = "foo(){\necho hi\n}\n";
+    let excluded = generated.join("ignored.sh");
+    let excluded = excluded.to_str().unwrap();
+
+    let mut check = Command::cargo_bin("shuck").unwrap();
+    check
+        .current_dir(tempdir.path())
+        .args(["format", "--check", "--stdin-filename", excluded, "-"])
+        .write_stdin(source);
+    check.assert().success().stdout("").stderr("");
+
+    let mut write = Command::cargo_bin("shuck").unwrap();
+    write
+        .current_dir(tempdir.path())
+        .args(["format", "--stdin-filename", excluded, "-"])
+        .write_stdin(source);
+    write.assert().success().stdout(source).stderr("");
+
+    let regular = tempdir.path().join("regular.sh");
+    let regular = regular.to_str().unwrap();
+    let mut included = Command::cargo_bin("shuck").unwrap();
+    included
+        .current_dir(tempdir.path())
+        .args(["format", "--stdin-filename", regular, "-"])
+        .write_stdin(source);
+    included
+        .assert()
+        .success()
+        .stdout("foo() {\n\techo hi\n}\n")
+        .stderr("");
+}
+
+#[test]
 fn format_stdin_filename_enforces_inferred_posix_dialect() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     cmd.args(["format", "--stdin-filename", "script.sh"])
