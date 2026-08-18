@@ -2,7 +2,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use globset::{Glob, GlobMatcher};
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
@@ -367,6 +367,49 @@ pub struct CompiledPerFileIgnoreList {
     entries: Vec<CompiledPerFileIgnore>,
 }
 
+/// A glob pattern paired with the shell dialect selected for matching files.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PerFileShell {
+    pattern: String,
+    shell: ShellDialect,
+}
+
+impl PerFileShell {
+    /// Creates a per-file shell mapping.
+    pub fn new(pattern: impl Into<String>, shell: ShellDialect) -> Self {
+        Self {
+            pattern: pattern.into(),
+            shell,
+        }
+    }
+
+    /// Returns the configured glob pattern.
+    pub fn pattern(&self) -> &str {
+        &self.pattern
+    }
+
+    /// Returns the shell dialect selected by the mapping.
+    pub const fn shell(&self) -> ShellDialect {
+        self.shell
+    }
+}
+
+/// Compiled per-file shell mappings resolved relative to one project root.
+#[derive(Debug, Clone, Default)]
+pub struct CompiledPerFileShellList {
+    project_root: PathBuf,
+    entries: Vec<CompiledPerFileShell>,
+}
+
+#[derive(Debug, Clone)]
+struct CompiledPerFileShell {
+    basename_matcher: GlobMatcher,
+    relative_matcher: GlobMatcher,
+    absolute_matcher: GlobMatcher,
+    negated: bool,
+    shell: ShellDialect,
+}
+
 impl PartialEq for CompiledPerFileIgnoreList {
     fn eq(&self, other: &Self) -> bool {
         self.project_root == other.project_root && self.entries == other.entries
@@ -672,11 +715,92 @@ impl CompiledPerFileIgnoreList {
     }
 }
 
+impl CompiledPerFileShellList {
+    /// Compiles per-file shell mappings for paths under `project_root`.
+    pub fn resolve(
+        project_root: impl Into<PathBuf>,
+        per_file_shell: impl IntoIterator<Item = PerFileShell>,
+    ) -> Result<Self> {
+        let entries = per_file_shell
+            .into_iter()
+            .map(|per_file_shell| {
+                let mut pattern = per_file_shell.pattern;
+                let negated = pattern.starts_with('!');
+                if negated {
+                    pattern.drain(..1);
+                }
+
+                Ok(CompiledPerFileShell {
+                    basename_matcher: Glob::new(&pattern)
+                        .map_err(|err| anyhow!("invalid glob {pattern:?}: {err}"))?
+                        .compile_matcher(),
+                    relative_matcher: Glob::new(&pattern)
+                        .map_err(|err| anyhow!("invalid glob {pattern:?}: {err}"))?
+                        .compile_matcher(),
+                    absolute_matcher: Glob::new(&pattern)
+                        .map_err(|err| anyhow!("invalid glob {pattern:?}: {err}"))?
+                        .compile_matcher(),
+                    negated,
+                    shell: per_file_shell.shell,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(Self {
+            project_root: project_root.into(),
+            entries,
+        })
+    }
+
+    /// Returns the shell selected for `path`, if any mapping applies.
+    ///
+    /// Mappings are evaluated in order and the last matching entry wins.
+    pub fn shell_for_path(&self, path: &Path) -> Option<ShellDialect> {
+        let relative_path = path.strip_prefix(&self.project_root).unwrap_or(path);
+        let file_name = relative_path.file_name().or_else(|| path.file_name())?;
+
+        self.entries.iter().fold(None, |shell, entry| {
+            let matches = entry.basename_matcher.is_match(file_name)
+                || entry.relative_matcher.is_match(relative_path)
+                || matches_absolute_shell_path(&entry.absolute_matcher, path);
+            let applies = if entry.negated { !matches } else { matches };
+
+            if applies { Some(entry.shell) } else { shell }
+        })
+    }
+}
+
 fn matches_absolute_path(matcher: &GlobMatcher, path: &Path) -> bool {
     matcher.is_match(path)
         || normalized_absolute_match_path(path)
             .as_deref()
             .is_some_and(|normalized| matcher.is_match(normalized))
+}
+
+fn matches_absolute_shell_path(matcher: &GlobMatcher, path: &Path) -> bool {
+    matcher.is_match(path)
+        || matcher.is_match(normalize_path(path))
+        || slash_normalized_match_path(path)
+            .as_deref()
+            .is_some_and(|normalized| matcher.is_match(normalized))
+        || normalized_absolute_match_path(path)
+            .as_ref()
+            .is_some_and(|normalized| {
+                matcher.is_match(normalized)
+                    || slash_normalized_match_path(normalized)
+                        .as_deref()
+                        .is_some_and(|slash_normalized| matcher.is_match(slash_normalized))
+            })
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    path.components().collect()
+}
+
+fn slash_normalized_match_path(path: &Path) -> Option<PathBuf> {
+    let path = path.to_string_lossy();
+    path.contains('\\')
+        .then(|| PathBuf::from(path.replace('\\', "/")))
 }
 
 fn normalized_absolute_match_path(path: &Path) -> Option<PathBuf> {
@@ -778,6 +902,71 @@ mod tests {
         let ignored_rules = per_file_ignores.ignored_rules(&script_path);
 
         assert!(ignored_rules.contains(Rule::UnusedAssignment));
+    }
+
+    #[test]
+    fn per_file_shell_matches_paths_and_uses_the_last_match() {
+        let project_root = PathBuf::from("/workspace");
+        let per_file_shell = CompiledPerFileShellList::resolve(
+            &project_root,
+            [
+                PerFileShell::new("*.sh", ShellDialect::Sh),
+                PerFileShell::new("scripts/*.sh", ShellDialect::Bash),
+                PerFileShell::new("/workspace/scripts/special.sh", ShellDialect::Zsh),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(
+            per_file_shell.shell_for_path(&project_root.join("top.sh")),
+            Some(ShellDialect::Sh)
+        );
+        assert_eq!(
+            per_file_shell.shell_for_path(&project_root.join("scripts/tool.sh")),
+            Some(ShellDialect::Bash)
+        );
+        assert_eq!(
+            per_file_shell.shell_for_path(&project_root.join("scripts/special.sh")),
+            Some(ShellDialect::Zsh)
+        );
+        assert_eq!(
+            per_file_shell.shell_for_path(&project_root.join("README.md")),
+            None
+        );
+    }
+
+    #[test]
+    fn per_file_shell_preserves_negated_pattern_semantics() {
+        let project_root = PathBuf::from("/workspace");
+        let per_file_shell = CompiledPerFileShellList::resolve(
+            &project_root,
+            [PerFileShell::new("!vendor/*.sh", ShellDialect::Bash)],
+        )
+        .unwrap();
+
+        assert_eq!(
+            per_file_shell.shell_for_path(&project_root.join("scripts/tool.sh")),
+            Some(ShellDialect::Bash)
+        );
+        assert_eq!(
+            per_file_shell.shell_for_path(&project_root.join("vendor/tool.sh")),
+            None
+        );
+    }
+
+    #[test]
+    fn per_file_shell_matches_normalized_windows_verbatim_paths() {
+        let path = Path::new(r"\\?\C:\repo\nested\script.sh");
+        let per_file_shell = CompiledPerFileShellList::resolve(
+            PathBuf::from(r"C:\repo"),
+            [PerFileShell::new("C:/repo/nested/*.sh", ShellDialect::Bash)],
+        )
+        .unwrap();
+
+        assert_eq!(
+            per_file_shell.shell_for_path(path),
+            Some(ShellDialect::Bash)
+        );
     }
 
     #[test]

@@ -3,15 +3,14 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use globset::{Glob, GlobMatcher};
 use shuck_config::{
     ConfigArguments, FormatExclusions, FormatSettingsPatch, LintConfig, ShuckConfig,
     apply_config_overrides, load_project_config, resolve_project_root_for_file,
 };
 use shuck_formatter::{ShellDialect as FormatDialect, ShellFormatOptions};
 use shuck_linter::{
-    CompiledPerFileIgnoreList, LinterRuleOptions, LinterSettings, PerFileIgnore, RuleSelector,
-    RuleSet, ShellDialect as LinterShellDialect,
+    CompiledPerFileIgnoreList, CompiledPerFileShellList, LinterRuleOptions, LinterSettings,
+    PerFileIgnore, PerFileShell, RuleSelector, RuleSet, ShellDialect as LinterShellDialect,
 };
 
 use crate::session::{
@@ -677,79 +676,6 @@ fn apply_linter_rule_options_for_lint_config(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct PerFileShell {
-    pattern: String,
-    shell: LinterShellDialect,
-}
-
-#[derive(Debug, Clone, Default)]
-struct CompiledPerFileShellList {
-    project_root: PathBuf,
-    entries: Vec<CompiledPerFileShell>,
-}
-
-#[derive(Debug, Clone)]
-struct CompiledPerFileShell {
-    basename_matcher: GlobMatcher,
-    relative_matcher: GlobMatcher,
-    absolute_matcher: GlobMatcher,
-    negated: bool,
-    shell: LinterShellDialect,
-}
-
-impl CompiledPerFileShellList {
-    fn resolve(project_root: PathBuf, per_file_shell: Vec<PerFileShell>) -> anyhow::Result<Self> {
-        let entries = per_file_shell
-            .into_iter()
-            .map(|per_file_shell| {
-                let mut pattern = per_file_shell.pattern;
-                let negated = pattern.starts_with('!');
-                if negated {
-                    pattern.drain(..1);
-                }
-
-                let basename_matcher = Glob::new(&pattern)
-                    .map_err(|err| anyhow::anyhow!("invalid glob {pattern:?}: {err}"))?
-                    .compile_matcher();
-                let relative_matcher = Glob::new(&pattern)
-                    .map_err(|err| anyhow::anyhow!("invalid glob {pattern:?}: {err}"))?
-                    .compile_matcher();
-                let absolute_matcher = Glob::new(&pattern)
-                    .map_err(|err| anyhow::anyhow!("invalid glob {pattern:?}: {err}"))?
-                    .compile_matcher();
-
-                Ok(CompiledPerFileShell {
-                    basename_matcher,
-                    relative_matcher,
-                    absolute_matcher,
-                    negated,
-                    shell: per_file_shell.shell,
-                })
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-
-        Ok(Self {
-            project_root,
-            entries,
-        })
-    }
-
-    fn shell_for_path(&self, path: &Path) -> Option<LinterShellDialect> {
-        let relative_path = path.strip_prefix(&self.project_root).unwrap_or(path);
-        let file_name = relative_path.file_name().or_else(|| path.file_name())?;
-
-        self.entries.iter().fold(None, |shell, entry| {
-            let matches = entry.basename_matcher.is_match(file_name)
-                || entry.relative_matcher.is_match(relative_path)
-                || matches_absolute_path(&entry.absolute_matcher, path);
-            let applies = if entry.negated { !matches } else { matches };
-
-            if applies { Some(entry.shell) } else { shell }
-        })
-    }
-}
-
 fn parse_per_file_shell_map(entries: &BTreeMap<String, String>, scope: &str) -> Vec<PerFileShell> {
     entries
         .iter()
@@ -760,10 +686,7 @@ fn parse_per_file_shell_map(entries: &BTreeMap<String, String>, scope: &str) -> 
                 return None;
             }
 
-            Some(PerFileShell {
-                pattern: pattern.clone(),
-                shell,
-            })
+            Some(PerFileShell::new(pattern.clone(), shell))
         })
         .collect()
 }
@@ -776,42 +699,6 @@ fn apply_per_file_shell_layer(
     let mut per_file_shell = per_file_shell.unwrap_or(current);
     per_file_shell.extend(extend_per_file_shell);
     per_file_shell
-}
-
-fn matches_absolute_path(matcher: &GlobMatcher, path: &Path) -> bool {
-    matcher.is_match(path)
-        || matcher.is_match(normalize_path(path))
-        || slash_normalized_match_path(path)
-            .as_deref()
-            .is_some_and(|normalized| matcher.is_match(normalized))
-        || normalized_absolute_match_path(path)
-            .as_ref()
-            .is_some_and(|normalized| {
-                matcher.is_match(normalized)
-                    || slash_normalized_match_path(normalized)
-                        .as_deref()
-                        .is_some_and(|slash_normalized| matcher.is_match(slash_normalized))
-            })
-}
-
-fn normalize_path(path: &Path) -> PathBuf {
-    path.components().collect()
-}
-
-fn normalized_absolute_match_path(path: &Path) -> Option<PathBuf> {
-    let path = path.to_string_lossy();
-
-    if let Some(stripped) = path.strip_prefix(r"\\?\UNC\") {
-        return Some(PathBuf::from(format!(r"\\{stripped}")));
-    }
-
-    path.strip_prefix(r"\\?\").map(PathBuf::from)
-}
-
-fn slash_normalized_match_path(path: &Path) -> Option<PathBuf> {
-    let path = path.to_string_lossy();
-    path.contains('\\')
-        .then(|| PathBuf::from(path.replace('\\', "/")))
 }
 
 #[cfg(test)]
