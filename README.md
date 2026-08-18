@@ -22,7 +22,7 @@ Shuck parses, analyzes, formats, and powers editor feedback for shell scripts. I
 ### Homebrew
 
 ```sh
-brew install ewhauser/tap/shuck
+brew install ewhauser/tap/shuck-cli
 ```
 
 ### PyPI
