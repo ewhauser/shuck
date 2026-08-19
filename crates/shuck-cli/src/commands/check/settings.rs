@@ -16,6 +16,7 @@ use shuck_linter::{
     AmbientFunctionContractSpec, CompiledPerFileIgnoreList, LinterSettings, PerFileIgnore,
     ResolvedAmbientContracts, Rule, RuleSelector, RuleSet, ShellDialect,
 };
+pub(super) use shuck_linter::{CompiledPerFileShellList, PerFileShell};
 use shuck_semantic::{
     PluginFramework, PluginRequest, PluginRequestKind, PluginResolution, PluginResolver,
     resolve_zsh_plugin_entrypoint, resolve_zsh_plugin_source_paths, zsh_plugin_framework_from_name,
@@ -149,8 +150,8 @@ impl EffectiveCheckSettings {
         let per_file_shell = per_file_shell
             .iter()
             .map(|shell| EffectivePerFileShell {
-                pattern: shell.pattern.clone(),
-                shell: shell_name(shell.shell).to_owned(),
+                pattern: shell.pattern().to_owned(),
+                shell: shell_name(shell.shell()).to_owned(),
             })
             .collect::<Vec<_>>();
 
@@ -407,27 +408,6 @@ impl PerFileIgnoreSpec {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct PerFileShell {
-    pub(super) pattern: String,
-    pub(super) shell: ShellDialect,
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct CompiledPerFileShellList {
-    project_root: PathBuf,
-    entries: Vec<CompiledPerFileShell>,
-}
-
-#[derive(Debug, Clone)]
-struct CompiledPerFileShell {
-    basename_matcher: GlobMatcher,
-    relative_matcher: GlobMatcher,
-    absolute_matcher: GlobMatcher,
-    negated: bool,
-    shell: ShellDialect,
-}
-
 #[derive(Debug, Clone)]
 pub(super) struct ResolvedZshPluginSettings {
     enabled: bool,
@@ -466,57 +446,6 @@ struct CompiledPathMatcher {
     relative_matcher: GlobMatcher,
     absolute_matcher: GlobMatcher,
     negated: bool,
-}
-
-impl CompiledPerFileShellList {
-    pub(super) fn resolve(
-        project_root: impl Into<PathBuf>,
-        per_file_shell: impl IntoIterator<Item = PerFileShell>,
-    ) -> Result<Self> {
-        let entries = per_file_shell
-            .into_iter()
-            .map(|per_file_shell| {
-                let mut pattern = per_file_shell.pattern;
-                let negated = pattern.starts_with('!');
-                if negated {
-                    pattern.drain(..1);
-                }
-
-                Ok(CompiledPerFileShell {
-                    basename_matcher: Glob::new(&pattern)
-                        .map_err(|err| anyhow!("invalid glob {pattern:?}: {err}"))?
-                        .compile_matcher(),
-                    relative_matcher: Glob::new(&pattern)
-                        .map_err(|err| anyhow!("invalid glob {pattern:?}: {err}"))?
-                        .compile_matcher(),
-                    absolute_matcher: Glob::new(&pattern)
-                        .map_err(|err| anyhow!("invalid glob {pattern:?}: {err}"))?
-                        .compile_matcher(),
-                    negated,
-                    shell: per_file_shell.shell,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        Ok(Self {
-            project_root: project_root.into(),
-            entries,
-        })
-    }
-
-    pub(super) fn shell_for_path(&self, path: &Path) -> Option<ShellDialect> {
-        let relative_path = path.strip_prefix(&self.project_root).unwrap_or(path);
-        let file_name = relative_path.file_name().or_else(|| path.file_name())?;
-
-        self.entries.iter().fold(None, |shell, entry| {
-            let matches = entry.basename_matcher.is_match(file_name)
-                || entry.relative_matcher.is_match(relative_path)
-                || per_file_shell_absolute_match(&entry.absolute_matcher, path);
-            let applies = if entry.negated { !matches } else { matches };
-
-            if applies { Some(entry.shell) } else { shell }
-        })
-    }
 }
 
 impl ResolvedZshPluginSettings {
@@ -1617,10 +1546,7 @@ fn parse_per_file_shell_map(
         .map(|(pattern, shell)| {
             let shell = parse_shell_dialect(shell)
                 .map_err(|err| anyhow!("invalid {scope} shell `{shell}`: {err}"))?;
-            Ok(PerFileShell {
-                pattern: pattern.clone(),
-                shell,
-            })
+            Ok(PerFileShell::new(pattern.clone(), shell))
         })
         .collect()
 }
@@ -1641,10 +1567,7 @@ fn group_per_file_ignore_pairs(pairs: &[PatternRuleSelectorPair]) -> Vec<PerFile
 }
 
 fn per_file_shell_from_pair(pair: &PatternShellPair) -> PerFileShell {
-    PerFileShell {
-        pattern: pair.pattern.clone(),
-        shell: pair.shell,
-    }
+    PerFileShell::new(pair.pattern.clone(), pair.shell)
 }
 
 fn parse_shell_dialect(value: &str) -> Result<ShellDialect> {
@@ -2191,24 +2114,6 @@ mod tests {
         .unwrap();
 
         assert!(report.diagnostics.is_empty());
-    }
-
-    #[test]
-    fn per_file_shell_matches_normalized_windows_verbatim_paths() {
-        let path = Path::new(r"\\?\C:\repo\nested\script.sh");
-        let per_file_shell = CompiledPerFileShellList::resolve(
-            PathBuf::from(r"C:\repo"),
-            [PerFileShell {
-                pattern: "C:/repo/nested/*.sh".to_owned(),
-                shell: ShellDialect::Bash,
-            }],
-        )
-        .unwrap();
-
-        assert_eq!(
-            per_file_shell.shell_for_path(path),
-            Some(ShellDialect::Bash)
-        );
     }
 
     #[test]
