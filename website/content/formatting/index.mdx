@@ -69,7 +69,16 @@ shuck format --no-function-next-line .
 
 ## Dialect selection
 
-By default, the formatter infers dialect from the source text, shebang, and file path. Use `--dialect` for a one-off override:
+By default, the formatter infers dialect from the source text, shebang, and file path. Use the shared top-level table for files whose names cannot be inferred:
+
+```toml
+[per-file-shell]
+"dot_z*" = "zsh"
+"scripts/**/*.sh" = "bash"
+```
+
+The mapping applies to direct files, stdin with `--stdin-filename`, and LSP
+formatting. Use `--dialect` for a one-off override:
 
 ```bash
 shuck format --dialect bash script
@@ -78,7 +87,9 @@ shuck format --dialect zsh .zshrc
 
 Accepted values are `bash`, `posix`, `mksh`, and `zsh`.
 
-`[format].dialect` is intentionally not supported in config files. Use file names, shebangs, or the per-run `--dialect` flag instead.
+`[format].dialect` is intentionally not supported in config files. The per-run
+`--dialect` flag takes precedence over `[per-file-shell]`; unmatched files
+continue to use normal inference.
 
 ## Simplify and minify
 

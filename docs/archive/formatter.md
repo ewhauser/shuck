@@ -29,6 +29,10 @@ shuck format --minify script.sh
 ## Config file
 
 ```toml
+[per-file-shell]
+"dot_z*" = "zsh"
+"scripts/**/*.sh" = "bash"
+
 [format]
 indent-style = "space"     # tab | space
 indent-width = 4           # 1-255, used when indent-style = "space"
@@ -40,9 +44,11 @@ function-next-line = false # opening brace on its own line
 never-split = false        # compact single-line layouts
 ```
 
-Formatter dialect is auto-discovered from the filename or shebang. Use
-`shuck format --dialect <shell>` when you need an explicit override,
-especially for stdin input.
+The shared `per-file-shell` table selects a dialect for matching files in the
+formatter, linter, and language server, including stdin with
+`--stdin-filename`. An explicit `shuck format --dialect <shell>` takes
+precedence; unmatched files continue to infer the dialect from their filename,
+shebang, and source.
 
 ## Website copy
 

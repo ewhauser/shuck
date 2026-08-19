@@ -8,8 +8,8 @@ use globset::{Glob, GlobMatcher};
 use shuck_cache::{CacheKey, CacheKeyHasher};
 use shuck_config::{
     ConfigArguments, LintConfig, LintContractActivationTypeConfig, LintContractWhenConfig,
-    LintContractsConfig, LintCustomContractConfig, ZshPluginEntrypointConfig, ZshPluginLoadConfig,
-    ZshThemeLoadConfig, load_project_config,
+    LintContractsConfig, LintCustomContractConfig, ShuckConfig, ZshPluginEntrypointConfig,
+    ZshPluginLoadConfig, ZshThemeLoadConfig, load_project_config,
 };
 use shuck_linter::{
     AmbientContractActivation, AmbientContractConfig, AmbientContractEffects, AmbientContractSpec,
@@ -829,7 +829,7 @@ pub(super) fn resolve_project_check_settings(
 ) -> Result<ResolvedCheckSettings> {
     let config = load_project_config(&project_root.storage_root, config_arguments)?;
     let rule_layers = [
-        parse_lint_config_layer(&config.lint)?,
+        parse_config_rule_selection_layer(&config)?,
         parse_cli_rule_selection_layer(cli_rule_selection),
     ];
     let zsh_layers = [
@@ -1285,7 +1285,17 @@ fn ambient_contract_activation_from_config(
     }
 }
 
-fn parse_lint_config_layer(lint: &LintConfig) -> Result<RuleSelectionLayer> {
+fn parse_config_rule_selection_layer(config: &ShuckConfig) -> Result<RuleSelectionLayer> {
+    let lint = &config.lint;
+    let per_file_shell = match config.per_file_shell.as_ref() {
+        Some(patterns) => Some(parse_per_file_shell_map(patterns, "per-file-shell")?),
+        None => lint
+            .per_file_shell
+            .as_ref()
+            .map(|patterns| parse_per_file_shell_map(patterns, "lint.per-file-shell"))
+            .transpose()?,
+    };
+
     Ok(RuleSelectionLayer {
         select: lint
             .select
@@ -1315,11 +1325,7 @@ fn parse_lint_config_layer(lint: &LintConfig) -> Result<RuleSelectionLayer> {
             .map(|patterns| parse_per_file_ignore_map(patterns, "lint.extend-per-file-ignores"))
             .transpose()?
             .unwrap_or_default(),
-        per_file_shell: lint
-            .per_file_shell
-            .as_ref()
-            .map(|patterns| parse_per_file_shell_map(patterns, "lint.per-file-shell"))
-            .transpose()?,
+        per_file_shell,
         extend_per_file_shell: lint
             .extend_per_file_shell
             .as_ref()

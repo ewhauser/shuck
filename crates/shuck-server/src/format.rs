@@ -21,6 +21,9 @@ pub(crate) fn format_document(
     {
         return Ok(None);
     }
+    if let Some(error) = snapshot.shuck_settings().format_dialect_error() {
+        return Err(Error::msg(error.to_owned()).into());
+    }
     let source = query.document().contents();
     let formatted = shuck_formatter::format_source(
         source,
@@ -53,6 +56,9 @@ pub(crate) fn format_range(
         .is_format_excluded(file_path.as_deref())
     {
         return Ok(None);
+    }
+    if let Some(error) = snapshot.shuck_settings().format_dialect_error() {
+        return Err(Error::msg(error.to_owned()).into());
     }
     let Some(analysis) = snapshot.analysis() else {
         return Ok(None);
@@ -260,6 +266,58 @@ mod tests {
         assert_eq!(edits[0].range.start, types::Position::new(1, 0));
         assert_eq!(edits[0].range.end, types::Position::new(1, 0));
         assert_eq!(edits[0].new_text, "\t");
+    }
+
+    #[test]
+    fn document_formatting_uses_shared_per_file_shell_config() {
+        let tempdir = tempfile::tempdir().expect("workspace should be created");
+        std::fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[per-file-shell]\n'dot_z*' = 'zsh'\n",
+        )
+        .expect("config should be written");
+        let source = "(($+commands[vivid]))\n";
+        let file_path = tempdir.path().join("dot_zshenv");
+        std::fs::write(&file_path, source).expect("source should be written");
+
+        let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
+        let (client_sender, _client_receiver) = channel::unbounded();
+        let client = Client::new(main_loop_sender, client_sender);
+        let workspace_uri =
+            Url::from_file_path(tempdir.path()).expect("workspace path should convert to a URL");
+        let workspaces = Workspaces::new(vec![Workspace::default(workspace_uri)]);
+        let global = GlobalOptions::default().into_settings(client.clone());
+        let mut session = Session::new(
+            &ClientCapabilities::default(),
+            PositionEncoding::UTF16,
+            global,
+            &workspaces,
+            &client,
+        )
+        .expect("test session should initialize");
+
+        let uri = Url::from_file_path(file_path).expect("script path should convert to a URL");
+        session.open_text_document(
+            uri.clone(),
+            TextDocument::new(source.to_owned(), 1).with_language_id("shellscript"),
+        );
+        let snapshot = session
+            .take_snapshot(uri.clone())
+            .expect("test document should produce a snapshot");
+
+        let edits = format_document(
+            snapshot,
+            &client,
+            types::DocumentFormattingParams {
+                text_document: types::TextDocumentIdentifier { uri },
+                options: types::FormattingOptions::default(),
+                work_done_progress_params: types::WorkDoneProgressParams::default(),
+            },
+        )
+        .expect("document formatting should succeed")
+        .expect("document formatting should return an edit list");
+
+        assert!(edits.is_empty());
     }
 
     #[test]

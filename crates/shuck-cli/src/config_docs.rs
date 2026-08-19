@@ -85,6 +85,7 @@ mod tests {
 
         assert!(reference.contains("## `[check]`"));
         assert!(reference.contains("## `[format]`"));
+        assert!(reference.contains("## `[per-file-shell]`"));
         assert!(reference.contains("## `[lint]`"));
         assert!(reference.contains("### `[lint.rule-options.c001]`"));
         assert!(reference.contains("### `[[lint.contracts.custom]]`"));

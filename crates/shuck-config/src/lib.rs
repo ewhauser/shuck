@@ -28,8 +28,8 @@ const CONFIG_FILENAMES: [&str; 2] = [".shuck.toml", "shuck.toml"];
 /// for global configuration.
 const GLOBAL_CONFIG_DIR_ENV: &str = "SHUCK_CONFIG_HOME";
 /// Error shown when users try to set formatter dialect in a config file.
-pub const CONFIG_DIALECT_UNSUPPORTED_ERROR: &str = "`[format].dialect` is not supported; formatter dialect is auto-discovered from the file name or shebang. Use `--dialect` for a per-run override";
-const CONFIG_OVERRIDE_ROOT_KEYS: &[&str] = &["check", "format", "lint", "run"];
+pub const CONFIG_DIALECT_UNSUPPORTED_ERROR: &str = "`[format].dialect` is not supported; use `[per-file-shell]` for project mappings or `--dialect` for a per-run override";
+const CONFIG_OVERRIDE_ROOT_KEYS: &[&str] = &["check", "format", "lint", "per-file-shell", "run"];
 const CONFIG_OVERRIDE_CHECK_KEYS: &[&str] = &["embedded"];
 const CONFIG_OVERRIDE_FORMAT_KEYS: &[&str] = &[
     "dialect",
@@ -117,6 +117,9 @@ pub struct ShuckConfig {
     pub format: FormatConfig,
     /// Linter rule selection, contracts, and analysis options.
     pub lint: LintConfig,
+    /// Shared per-file shell dialect overrides keyed by glob pattern.
+    #[serde(rename = "per-file-shell")]
+    pub per_file_shell: Option<BTreeMap<String, String>>,
     /// Runtime shell resolution options for `shuck run`.
     pub run: RunConfig,
 }
@@ -885,7 +888,7 @@ pub fn configuration_metadata() -> &'static [ConfigSectionMetadata] {
     &CONFIGURATION_METADATA
 }
 
-const CONFIGURATION_METADATA: [ConfigSectionMetadata; 4] = [
+const CONFIGURATION_METADATA: [ConfigSectionMetadata; 5] = [
     ConfigSectionMetadata {
         key: "check",
         docs: "File-level analysis behavior for `shuck check`.",
@@ -966,6 +969,12 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 4] = [
                 example: "switch-case-indent = true",
             },
         ],
+        sections: &[],
+    },
+    ConfigSectionMetadata {
+        key: "per-file-shell",
+        docs: "Select the shell dialect used to parse matching files in `shuck check`, `shuck format`, and the language server. Patterns are resolved relative to the project root, and overlapping patterns cannot select different dialects for one file. Supported values are `sh`, `bash`, `dash`, `ksh`, `mksh`, and `zsh`; generic `ksh` is linter-only because the formatter has no corresponding grammar. An explicit `shuck format --dialect` override takes precedence.\n\n```toml\n[per-file-shell]\n\"dot_z*\" = \"zsh\"\n\"scripts/**/*.sh\" = \"bash\"\n```",
+        fields: &[],
         sections: &[],
     },
     ConfigSectionMetadata {
@@ -1781,6 +1790,9 @@ impl ShuckConfig {
         self.check.apply_overrides(overrides.check);
         self.format.apply_overrides(overrides.format);
         self.lint.apply_overrides(overrides.lint);
+        if overrides.per_file_shell.is_some() {
+            self.per_file_shell = overrides.per_file_shell;
+        }
         apply_run_overrides(&mut self.run, overrides.run);
     }
 }
@@ -2601,6 +2613,19 @@ mod tests {
     fn inline_config_overrides_accept_format_exclusions() {
         let config = parse_config_override("format.exclude = ['generated/**']").unwrap();
         assert_eq!(config.format.exclude, Some(vec!["generated/**".to_owned()]));
+    }
+
+    #[test]
+    fn inline_config_overrides_accept_shared_per_file_shell() {
+        let config = parse_config_override("per-file-shell.'dot_z*' = 'zsh'").unwrap();
+        assert_eq!(
+            config
+                .per_file_shell
+                .as_ref()
+                .and_then(|entries| entries.get("dot_z*"))
+                .map(String::as_str),
+            Some("zsh")
+        );
     }
 
     #[test]

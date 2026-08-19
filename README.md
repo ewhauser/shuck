@@ -375,11 +375,11 @@ Use the `[check]` section to control embedded-script extraction:
 # Default: true
 embedded = true
 
-[lint]
-# Override shell dialect inference for matching files.
-per-file-shell = { "scripts/bash/**" = "bash", "vendor/**/*.sh" = "sh" }
-# Add shell overrides on top of earlier config or CLI layers.
-extend-per-file-shell = { "tools/**/*.zsh" = "zsh" }
+[per-file-shell]
+# Override shell dialect inference for matching files in check, format, and LSP.
+"scripts/bash/**" = "bash"
+"vendor/**/*.sh" = "sh"
+"dot_z*" = "zsh"
 
 [format]
 # Configure `shuck format` and editor formatting.
@@ -399,7 +399,18 @@ whole-document or range formatting requested through the language server. This
 makes it suitable for generated files that must remain untouched even when an
 editor has format-on-save enabled.
 
-Formatter dialect is inferred from the file name or shebang. For stdin or one-off formatting runs, use `shuck format --dialect bash|posix|mksh|zsh`.
+`per-file-shell` patterns are resolved relative to the project root and apply to
+`shuck check`, direct and stdin formatting, and editor analysis/formatting.
+Supported values are `sh`, `bash`, `dash`, `ksh`, `mksh`, and `zsh`; generic
+`ksh` mappings remain available to the linter but cannot be used by the
+formatter. Overlapping patterns may select the same dialect, but selecting
+different dialects for one file is an error. Existing
+`[lint].per-file-shell` and `[lint].extend-per-file-shell` settings remain
+supported as compatibility aliases.
+
+An explicit `shuck format --dialect bash|posix|mksh|zsh` override takes
+precedence over `per-file-shell`. Unmatched files continue to infer their
+dialect from the file name, shebang, and source.
 
 ## File discovery
 

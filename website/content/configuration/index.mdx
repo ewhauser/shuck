@@ -205,6 +205,26 @@ examples, and when to prefer Contracts over more source resolution. The
 [Settings Reference](/docs/settings) includes the exact `[lint.contracts]`
 syntax.
 
+## Per-file shell selection
+
+Use the shared top-level `[per-file-shell]` table when filenames and shebangs
+do not identify the correct shell dialect:
+
+```toml
+[per-file-shell]
+"dot_z*" = "zsh"
+"scripts/**/*.sh" = "bash"
+```
+
+The mapping applies consistently to checking, direct and stdin formatting, and
+language-server analysis and formatting. Patterns are project-root-relative.
+An explicit `shuck format --dialect ...` flag wins; unmatched files retain
+normal inference. Overlapping patterns must not select different dialects for
+the same file.
+
+Existing `[lint].per-file-shell` and `[lint].extend-per-file-shell` entries are
+accepted as compatibility aliases.
+
 ## Format settings
 
 The formatter reads style options from `[format]`.
@@ -223,7 +243,7 @@ never-split = false
 
 Formatter config follows the same discovery and override rules as the rest of Shuck config. CLI flags passed to `shuck format` override `[format]` for that invocation.
 
-Dialect is the exception: `[format].dialect` is rejected so projects do not accidentally force one parser mode for every file. Use file names, shebangs, or `shuck format --dialect ...` for a one-off override.
+Dialect is the exception: `[format].dialect` is rejected so projects do not accidentally force one parser mode for every file. Use the shared `[per-file-shell]` table for project mappings or `shuck format --dialect ...` for a one-off override.
 
 See the dedicated [Formatting guide](/docs/formatting) for command examples, stdin behavior, `--check`, `--diff`, `--simplify`, and `--minify`.
 
