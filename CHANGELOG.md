@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.1.2](https://github.com/ewhauser/shuck/compare/v0.1.1...v0.1.2) (2026-08-23)
+
+
+### Features
+
+* **formatter:** support per-file shell configuration ([#1258](https://github.com/ewhauser/shuck/issues/1258)) ([e89c7b8](https://github.com/ewhauser/shuck/commit/e89c7b82037e9a71eb71fdde0bca0d1dfdbe9275))
+
+
+### Bug Fixes
+
+* **formatter:** preserve multiline literal indentation ([#1260](https://github.com/ewhauser/shuck/issues/1260)) ([a06e9f7](https://github.com/ewhauser/shuck/commit/a06e9f7bce347cd66f432e4cae4cccc697b7894b))
+* **formatter:** respect exclusions for stdin filenames ([#1256](https://github.com/ewhauser/shuck/issues/1256)) ([1783fb8](https://github.com/ewhauser/shuck/commit/1783fb86740ac9133bae42a18a74cad59758dad4))
+
+
+### Documentation
+
+* correct Homebrew install command ([#1255](https://github.com/ewhauser/shuck/issues/1255)) ([69d2d28](https://github.com/ewhauser/shuck/commit/69d2d289d1be7b9c6bbb3002ee41421779a6d1db))
+
+
+### Refactor
+
+* **linter:** share per-file shell resolution ([#1257](https://github.com/ewhauser/shuck/issues/1257)) ([7d533aa](https://github.com/ewhauser/shuck/commit/7d533aa0ab169cf691ca1f8983551234472100d5))
+
 ## [0.1.1](https://github.com/ewhauser/shuck/compare/v0.1.0...v0.1.1) (2026-08-03)
 
 
