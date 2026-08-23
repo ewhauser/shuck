@@ -691,7 +691,7 @@ pub(super) fn render_command_substitution(
         }
         CommandSubstitutionLayout::Block => {
             rendered.push_str("$(\n");
-            push_indented_rendered_block(rendered, trimmed, options, 1);
+            push_indented_command_substitution_block(rendered, trimmed, options, 1);
             rendered.push_str("\n)");
         }
     }
@@ -1127,7 +1127,7 @@ pub(super) fn push_inline_raw_command_substitution_as_block(
 
     let nested = normalize_inline_raw_command_substitution_body(body_source, options);
     target.push_str("$(\n");
-    push_indented_rendered_block(target, &nested, options, 1);
+    push_indented_command_substitution_block(target, &nested, options, 1);
     target.push_str("\n)");
     true
 }
@@ -1496,6 +1496,27 @@ pub(super) fn push_indented_rendered_block(
     options: &ResolvedShellFormatOptions,
     levels: usize,
 ) {
+    push_indented_rendered_block_with_literal_policy(target, rendered, options, levels, false);
+}
+
+pub(super) fn push_indented_command_substitution_block(
+    target: &mut String,
+    rendered: &str,
+    options: &ResolvedShellFormatOptions,
+    levels: usize,
+) {
+    push_indented_rendered_block_with_literal_policy(target, rendered, options, levels, true);
+}
+
+fn push_indented_rendered_block_with_literal_policy(
+    target: &mut String,
+    rendered: &str,
+    options: &ResolvedShellFormatOptions,
+    levels: usize,
+    preserve_multiline_single_quoted_lines: bool,
+) {
+    let preserve_multiline_single_quoted_lines = preserve_multiline_single_quoted_lines
+        && matches!(options.indent_style(), IndentStyle::Space);
     let prefix = options.indent_prefix(levels);
     let normalized_literal_continuations =
         normalize_literal_continuation_indent_for_block(rendered);
@@ -1505,6 +1526,7 @@ pub(super) fn push_indented_rendered_block(
     let common_source_indent = common_rendered_block_indent(rendered, options);
 
     let mut active_heredoc: Option<CommandSubstitutionHeredocIndent> = None;
+    let mut quote = QuoteState::default();
     for (index, line) in rendered.lines().enumerate() {
         if index > 0 {
             target.push('\n');
@@ -1531,11 +1553,16 @@ pub(super) fn push_indented_rendered_block(
             continue;
         }
 
+        let line_starts_in_single_quotes =
+            preserve_multiline_single_quoted_lines && quote.in_single_quotes();
         let line = strip_common_rendered_block_indent(line, &common_source_indent);
-        if line_needs_command_substitution_indent(line, options) {
+        if !line_starts_in_single_quotes && line_needs_command_substitution_indent(line, options) {
             target.push_str(&prefix);
         }
         target.push_str(line);
+        if preserve_multiline_single_quoted_lines {
+            quote.scan_line(line);
+        }
         active_heredoc = command_substitution_heredoc_indent(line);
     }
 }

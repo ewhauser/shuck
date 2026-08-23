@@ -639,7 +639,7 @@ pub(super) fn render_inline_raw_command_substitution_as_block(
         rendered.push(')');
     } else {
         rendered.push_str("$(\n");
-        push_indented_rendered_block(&mut rendered, trimmed, options, 1);
+        push_indented_command_substitution_block(&mut rendered, trimmed, options, 1);
         rendered.push_str("\n)");
     }
     Some(rendered)
