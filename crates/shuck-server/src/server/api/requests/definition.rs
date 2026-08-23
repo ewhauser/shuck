@@ -7,6 +7,7 @@ use crate::session::{Client, DocumentSnapshot, RequestCancellationToken, Session
 use crate::workspace_functions::{
     WorkspaceFunctionContext, canonical_path, workspace_function_index,
 };
+use crate::workspace_variables::variable_target;
 
 pub(crate) struct Definition;
 
@@ -72,9 +73,7 @@ fn definition(
         )
         .start(),
     );
-    let Some(EditorSymbolTarget::FunctionCall(call)) =
-        analysis.semantic().editor_query().target_at_offset(offset)
-    else {
+    let Some(target) = analysis.semantic().editor_query().target_at_offset(offset) else {
         return editor_features::definition(snapshot, client, params);
     };
     let Some(path) = snapshot
@@ -86,36 +85,61 @@ fn definition(
     else {
         return editor_features::definition(snapshot, client, params);
     };
-    let Some(index) = workspace_function_index(&workspace) else {
-        return Ok(None);
-    };
-    if let Some(target) =
-        index.resolve_call_site_exact(&path, call.name_span, &workspace.cancellation)
-        && let Some(definition_span) = target.def_span
-        && let Some(range) = index.range_of(&target.path, definition_span)
-    {
-        let uri = if target.path == path {
-            snapshot.query().file_url().clone()
-        } else {
-            let Some(file) = index.file(&target.path) else {
+    let workspace_variable = variable_target(analysis.semantic(), &target);
+    match target {
+        EditorSymbolTarget::FunctionCall(call) => {
+            let Some(index) = workspace_function_index(&workspace) else {
                 return Ok(None);
             };
-            file.editor_uri().clone()
-        };
-        return Ok(Some(types::GotoDefinitionResponse::Scalar(
-            types::Location { uri, range },
-        )));
-    }
+            if let Some(target) =
+                index.resolve_call_site_exact(&path, call.name_span, &workspace.cancellation)
+                && let Some(definition_span) = target.def_span
+                && let Some(range) = index.range_of(&target.path, definition_span)
+            {
+                let uri = if target.path == path {
+                    snapshot.query().file_url().clone()
+                } else {
+                    let Some(file) = index.file(&target.path) else {
+                        return Ok(None);
+                    };
+                    file.editor_uri().clone()
+                };
+                return Ok(Some(types::GotoDefinitionResponse::Scalar(
+                    types::Location { uri, range },
+                )));
+            }
 
-    // A partial workspace index may omit an otherwise proven local binding.
-    // Preserve the document-local answer only when no source operation could
-    // have replaced it; without the active file's projected facts, any source
-    // effect is conservatively treated as relevant.
-    if call.binding.is_some()
-        && !index.contains(&path)
-        && analysis.semantic().source_refs().is_empty()
-    {
-        return editor_features::definition(snapshot, client, params);
+            // A partial workspace index may omit an otherwise proven local binding.
+            // Preserve the document-local answer only when no source operation could
+            // have replaced it; without the active file's projected facts, any source
+            // effect is conservatively treated as relevant.
+            if call.binding.is_some()
+                && !index.contains(&path)
+                && analysis.semantic().source_refs().is_empty()
+            {
+                return editor_features::definition(snapshot, client, params);
+            }
+            Ok(None)
+        }
+        EditorSymbolTarget::Binding(_)
+        | EditorSymbolTarget::Reference(_)
+        | EditorSymbolTarget::RuntimeName(_) => {
+            let Some(target) = workspace_variable else {
+                return editor_features::definition(snapshot, client, params);
+            };
+            let Some(index) = workspace_function_index(&workspace) else {
+                return editor_features::definition(snapshot, client, params);
+            };
+            let Some(locations) =
+                index.variable_definition_locations(&path, &target, &workspace.cancellation)
+            else {
+                return Ok(None);
+            };
+            Ok(match locations.as_slice() {
+                [] => return editor_features::definition(snapshot, client, params),
+                [location] => Some(types::GotoDefinitionResponse::Scalar(location.clone())),
+                _ => Some(types::GotoDefinitionResponse::Array(locations)),
+            })
+        }
     }
-    Ok(None)
 }

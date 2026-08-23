@@ -103,9 +103,9 @@ land:
 |---|---|---|
 | Completion | `textDocument/completion`, `completionItem/resolve` | Variables, declaration names, runtime names, shell keywords, and functions visible locally or through unconditional static source edges |
 | Hover | `textDocument/hover` | Rule-code and semantic-symbol hovers, including exact function bindings through the statically resolved source graph |
-| Definition | `textDocument/definition` | Variables in the active analysis plus exact function definitions through the statically resolved source graph |
+| Definition | `textDocument/definition` | File-scope variables through unambiguous static source edges and exact function definitions through the statically resolved source graph; lexical variable shadows remain local |
 | Document links | `textDocument/documentLink` | Literal source operands and valid source hints that resolve to one target within the workspace |
-| References | `textDocument/references` | Exact function references through the statically resolved workspace graph; other symbols use the active analysis |
+| References | `textDocument/references` | File-scope variable families through unambiguous static source edges and exact function references through the statically resolved workspace graph; lexical variable shadows remain local |
 | Document highlight | `textDocument/documentHighlight` | Read/write highlights for the symbol under the cursor |
 | Document symbols | `textDocument/documentSymbol` | Hierarchical symbols for functions plus top-level declarations and assignments |
 | Workspace symbols | `workspace/symbol` | Fuzzy search over indexed shell files in workspace folders |

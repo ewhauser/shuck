@@ -37,6 +37,7 @@ mod symbols;
 mod workspace;
 mod workspace_diagnostics;
 mod workspace_functions;
+mod workspace_variables;
 
 pub(crate) const SERVER_NAME: &str = "shuck";
 pub(crate) const DIAGNOSTIC_NAME: &str = "shuck";

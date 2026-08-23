@@ -1,10 +1,10 @@
-//! Shared workspace index for cross-file function editor features.
+//! Shared workspace index for cross-file function and variable editor features.
 //!
-//! The index projects each shell file into compact semantic function facts,
-//! resolves determinable `source` edges, and retains just enough source metadata
-//! to turn byte spans back into LSP ranges. Open buffers shadow disk content.
-//! The session caches one build and invalidates it whenever documents,
-//! workspaces, watched files, or configuration change.
+//! The index projects each shell file into compact semantic function and
+//! variable facts, resolves determinable `source` edges, and retains just
+//! enough source metadata to turn byte spans back into LSP ranges. Open
+//! buffers shadow disk content. The session caches one build and invalidates it
+//! whenever documents, workspaces, watched files, or configuration change.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Component, Path, PathBuf};
@@ -29,8 +29,9 @@ use crate::edit::DocumentVersion;
 use crate::editor::analyze_editor_document;
 use crate::session::{ClientOptions, RequestCancellationToken, WorkspaceSettingsSnapshot};
 use crate::symbols::WorkspaceOpenDocument;
+use crate::workspace_variables::{WorkspaceVariableIndex, WorkspaceVariableTarget};
 
-/// Immutable session state needed to build or query the workspace function index.
+/// Immutable session state needed to build or query the cross-file symbol index.
 pub(crate) struct WorkspaceFunctionContext {
     pub(crate) workspace_roots: Vec<PathBuf>,
     pub(crate) settings_workspace_roots: Vec<PathBuf>,
@@ -46,7 +47,7 @@ pub(crate) struct WorkspaceFunctionContext {
     pub(crate) cancellation: RequestCancellationToken,
 }
 
-/// Session-lifetime cache of the built workspace function index.
+/// Session-lifetime cache of the built cross-file symbol index.
 #[derive(Default)]
 pub(crate) struct WorkspaceFunctionIndexCache {
     epoch: AtomicU64,
@@ -162,9 +163,10 @@ impl IndexedWorkspaceFile {
     }
 }
 
-/// Shared index queried by call hierarchy and future cross-file editor features.
+/// Shared index queried by cross-file editor features.
 pub(crate) struct WorkspaceFunctionIndex {
     graph: WorkspaceCallIndex,
+    variables: WorkspaceVariableIndex,
     files: BTreeMap<PathBuf, IndexedWorkspaceFile>,
     encoding: PositionEncoding,
     complete: bool,
@@ -173,6 +175,7 @@ pub(crate) struct WorkspaceFunctionIndex {
 impl WorkspaceFunctionIndex {
     fn build(context: &WorkspaceFunctionContext) -> Option<Self> {
         let mut graph = WorkspaceCallIndex::new();
+        let mut variables = WorkspaceVariableIndex::default();
         let mut files = BTreeMap::new();
         let mut complete = true;
         let max_files = context.max_files;
@@ -208,6 +211,7 @@ impl WorkspaceFunctionIndex {
             complete &= resolution.complete;
             insert_file(
                 &mut graph,
+                &mut variables,
                 &mut files,
                 WorkspaceFileInput {
                     path,
@@ -247,6 +251,7 @@ impl WorkspaceFunctionIndex {
             complete &= resolution.complete;
             insert_file(
                 &mut graph,
+                &mut variables,
                 &mut files,
                 WorkspaceFileInput {
                     path: &file,
@@ -303,6 +308,7 @@ impl WorkspaceFunctionIndex {
                     complete &= resolution.complete;
                     insert_file(
                         &mut graph,
+                        &mut variables,
                         &mut files,
                         WorkspaceFileInput {
                             path: &target,
@@ -319,6 +325,7 @@ impl WorkspaceFunctionIndex {
                 complete &= resolution.complete;
                 insert_file(
                     &mut graph,
+                    &mut variables,
                     &mut files,
                     WorkspaceFileInput {
                         path: &target,
@@ -334,6 +341,7 @@ impl WorkspaceFunctionIndex {
 
         Some(Self {
             graph,
+            variables,
             files,
             encoding: context.encoding,
             complete,
@@ -382,6 +390,63 @@ impl WorkspaceFunctionIndex {
                 uri: file.editor_uri().clone(),
                 range: crate::edit::to_lsp_range(
                     reference.span.to_range(),
+                    file.source(),
+                    file.line_index(),
+                    self.encoding,
+                ),
+            });
+        }
+        Some(locations)
+    }
+
+    pub(crate) fn variable_definition_locations(
+        &self,
+        from_path: &Path,
+        target: &WorkspaceVariableTarget,
+        cancellation: &RequestCancellationToken,
+    ) -> Option<Vec<types::Location>> {
+        if !self.complete || cancellation.is_cancelled() {
+            return None;
+        }
+        let occurrences = self
+            .variables
+            .definitions(from_path, target, &|| cancellation.is_cancelled())?;
+        self.variable_locations(occurrences, cancellation)
+    }
+
+    pub(crate) fn variable_reference_locations(
+        &self,
+        from_path: &Path,
+        target: &WorkspaceVariableTarget,
+        include_declaration: bool,
+        cancellation: &RequestCancellationToken,
+    ) -> Option<Vec<types::Location>> {
+        if !self.complete || cancellation.is_cancelled() {
+            return None;
+        }
+        let occurrences =
+            self.variables
+                .references(from_path, target, include_declaration, &|| {
+                    cancellation.is_cancelled()
+                })?;
+        self.variable_locations(occurrences, cancellation)
+    }
+
+    fn variable_locations(
+        &self,
+        occurrences: Vec<crate::workspace_variables::WorkspaceVariableOccurrence>,
+        cancellation: &RequestCancellationToken,
+    ) -> Option<Vec<types::Location>> {
+        let mut locations = Vec::with_capacity(occurrences.len());
+        for occurrence in occurrences {
+            if cancellation.is_cancelled() {
+                return None;
+            }
+            let file = self.file(&occurrence.path)?;
+            locations.push(types::Location {
+                uri: file.editor_uri().clone(),
+                range: crate::edit::to_lsp_range(
+                    occurrence.span.to_range(),
                     file.source(),
                     file.line_index(),
                     self.encoding,
@@ -615,6 +680,7 @@ struct WorkspaceFileInput<'a> {
 
 fn insert_file(
     graph: &mut WorkspaceCallIndex,
+    variables: &mut WorkspaceVariableIndex,
     files: &mut BTreeMap<PathBuf, IndexedWorkspaceFile>,
     input: WorkspaceFileInput<'_>,
     source_paths: &SourcePathResolution,
@@ -654,10 +720,9 @@ fn insert_file(
             })
         })
         .collect::<Vec<_>>();
-    graph.insert(
-        key.clone(),
-        FileCallFacts::project_with_source_edges(&model, edges),
-    );
+    let call_facts = FileCallFacts::project_with_source_edges(&model, edges);
+    variables.insert(key.clone(), &model, &call_facts.source_effects);
+    graph.insert(key.clone(), call_facts);
     files.insert(
         key,
         IndexedWorkspaceFile {
@@ -847,6 +912,32 @@ mod tests {
             assert!(built.file_count() <= max_files);
             assert!(!built.is_complete());
         }
+    }
+
+    #[test]
+    fn incomplete_indexes_do_not_return_variable_definitions() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let workspace = std::fs::canonicalize(tempdir.path()).unwrap();
+        populate_workspace(&workspace);
+
+        let context = context_for(&workspace, 1);
+        let built = WorkspaceFunctionIndex::build(&context).unwrap();
+        assert!(!built.is_complete());
+
+        let path = workspace.join("open_a.sh");
+        let model = analyze_editor_document("SHARED=1\n", Some(&path), ShellDialect::Bash);
+        let symbol = model
+            .editor_query()
+            .target_at_offset(1)
+            .expect("the assignment should be an editor target");
+        let target = crate::workspace_variables::variable_target(&model, &symbol)
+            .expect("the assignment should be a file variable");
+
+        assert!(
+            built
+                .variable_definition_locations(&path, &target, &context.cancellation)
+                .is_none()
+        );
     }
 
     #[test]

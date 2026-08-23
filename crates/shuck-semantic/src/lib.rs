@@ -43,9 +43,9 @@ pub use binding::{
 /// Call-graph structures derived from the analyzed script.
 /// Workspace call-graph index types for cross-file call hierarchy.
 pub use call_facts::{
-    CallFactDefinition, CallFactSite, CallFactSourceEdge, CallFunctionId, CallNodeKind,
-    CrossFileCall, ExactFunctionReference, ExactFunctionRename, ExactFunctionRenameError,
-    FileCallFacts, VisibleSourcedFunction, WorkspaceCallIndex,
+    CallFactDefinition, CallFactSite, CallFactSourceEdge, CallFactSourceEffect, CallFunctionId,
+    CallNodeKind, CrossFileCall, ExactFunctionReference, ExactFunctionRename,
+    ExactFunctionRenameError, FileCallFacts, VisibleSourcedFunction, WorkspaceCallIndex,
 };
 pub use call_graph::{
     CallGraph, CallSite, OverwrittenFunction, UnreachedFunction, UnreachedFunctionReason,

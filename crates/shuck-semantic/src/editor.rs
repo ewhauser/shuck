@@ -87,7 +87,7 @@ pub struct EditorRuntimeNameTarget {
 pub enum EditorSymbolTarget {
     /// A binding definition or write site.
     Binding(BindingId),
-    /// A reference to a binding or runtime name.
+    /// A source-backed reference, including one that a workspace may resolve.
     Reference(ReferenceId),
     /// A command-position function call.
     FunctionCall(EditorFunctionCallTarget),
@@ -702,14 +702,15 @@ fn target_to_editor_symbol(
             if model.resolved_binding(*reference_id).is_some() {
                 return Some(EditorSymbolTarget::Reference(*reference_id));
             }
-            (model.predefined_runtime_refs.contains(reference_id)
-                || model.name_is_predefined_runtime(reference.name.as_str()))
-            .then(|| {
-                EditorSymbolTarget::RuntimeName(EditorRuntimeNameTarget {
+            if model.predefined_runtime_refs.contains(reference_id)
+                || model.name_is_predefined_runtime(reference.name.as_str())
+            {
+                return Some(EditorSymbolTarget::RuntimeName(EditorRuntimeNameTarget {
                     name: reference.name.clone(),
                     span: reference.name_span,
-                })
-            })
+                }));
+            }
+            Some(EditorSymbolTarget::Reference(*reference_id))
         }
         EditorHoverTargetKind::FunctionCall { name, name_span } => {
             let binding = model
