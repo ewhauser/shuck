@@ -7,6 +7,7 @@ use crate::session::{Client, DocumentSnapshot, RequestCancellationToken, Session
 use crate::workspace_functions::{
     WorkspaceFunctionContext, canonical_path, workspace_function_index,
 };
+use crate::workspace_variables::variable_target;
 
 pub(crate) struct References;
 
@@ -80,6 +81,30 @@ fn references(
     else {
         return editor_features::references(snapshot, client, params);
     };
+    let function_item = match &target {
+        EditorSymbolTarget::Binding(_) | EditorSymbolTarget::Reference(_) => analysis
+            .semantic()
+            .editor_query()
+            .prepare_call_hierarchy(offset)
+            .filter(|item| matches!(item.target, EditorCallHierarchyTarget::Function(_))),
+        EditorSymbolTarget::FunctionCall(_) | EditorSymbolTarget::RuntimeName(_) => None,
+    };
+    if function_item.is_none()
+        && let Some(variable) = variable_target(analysis.semantic(), &target)
+    {
+        let Some(index) = workspace_function_index(&workspace) else {
+            return editor_features::references(snapshot, client, params);
+        };
+        let Some(locations) = index.variable_reference_locations(
+            &path,
+            &variable,
+            params.context.include_declaration,
+            &workspace.cancellation,
+        ) else {
+            return Ok(None);
+        };
+        return Ok((!locations.is_empty()).then_some(locations));
+    }
     let (index, target_path, target_node, declaration) = match target {
         EditorSymbolTarget::FunctionCall(call) => {
             let Some(index) = workspace_function_index(&workspace) else {
@@ -110,14 +135,7 @@ fn references(
         EditorSymbolTarget::Binding(_)
         | EditorSymbolTarget::Reference(_)
         | EditorSymbolTarget::RuntimeName(_) => {
-            let Some(item) = analysis
-                .semantic()
-                .editor_query()
-                .prepare_call_hierarchy(offset)
-            else {
-                return editor_features::references(snapshot, client, params);
-            };
-            let EditorCallHierarchyTarget::Function(_) = item.target else {
+            let Some(item) = function_item else {
                 return editor_features::references(snapshot, client, params);
             };
             let Some(definition_span) = item.full_span else {

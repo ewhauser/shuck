@@ -243,6 +243,23 @@ fn editor_hover_reports_runtime_names_without_definitions() {
 }
 
 #[test]
+fn editor_targets_preserve_unresolved_source_backed_references() {
+    let source = "printf '%s\\n' \"$SHARED_VALUE\"\n";
+    let model = model(source);
+    let name = span_for_nth(source, "SHARED_VALUE", 0);
+
+    let target = model
+        .editor_query()
+        .target_at_offset(name.start.offset())
+        .expect("unresolved variable should remain available to workspace queries");
+    let EditorSymbolTarget::Reference(reference_id) = target else {
+        panic!("expected an unresolved reference target");
+    };
+    assert_eq!(model.reference(reference_id).name.as_str(), "SHARED_VALUE");
+    assert!(model.resolved_binding(reference_id).is_none());
+}
+
+#[test]
 fn editor_hover_uses_name_span_inside_parameter_expansions() {
     let source = "\
 foo=1

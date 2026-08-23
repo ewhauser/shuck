@@ -327,7 +327,7 @@ impl Session {
         }
     }
 
-    /// Build the immutable context used by cross-file function features.
+    /// Build the immutable context used by cross-file function and variable features.
     pub(crate) fn workspace_function_context(
         &self,
         cancellation: RequestCancellationToken,
