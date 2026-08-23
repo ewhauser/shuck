@@ -30,6 +30,7 @@ pub(crate) struct ClientSettings {
 pub struct ShuckSettings {
     linter: LinterSettings,
     formatter: ShellFormatOptions,
+    format_dialect_error: Option<String>,
     format_exclusions: FormatExclusions,
     fixable_rules: RuleSet,
     project_root: Option<PathBuf>,
@@ -138,6 +139,10 @@ impl ShuckSettings {
         &self.formatter
     }
 
+    pub(crate) fn format_dialect_error(&self) -> Option<&str> {
+        self.format_dialect_error.as_deref()
+    }
+
     pub(crate) fn is_format_excluded(&self, path: Option<&Path>) -> bool {
         path.is_some_and(|path| self.format_exclusions.is_excluded(path))
     }
@@ -156,6 +161,7 @@ impl Default for ShuckSettings {
         Self {
             linter: LinterSettings::default(),
             formatter: ShellFormatOptions::default(),
+            format_dialect_error: None,
             format_exclusions: FormatExclusions::default(),
             fixable_rules: RuleSet::all(),
             project_root: None,
@@ -234,21 +240,55 @@ impl ResolvedProjectSettings {
     }
 
     pub(crate) fn for_file(&self, file_path: Option<&Path>) -> ShuckSettings {
+        let (formatter, format_dialect_error) = self.formatter_for_file(file_path);
         ShuckSettings {
             linter: self.linter.for_file(file_path),
-            formatter: self.formatter.clone(),
+            formatter,
+            format_dialect_error,
             format_exclusions: self.format_exclusions.clone(),
             fixable_rules: self.fixable_rules,
             project_root: self.project_root.clone(),
         }
     }
+
+    fn formatter_for_file(&self, file_path: Option<&Path>) -> (ShellFormatOptions, Option<String>) {
+        if self.formatter.dialect() != FormatDialect::Auto {
+            return (self.formatter.clone(), None);
+        }
+
+        let Some(file_path) = file_path else {
+            return (self.formatter.clone(), None);
+        };
+        let shell = match self.linter.per_file_shell.shell_for_path_checked(file_path) {
+            Ok(shell) => shell,
+            Err(error) => return (self.formatter.clone(), Some(error.to_string())),
+        };
+        let Some(shell) = shell else {
+            return (self.formatter.clone(), None);
+        };
+        let Some(dialect) = format_dialect(shell) else {
+            return (
+                self.formatter.clone(),
+                Some(format!(
+                    "per-file shell `{}` is not supported by the formatter",
+                    shell_name(shell)
+                )),
+            );
+        };
+
+        (self.formatter.clone().with_dialect(dialect), None)
+    }
 }
 
 impl ResolvedLinterSettings {
+    fn shell_for_file(&self, file_path: Option<&Path>) -> Option<LinterShellDialect> {
+        file_path.and_then(|file_path| self.per_file_shell.shell_for_path(file_path))
+    }
+
     fn for_file(&self, file_path: Option<&Path>) -> LinterSettings {
         let mut linter = self.base.clone();
-        linter.shell = file_path
-            .and_then(|file_path| self.per_file_shell.shell_for_path(file_path))
+        linter.shell = self
+            .shell_for_file(file_path)
             .unwrap_or(LinterShellDialect::Unknown);
         linter
     }
@@ -317,15 +357,11 @@ fn lint_layers<'a>(
     project_config: &'a ShuckConfig,
     option_layers: &'a [&'a ClientOptions],
 ) -> impl Iterator<Item = RuleSelectionLayer> + 'a {
-    std::iter::once(parse_lint_config_layer(&project_config.lint)).chain(option_layers.iter().map(
-        |options| {
-            options
-                .lint
-                .as_ref()
-                .map(parse_lint_config_layer)
-                .unwrap_or_default()
-        },
-    ))
+    std::iter::once(parse_config_rule_selection_layer(project_config)).chain(
+        option_layers
+            .iter()
+            .map(|options| parse_client_rule_selection_layer(options)),
+    )
 }
 
 fn resolved_linter_settings_for_layers(
@@ -448,6 +484,28 @@ fn formatter_settings_for_config(config: &shuck_config::FormatConfig) -> ShellFo
     options
 }
 
+const fn format_dialect(shell: LinterShellDialect) -> Option<FormatDialect> {
+    match shell {
+        LinterShellDialect::Sh | LinterShellDialect::Dash => Some(FormatDialect::Posix),
+        LinterShellDialect::Bash => Some(FormatDialect::Bash),
+        LinterShellDialect::Mksh => Some(FormatDialect::Mksh),
+        LinterShellDialect::Zsh => Some(FormatDialect::Zsh),
+        LinterShellDialect::Unknown | LinterShellDialect::Ksh => None,
+    }
+}
+
+const fn shell_name(shell: LinterShellDialect) -> &'static str {
+    match shell {
+        LinterShellDialect::Unknown => "unknown",
+        LinterShellDialect::Sh => "sh",
+        LinterShellDialect::Bash => "bash",
+        LinterShellDialect::Dash => "dash",
+        LinterShellDialect::Ksh => "ksh",
+        LinterShellDialect::Mksh => "mksh",
+        LinterShellDialect::Zsh => "zsh",
+    }
+}
+
 fn fixable_rules_for_layers(
     project_config: &ShuckConfig,
     option_layers: &[&ClientOptions],
@@ -502,6 +560,26 @@ fn parse_lint_config_layer(lint: &LintConfig) -> RuleSelectionLayer {
         extend_fixable: parse_selector_list(lint.extend_fixable.as_deref(), "lint.extend-fixable")
             .unwrap_or_default(),
     }
+}
+
+fn parse_config_rule_selection_layer(config: &ShuckConfig) -> RuleSelectionLayer {
+    let mut layer = parse_lint_config_layer(&config.lint);
+    if let Some(entries) = config.per_file_shell.as_ref() {
+        layer.per_file_shell = Some(parse_per_file_shell_map(entries, "per-file-shell"));
+    }
+    layer
+}
+
+fn parse_client_rule_selection_layer(options: &ClientOptions) -> RuleSelectionLayer {
+    let mut layer = options
+        .lint
+        .as_ref()
+        .map(parse_lint_config_layer)
+        .unwrap_or_default();
+    if let Some(entries) = options.per_file_shell.as_ref() {
+        layer.per_file_shell = Some(parse_per_file_shell_map(entries, "perFileShell"));
+    }
+    layer
 }
 
 fn parse_per_file_ignore_specs(
@@ -803,6 +881,56 @@ mod tests {
         );
 
         assert_eq!(settings.linter().shell, LinterShellDialect::Zsh);
+    }
+
+    #[test]
+    fn shared_per_file_shell_applies_to_linter_and_formatter() {
+        let options = ClientOptions::default();
+        let tempdir = tempfile::tempdir().expect("tempdir should be created");
+        std::fs::write(
+            tempdir.path().join(".shuck.toml"),
+            "[per-file-shell]\n'dot_z*' = 'zsh'\n",
+        )
+        .expect("config should be written");
+
+        let file_path = tempdir.path().join("dot_zshenv");
+        std::fs::write(&file_path, "(($+commands[vivid]))\n").expect("source should be written");
+
+        let settings = ShuckSettings::resolve(
+            Some(&file_path),
+            &[tempdir.path().to_path_buf()],
+            &[&options],
+        );
+
+        assert_eq!(settings.linter().shell, LinterShellDialect::Zsh);
+        assert_eq!(settings.formatter().dialect(), FormatDialect::Zsh);
+        assert_eq!(settings.format_dialect_error(), None);
+    }
+
+    #[test]
+    fn shared_per_file_shell_conflicts_block_formatter_settings() {
+        let options = ClientOptions::default();
+        let tempdir = tempfile::tempdir().expect("tempdir should be created");
+        std::fs::write(
+            tempdir.path().join(".shuck.toml"),
+            "[per-file-shell]\n'*' = 'bash'\n'dot_z*' = 'zsh'\n",
+        )
+        .expect("config should be written");
+
+        let file_path = tempdir.path().join("dot_zshenv");
+        std::fs::write(&file_path, "(($+commands[vivid]))\n").expect("source should be written");
+
+        let settings = ShuckSettings::resolve(
+            Some(&file_path),
+            &[tempdir.path().to_path_buf()],
+            &[&options],
+        );
+
+        assert!(
+            settings
+                .format_dialect_error()
+                .is_some_and(|error| error.contains("conflicting per-file shell mappings"))
+        );
     }
 
     #[test]

@@ -29,7 +29,7 @@ embedded = false
 
 ## `[format]`
 
-Formatter style options for `shuck format`.
+Formatter file-selection and style options for `shuck format` and editor formatting.
 
 #### `binary-next-line`
 
@@ -44,6 +44,23 @@ Place binary list and pipeline operators at the start of continuation lines when
 ```toml
 [format]
 binary-next-line = true
+```
+
+---
+
+#### `exclude`
+
+Do not format files matching these project-relative glob patterns.
+
+**Default value**: `[]`
+
+**Type**: `list[str]`
+
+**Example usage**:
+
+```toml
+[format]
+exclude = ["generated/**"]
 ```
 
 ---
@@ -166,6 +183,16 @@ switch-case-indent = true
 ```
 
 ---
+
+## `[per-file-shell]`
+
+Select the shell dialect used to parse matching files in `shuck check`, `shuck format`, and the language server. Patterns are resolved relative to the project root, and overlapping patterns cannot select different dialects for one file. Supported values are `sh`, `bash`, `dash`, `ksh`, `mksh`, and `zsh`; generic `ksh` is linter-only because the formatter has no corresponding grammar. An explicit `shuck format --dialect` override takes precedence.
+
+```toml
+[per-file-shell]
+"dot_z*" = "zsh"
+"scripts/**/*.sh" = "bash"
+```
 
 ## `[lint]`
 

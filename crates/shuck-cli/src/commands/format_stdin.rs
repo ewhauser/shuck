@@ -28,8 +28,18 @@ pub(crate) fn format_stdin(
         config_arguments,
         args.format_settings_patch(),
     )?;
+    let absolute_path = path.map(|path| {
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            cwd.join(path)
+        }
+    });
 
-    if path.is_some_and(|path| settings.is_file_excluded(&cwd.join(path))) {
+    if absolute_path
+        .as_deref()
+        .is_some_and(|path| settings.is_file_excluded(path))
+    {
         if mode.is_write() {
             let mut stdout = io::stdout().lock();
             stdout.write_all(source.as_bytes())?;
@@ -37,7 +47,10 @@ pub(crate) fn format_stdin(
         return Ok(ExitStatus::Success);
     }
 
-    let options = settings.to_shell_format_options();
+    let options = match absolute_path.as_deref() {
+        Some(path) => settings.shell_format_options_for_path(path)?,
+        None => settings.to_shell_format_options(),
+    };
 
     if matches!(mode, FormatMode::Check) {
         return match source_is_formatted(&source, path, &options) {

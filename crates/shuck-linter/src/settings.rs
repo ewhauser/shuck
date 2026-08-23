@@ -403,6 +403,7 @@ pub struct CompiledPerFileShellList {
 
 #[derive(Debug, Clone)]
 struct CompiledPerFileShell {
+    pattern: String,
     basename_matcher: GlobMatcher,
     relative_matcher: GlobMatcher,
     absolute_matcher: GlobMatcher,
@@ -725,12 +726,14 @@ impl CompiledPerFileShellList {
             .into_iter()
             .map(|per_file_shell| {
                 let mut pattern = per_file_shell.pattern;
+                let configured_pattern = pattern.clone();
                 let negated = pattern.starts_with('!');
                 if negated {
                     pattern.drain(..1);
                 }
 
                 Ok(CompiledPerFileShell {
+                    pattern: configured_pattern,
                     basename_matcher: Glob::new(&pattern)
                         .map_err(|err| anyhow!("invalid glob {pattern:?}: {err}"))?
                         .compile_matcher(),
@@ -760,13 +763,52 @@ impl CompiledPerFileShellList {
         let file_name = relative_path.file_name().or_else(|| path.file_name())?;
 
         self.entries.iter().fold(None, |shell, entry| {
-            let matches = entry.basename_matcher.is_match(file_name)
-                || entry.relative_matcher.is_match(relative_path)
-                || matches_absolute_shell_path(&entry.absolute_matcher, path);
-            let applies = if entry.negated { !matches } else { matches };
-
-            if applies { Some(entry.shell) } else { shell }
+            if entry.applies(path, relative_path, file_name) {
+                Some(entry.shell)
+            } else {
+                shell
+            }
         })
+    }
+
+    /// Returns the shell selected for `path`, rejecting overlapping mappings
+    /// that select different dialects.
+    pub fn shell_for_path_checked(&self, path: &Path) -> Result<Option<ShellDialect>> {
+        let relative_path = path.strip_prefix(&self.project_root).unwrap_or(path);
+        let Some(file_name) = relative_path.file_name().or_else(|| path.file_name()) else {
+            return Ok(None);
+        };
+        let mut selected = None::<(&str, ShellDialect)>;
+
+        for entry in &self.entries {
+            if !entry.applies(path, relative_path, file_name) {
+                continue;
+            }
+            if let Some((selected_pattern, selected_shell)) = selected
+                && selected_shell != entry.shell
+            {
+                return Err(anyhow!(
+                    "conflicting per-file shell mappings for {}: {:?} selects {:?}, but {:?} selects {:?}",
+                    path.display(),
+                    selected_pattern,
+                    selected_shell,
+                    entry.pattern,
+                    entry.shell
+                ));
+            }
+            selected = Some((&entry.pattern, entry.shell));
+        }
+
+        Ok(selected.map(|(_, shell)| shell))
+    }
+}
+
+impl CompiledPerFileShell {
+    fn applies(&self, path: &Path, relative_path: &Path, file_name: &std::ffi::OsStr) -> bool {
+        let matches = self.basename_matcher.is_match(file_name)
+            || self.relative_matcher.is_match(relative_path)
+            || matches_absolute_shell_path(&self.absolute_matcher, path);
+        if self.negated { !matches } else { matches }
     }
 }
 
@@ -932,6 +974,33 @@ mod tests {
         assert_eq!(
             per_file_shell.shell_for_path(&project_root.join("README.md")),
             None
+        );
+    }
+
+    #[test]
+    fn checked_per_file_shell_rejects_conflicting_dialects() {
+        let project_root = PathBuf::from("/workspace");
+        let per_file_shell = CompiledPerFileShellList::resolve(
+            &project_root,
+            [
+                PerFileShell::new("*.sh", ShellDialect::Sh),
+                PerFileShell::new("scripts/*.sh", ShellDialect::Bash),
+            ],
+        )
+        .unwrap();
+
+        assert!(
+            per_file_shell
+                .shell_for_path_checked(&project_root.join("scripts/tool.sh"))
+                .unwrap_err()
+                .to_string()
+                .contains("conflicting per-file shell mappings")
+        );
+        assert_eq!(
+            per_file_shell
+                .shell_for_path_checked(&project_root.join("top.sh"))
+                .unwrap(),
+            Some(ShellDialect::Sh)
         );
     }
 

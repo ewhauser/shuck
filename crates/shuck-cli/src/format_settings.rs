@@ -1,17 +1,29 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::{Result, anyhow};
 use shuck_cache::{CacheKey, CacheKeyHasher};
-use shuck_config::{ConfigArguments, FormatExclusions, FormatSettingsPatch, load_project_config};
-use shuck_formatter::{IndentStyle, ShellDialect, ShellFormatOptions};
+use shuck_config::{
+    ConfigArguments, FormatExclusions, FormatSettingsPatch, ShuckConfig, load_project_config,
+};
+use shuck_formatter::{IndentStyle, ShellDialect as FormatDialect, ShellFormatOptions};
+use shuck_linter::{CompiledPerFileShellList, PerFileShell, ShellDialect as LinterShellDialect};
 
 const CLI_INDENT_WIDTH_ERROR: &str = "`--indent-width` must be at least 1";
 const CONFIG_INDENT_WIDTH_ERROR: &str = "`[format].indent-width` must be at least 1";
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct ResolvedFormatSettings {
     options: ShellFormatOptions,
     exclusions: FormatExclusions,
+    per_file_shell: CompiledPerFileShellList,
+    effective_per_file_shell: Vec<EffectivePerFileShell>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EffectivePerFileShell {
+    pattern: String,
+    shell: String,
 }
 
 impl CacheKey for ResolvedFormatSettings {
@@ -29,12 +41,31 @@ impl CacheKey for ResolvedFormatSettings {
         state.write_bool(self.options.simplify());
         state.write_bool(self.options.minify());
         self.exclusions.patterns().cache_key(state);
+        self.effective_per_file_shell.cache_key(state);
+    }
+}
+
+impl CacheKey for EffectivePerFileShell {
+    fn cache_key(&self, state: &mut CacheKeyHasher) {
+        self.pattern.cache_key(state);
+        self.shell.cache_key(state);
     }
 }
 
 impl ResolvedFormatSettings {
     pub(crate) fn to_shell_format_options(&self) -> ShellFormatOptions {
         self.options.clone()
+    }
+
+    pub(crate) fn shell_format_options_for_path(&self, path: &Path) -> Result<ShellFormatOptions> {
+        if self.options.dialect() != FormatDialect::Auto {
+            return Ok(self.options.clone());
+        }
+
+        let Some(shell) = self.per_file_shell.shell_for_path_checked(path)? else {
+            return Ok(self.options.clone());
+        };
+        Ok(self.options.clone().with_dialect(format_dialect(shell)?))
     }
 
     pub(crate) fn is_file_excluded(&self, path: &Path) -> bool {
@@ -94,9 +125,20 @@ pub(crate) fn resolve_project_format_settings(
     let config = load_project_config(project_root, config_arguments)?;
     let config_patch = config.format.to_patch()?;
     let exclusions = config.format.compile_exclusions(project_root)?;
+    let per_file_shell = parse_config_per_file_shell(&config)?;
+    let effective_per_file_shell = per_file_shell
+        .iter()
+        .map(|entry| EffectivePerFileShell {
+            pattern: entry.pattern().to_owned(),
+            shell: shell_name(entry.shell()).to_owned(),
+        })
+        .collect();
+    let per_file_shell = CompiledPerFileShellList::resolve(project_root, per_file_shell)?;
 
     let mut settings = ResolvedFormatSettings {
         exclusions,
+        per_file_shell,
+        effective_per_file_shell,
         ..ResolvedFormatSettings::default()
     };
     settings.apply_patch(config_patch, CONFIG_INDENT_WIDTH_ERROR)?;
@@ -111,13 +153,78 @@ const fn indent_style_key(style: IndentStyle) -> u8 {
     }
 }
 
-const fn shell_dialect_key(dialect: ShellDialect) -> u8 {
+const fn shell_dialect_key(dialect: FormatDialect) -> u8 {
     match dialect {
-        ShellDialect::Auto => 0,
-        ShellDialect::Bash => 1,
-        ShellDialect::Posix => 2,
-        ShellDialect::Mksh => 3,
-        ShellDialect::Zsh => 4,
+        FormatDialect::Auto => 0,
+        FormatDialect::Bash => 1,
+        FormatDialect::Posix => 2,
+        FormatDialect::Mksh => 3,
+        FormatDialect::Zsh => 4,
+    }
+}
+
+fn parse_config_per_file_shell(config: &ShuckConfig) -> Result<Vec<PerFileShell>> {
+    let mut entries = match config.per_file_shell.as_ref() {
+        Some(patterns) => parse_per_file_shell_map(patterns, "per-file-shell")?,
+        None => config
+            .lint
+            .per_file_shell
+            .as_ref()
+            .map(|patterns| parse_per_file_shell_map(patterns, "lint.per-file-shell"))
+            .transpose()?
+            .unwrap_or_default(),
+    };
+
+    if let Some(patterns) = config.lint.extend_per_file_shell.as_ref() {
+        entries.extend(parse_per_file_shell_map(
+            patterns,
+            "lint.extend-per-file-shell",
+        )?);
+    }
+
+    Ok(entries)
+}
+
+fn parse_per_file_shell_map(
+    patterns: &BTreeMap<String, String>,
+    scope: &str,
+) -> Result<Vec<PerFileShell>> {
+    patterns
+        .iter()
+        .map(|(pattern, shell_name)| {
+            let shell = LinterShellDialect::from_name(shell_name);
+            if shell == LinterShellDialect::Unknown {
+                return Err(anyhow!(
+                    "invalid {scope} shell `{shell_name}`: expected one of sh, bash, dash, ksh, mksh, zsh"
+                ));
+            }
+            Ok(PerFileShell::new(pattern.clone(), shell))
+        })
+        .collect()
+}
+
+fn format_dialect(shell: LinterShellDialect) -> Result<FormatDialect> {
+    match shell {
+        LinterShellDialect::Sh | LinterShellDialect::Dash => Ok(FormatDialect::Posix),
+        LinterShellDialect::Bash => Ok(FormatDialect::Bash),
+        LinterShellDialect::Mksh => Ok(FormatDialect::Mksh),
+        LinterShellDialect::Zsh => Ok(FormatDialect::Zsh),
+        LinterShellDialect::Ksh => Err(anyhow!(
+            "per-file shell `ksh` is not supported by the formatter; use `mksh` for mksh files"
+        )),
+        LinterShellDialect::Unknown => Err(anyhow!("unknown per-file shell dialect")),
+    }
+}
+
+const fn shell_name(shell: LinterShellDialect) -> &'static str {
+    match shell {
+        LinterShellDialect::Unknown => "unknown",
+        LinterShellDialect::Sh => "sh",
+        LinterShellDialect::Bash => "bash",
+        LinterShellDialect::Dash => "dash",
+        LinterShellDialect::Ksh => "ksh",
+        LinterShellDialect::Mksh => "mksh",
+        LinterShellDialect::Zsh => "zsh",
     }
 }
 
@@ -129,7 +236,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
-    use crate::args::{FileSelectionArgs, FormatCommand};
+    use crate::args::{FileSelectionArgs, FormatCommand, FormatDialectArg};
     use shuck_config::{CONFIG_DIALECT_UNSUPPORTED_ERROR, FormatConfig};
     fn format_args() -> FormatCommand {
         FormatCommand {
@@ -188,7 +295,7 @@ mod tests {
             .unwrap();
         let options = settings.to_shell_format_options();
 
-        assert_eq!(options.dialect(), ShellDialect::Auto);
+        assert_eq!(options.dialect(), FormatDialect::Auto);
         assert_eq!(options.indent_style(), IndentStyle::Space);
         assert_eq!(options.indent_width(), 2);
         assert!(options.binary_next_line());
@@ -233,6 +340,142 @@ mod tests {
 
         let err = config.to_patch().unwrap_err();
         assert_eq!(err.to_string(), CONFIG_DIALECT_UNSUPPORTED_ERROR);
+    }
+
+    #[test]
+    fn top_level_per_file_shell_selects_formatter_dialect() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[per-file-shell]\n'dot_z*' = 'zsh'\n",
+        )
+        .unwrap();
+
+        let settings = resolve_project_format_settings(
+            tempdir.path(),
+            &ConfigArguments::default(),
+            format_args().format_settings_patch(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            settings
+                .shell_format_options_for_path(&tempdir.path().join("dot_zshenv"))
+                .unwrap()
+                .dialect(),
+            FormatDialect::Zsh
+        );
+        assert_eq!(
+            settings
+                .shell_format_options_for_path(&tempdir.path().join("script.sh"))
+                .unwrap()
+                .dialect(),
+            FormatDialect::Auto
+        );
+    }
+
+    #[test]
+    fn lint_per_file_shell_remains_a_formatter_compatibility_alias() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[lint]\nper-file-shell = { 'dot_z*' = 'zsh' }\n",
+        )
+        .unwrap();
+
+        let settings = resolve_project_format_settings(
+            tempdir.path(),
+            &ConfigArguments::default(),
+            format_args().format_settings_patch(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            settings
+                .shell_format_options_for_path(&tempdir.path().join("dot_zshenv"))
+                .unwrap()
+                .dialect(),
+            FormatDialect::Zsh
+        );
+    }
+
+    #[test]
+    fn cli_dialect_overrides_per_file_shell() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[per-file-shell]\n'dot_z*' = 'zsh'\n",
+        )
+        .unwrap();
+        let mut args = format_args();
+        args.dialect = Some(FormatDialectArg::Bash);
+
+        let settings = resolve_project_format_settings(
+            tempdir.path(),
+            &ConfigArguments::default(),
+            args.format_settings_patch(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            settings
+                .shell_format_options_for_path(&tempdir.path().join("dot_zshenv"))
+                .unwrap()
+                .dialect(),
+            FormatDialect::Bash
+        );
+    }
+
+    #[test]
+    fn conflicting_per_file_shell_mappings_error_for_matching_path() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[per-file-shell]\n'*' = 'bash'\n'dot_z*' = 'zsh'\n",
+        )
+        .unwrap();
+
+        let settings = resolve_project_format_settings(
+            tempdir.path(),
+            &ConfigArguments::default(),
+            format_args().format_settings_patch(),
+        )
+        .unwrap();
+        let error = settings
+            .shell_format_options_for_path(&tempdir.path().join("dot_zshenv"))
+            .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("conflicting per-file shell mappings")
+        );
+    }
+
+    #[test]
+    fn generic_ksh_mapping_is_rejected_for_formatting() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[per-file-shell]\n'*.ksh' = 'ksh'\n",
+        )
+        .unwrap();
+
+        let settings = resolve_project_format_settings(
+            tempdir.path(),
+            &ConfigArguments::default(),
+            format_args().format_settings_patch(),
+        )
+        .unwrap();
+        let error = settings
+            .shell_format_options_for_path(&tempdir.path().join("script.ksh"))
+            .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("is not supported by the formatter")
+        );
     }
 
     #[test]

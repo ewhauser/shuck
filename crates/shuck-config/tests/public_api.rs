@@ -38,6 +38,27 @@ fn public_api_layers_discovered_config_and_inline_overrides() {
 }
 
 #[test]
+fn public_api_loads_shared_per_file_shell_config() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "[per-file-shell]\n'dot_z*' = 'zsh'\n",
+    )
+    .unwrap();
+
+    let loaded = load_project_config(tempdir.path(), &ConfigArguments::default()).unwrap();
+
+    assert_eq!(
+        loaded
+            .per_file_shell
+            .as_ref()
+            .and_then(|entries| entries.get("dot_z*"))
+            .map(String::as_str),
+        Some("zsh")
+    );
+}
+
+#[test]
 fn public_api_prefers_explicit_config_file_over_discovered_file() {
     let tempdir = tempdir().unwrap();
     fs::write(

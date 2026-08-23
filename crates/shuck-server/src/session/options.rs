@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use lsp_types::Url;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Deserializer};
@@ -30,6 +32,9 @@ impl GlobalOptions {
 #[serde(rename_all = "camelCase")]
 pub struct ClientOptions {
     #[serde(default)]
+    /// Shared per-file shell dialect overrides.
+    pub per_file_shell: Option<BTreeMap<String, String>>,
+    #[serde(default)]
     /// Lint configuration overrides.
     pub lint: Option<LintConfig>,
     #[serde(default)]
@@ -52,6 +57,7 @@ pub struct ClientOptions {
 impl ClientOptions {
     pub(crate) fn to_config_overrides(&self) -> ShuckConfig {
         ShuckConfig {
+            per_file_shell: self.per_file_shell.clone(),
             lint: self.lint.clone().unwrap_or_default(),
             format: self.format.clone().unwrap_or_default(),
             ..ShuckConfig::default()

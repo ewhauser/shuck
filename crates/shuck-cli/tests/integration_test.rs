@@ -1925,6 +1925,23 @@ fn format_stdin_filename_infers_zsh_dialect() {
 }
 
 #[test]
+fn format_stdin_filename_uses_shared_per_file_shell_config() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "[per-file-shell]\n'dot_z*' = 'zsh'\n",
+    )
+    .unwrap();
+
+    let source = "(($+commands[vivid]))\n";
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.current_dir(tempdir.path())
+        .args(["format", "--stdin-filename", "dot_zshenv", "-"])
+        .write_stdin(source);
+    cmd.assert().success().stdout(source).stderr("");
+}
+
+#[test]
 fn format_stdin_rejects_configured_dialect() {
     let tempdir = tempdir().unwrap();
     fs::write(
@@ -2088,6 +2105,27 @@ fn check_per_file_shell_reaches_explicit_extensionless_file() {
     cmd.assert()
         .code(1)
         .stdout(predicate::str::contains("--> configured:1:1"));
+}
+
+#[test]
+fn check_uses_shared_per_file_shell_config() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "[per-file-shell]\n'dot_z*' = 'zsh'\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("dot_zshenv"),
+        "foo=bar\nprint ${(m)foo}\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--no-cache", "dot_zshenv"]);
+    cmd.assert().success().stdout("").stderr("");
 }
 
 #[test]
@@ -2439,6 +2477,46 @@ fn format_honors_project_config_and_cli_overrides_it() {
 }
 
 #[test]
+fn format_uses_shared_per_file_shell_for_extensionless_zsh_file() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "[per-file-shell]\n'dot_z*' = 'zsh'\n",
+    )
+    .unwrap();
+    let script = tempdir.path().join("dot_zshenv");
+    let source = "(($+commands[vivid]))\n";
+    fs::write(&script, source).unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["format", "dot_zshenv"]);
+    cmd.assert().success().stdout("").stderr("");
+
+    assert_eq!(fs::read_to_string(script).unwrap(), source);
+}
+
+#[test]
+fn format_rejects_conflicting_per_file_shell_mappings() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "[per-file-shell]\n'*' = 'bash'\n'dot_z*' = 'zsh'\n",
+    )
+    .unwrap();
+    fs::write(tempdir.path().join("dot_zshenv"), "(($+commands[vivid]))\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["format", "dot_zshenv"]);
+    cmd.assert().code(2).stderr(predicate::str::contains(
+        "conflicting per-file shell mappings",
+    ));
+}
+
+#[test]
 fn format_honors_explicit_global_config_file() {
     let tempdir = tempdir().unwrap();
     let config_path = tempdir.path().join("override.toml");
@@ -2554,6 +2632,31 @@ fn format_cache_invalidates_when_formatter_options_change() {
         .current_dir(tempdir.path())
         .args(["format", "--check", "--function-next-line"]);
     check.assert().code(1).stdout("");
+}
+
+#[test]
+fn format_cache_invalidates_when_per_file_shell_changes() {
+    let tempdir = tempdir().unwrap();
+    let config = tempdir.path().join("shuck.toml");
+    fs::write(&config, "[per-file-shell]\n'dot_z*' = 'zsh'\n").unwrap();
+    let script = tempdir.path().join("dot_zshenv");
+    fs::write(&script, "(($+commands[vivid]))\n").unwrap();
+
+    let mut initial = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut initial, tempdir.path());
+    initial
+        .current_dir(tempdir.path())
+        .args(["format", "dot_zshenv"]);
+    initial.assert().success().stdout("").stderr("");
+
+    fs::write(&config, "[per-file-shell]\n'dot_z*' = 'bash'\n").unwrap();
+
+    let mut changed = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut changed, tempdir.path());
+    changed
+        .current_dir(tempdir.path())
+        .args(["format", "--check", "dot_zshenv"]);
+    changed.assert().code(1).stdout("").stderr("");
 }
 
 #[test]

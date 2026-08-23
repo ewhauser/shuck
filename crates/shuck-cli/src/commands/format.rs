@@ -7,9 +7,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use shuck_cache::{FileCacheKey, PackageCache};
 use shuck_config::ConfigArguments;
-use shuck_formatter::{
-    FormatError, FormattedSource, ShellFormatOptions, format_source, source_is_formatted,
-};
+use shuck_formatter::{FormatError, FormattedSource, format_source, source_is_formatted};
 use similar::TextDiff;
 
 use crate::ExitStatus;
@@ -187,7 +185,6 @@ fn run_format_with_cwd(
         run.files.retain(|file| {
             file.kind == FileKind::Shell && !run.settings.is_file_excluded(&file.absolute_path)
         });
-        let settings = run.settings.to_shell_format_options();
         let pending = run.take_pending_files(|file, cached| {
             report.cache_hits += 1;
             if let FormatCacheData::ParseError(error) = cached {
@@ -211,7 +208,7 @@ fn run_format_with_cwd(
 
             let results = batch
                 .into_par_iter()
-                .map(|pending| format_pending_file(pending, &settings, mode))
+                .map(|pending| format_pending_file(pending, &run.settings, mode))
                 .collect::<Vec<_>>();
 
             for result in results {
@@ -239,11 +236,12 @@ fn pending_format_batch_size() -> usize {
 
 fn format_pending_file(
     pending: PendingProjectFile,
-    settings: &ShellFormatOptions,
+    settings: &ResolvedFormatSettings,
     mode: FormatMode,
 ) -> Result<PendingFormatOutcome> {
     let PendingProjectFile { file, file_key } = pending;
     let source = fs::read_to_string(&file.absolute_path)?;
+    let options = settings.shell_format_options_for_path(&file.absolute_path)?;
 
     let mut outcome = PendingFormatOutcome {
         relative_path: file.relative_path,
@@ -255,7 +253,7 @@ fn format_pending_file(
     };
 
     if matches!(mode, FormatMode::Check) {
-        match source_is_formatted(&source, Some(&file.absolute_path), settings) {
+        match source_is_formatted(&source, Some(&file.absolute_path), &options) {
             Ok(true) => {
                 outcome.cached_result = Some(FormatCacheData::Unchanged);
             }
@@ -283,7 +281,7 @@ fn format_pending_file(
             Err(FormatError::Internal(message)) => return Err(anyhow!(message)),
         }
     } else {
-        match format_source(&source, Some(&file.absolute_path), settings) {
+        match format_source(&source, Some(&file.absolute_path), &options) {
             Ok(FormattedSource::Unchanged) => {
                 outcome.cached_result = Some(FormatCacheData::Unchanged);
             }
