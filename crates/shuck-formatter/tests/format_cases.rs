@@ -2298,12 +2298,31 @@ echo "$foobar"
 }
 
 format_cases_with_options! {
+    space_indented_block_command_substitution_formats_shell_around_multiline_literal:
+        ShellFormatOptions::default()
+            .with_dialect(ShellDialect::Bash)
+            .with_indent_style(IndentStyle::Space)
+            .with_indent_width(2),
+        "value=\"$(\n    printf x |\n    python3 -c '\nprint(\"ok\")\n' <<< \"$payload\"\n)\"\n",
+        => "value=\"$(\n  printf x |\n    python3 -c '\nprint(\"ok\")\n' <<<\"$payload\"\n)\"\n";
+}
+
+format_cases_with_options! {
     space_indented_command_substitution_normalizes_with_spaces:
         ShellFormatOptions::default()
             .with_indent_style(IndentStyle::Space)
             .with_indent_width(4),
         "foobar=$(ls -al \\\n    | grep \"$USER\" \\\n    | grep -i \"jul\")\n",
         => "foobar=$(ls -al |\n    grep \"$USER\" |\n    grep -i \"jul\")\n";
+}
+
+unchanged_cases_with_options! {
+    space_indented_block_command_substitution_preserves_multiline_literal_payload:
+        ShellFormatOptions::default()
+            .with_dialect(ShellDialect::Bash)
+            .with_indent_style(IndentStyle::Space)
+            .with_indent_width(2),
+        "value=\"$(\n  python3 -c '\nprint(\"ok\")\n'\n)\"\n";
 }
 
 format_cases_with_options! {
