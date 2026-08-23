@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/ewhauser/shuck/compare/v0.1.2...v0.1.3) (2026-08-23)
+
+
+### Features
+
+* **server:** support cross-file variable navigation ([#1262](https://github.com/ewhauser/shuck/issues/1262)) ([722cfcd](https://github.com/ewhauser/shuck/commit/722cfcd7e09090de2e749abc512f47fa70a72b90))
+
 ## [0.1.2](https://github.com/ewhauser/shuck/compare/v0.1.1...v0.1.2) (2026-08-23)
 
 
