@@ -11,5 +11,7 @@ readme = "README.md"
 
 [dependencies]
 anyhow = { workspace = true }
+github-actions-expressions = { workspace = true }
 saphyr = { workspace = true }
 saphyr-parser = { workspace = true }
+shuck-ast = { workspace = true }

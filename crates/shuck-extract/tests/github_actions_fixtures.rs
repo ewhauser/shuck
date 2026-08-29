@@ -36,9 +36,10 @@ fn extracts_workflow_edge_case_fixture() {
 
     let bash = script(&scripts, "jobs.explicit-shells.steps[0].run");
     assert_eq!(bash.dialect, ExtractedDialect::Bash);
-    assert_eq!(bash.source, "echo \"${_SHUCK_GHA_1}\"\n");
-    assert_eq!(bash.placeholders[0].expression, "github.sha");
-    assert_eq!(bash.placeholders[0].taint, ExpressionTaint::Trusted);
+    assert_eq!(bash.source, "echo \"${{ github.sha }}\"\n");
+    assert_eq!(bash.analysis_source(), "echo \"${1}\"\n");
+    assert_eq!(expression_source(bash, 0), "github.sha");
+    assert_eq!(bash.expressions[0].taint, ExpressionTaint::Trusted);
 
     let sh = script(&scripts, "jobs.explicit-shells.steps[1].run");
     assert_eq!(sh.dialect, ExtractedDialect::Sh);
@@ -52,15 +53,16 @@ fn extracts_workflow_edge_case_fixture() {
         custom.implicit_flags.template.as_deref(),
         Some("bash --noprofile --norc -e -o pipefail {0}")
     );
-    assert_eq!(custom.source, "printf '%s\\n' \"${_SHUCK_GHA_1}\"\n");
     assert_eq!(
-        custom.placeholders[0].expression,
+        custom.source,
+        "printf '%s\\n' \"${{ github.event.pull_request.title }}\"\n"
+    );
+    assert_eq!(custom.analysis_source(), "printf '%s\\n' \"${1}\"\n");
+    assert_eq!(
+        expression_source(custom, 0),
         "github.event.pull_request.title"
     );
-    assert_eq!(
-        custom.placeholders[0].taint,
-        ExpressionTaint::UserControlled
-    );
+    assert_eq!(custom.expressions[0].taint, ExpressionTaint::UserControlled);
 
     let pwsh = script(&scripts, "jobs.explicit-shells.steps[3].run");
     assert_eq!(pwsh.dialect, ExtractedDialect::Unsupported);
@@ -80,9 +82,10 @@ fn extracts_workflow_edge_case_fixture() {
 
     let env_alias = script(&scripts, "jobs.anchors-and-env.steps[1].run");
     assert_eq!(env_alias.dialect, ExtractedDialect::Bash);
-    assert_eq!(env_alias.source, "echo \"${_SHUCK_GHA_1}\"\n");
-    assert_eq!(env_alias.placeholders[0].expression, "env.WORKFLOW_VALUE");
-    assert_eq!(env_alias.placeholders[0].taint, ExpressionTaint::Trusted);
+    assert_eq!(env_alias.source, "echo \"${{ env.WORKFLOW_VALUE }}\"\n");
+    assert_eq!(env_alias.analysis_source(), "echo \"${1}\"\n");
+    assert_eq!(expression_source(env_alias, 0), "env.WORKFLOW_VALUE");
+    assert_eq!(env_alias.expressions[0].taint, ExpressionTaint::Trusted);
 
     let anchored_block = script(&scripts, "jobs.anchors-and-env.steps[2].run");
     assert_eq!(anchored_block.dialect, ExtractedDialect::Bash);
@@ -179,16 +182,21 @@ fn extracts_composite_action_edge_case_fixture() {
     assert_eq!(bash.dialect, ExtractedDialect::Bash);
     assert_eq!(
         bash.source,
-        "echo \"$COMPOSITE_VALUE\"\necho \"${_SHUCK_GHA_1}\"\n"
+        "echo \"$COMPOSITE_VALUE\"\necho \"${{ github.sha }}\"\n"
     );
-    assert_eq!(bash.placeholders[0].expression, "github.sha");
-    assert_eq!(bash.placeholders[0].taint, ExpressionTaint::Trusted);
+    assert_eq!(
+        bash.analysis_source(),
+        "echo \"$COMPOSITE_VALUE\"\necho \"${1}\"\n"
+    );
+    assert_eq!(expression_source(bash, 0), "github.sha");
+    assert_eq!(bash.expressions[0].taint, ExpressionTaint::Trusted);
 
     let sh = script(&scripts, "runs.steps[1].run");
     assert_eq!(sh.dialect, ExtractedDialect::Sh);
-    assert_eq!(sh.source, "echo \"${_SHUCK_GHA_1}\"");
-    assert_eq!(sh.placeholders[0].expression, "inputs.message");
-    assert_eq!(sh.placeholders[0].taint, ExpressionTaint::Unknown);
+    assert_eq!(sh.source, "echo \"${{ inputs.message }}\"");
+    assert_eq!(sh.analysis_source(), "echo \"${1}\"");
+    assert_eq!(expression_source(sh, 0), "inputs.message");
+    assert_eq!(sh.expressions[0].taint, ExpressionTaint::Unknown);
 
     let unsupported = script(&scripts, "runs.steps[2].run");
     assert_eq!(unsupported.dialect, ExtractedDialect::Unsupported);
@@ -199,4 +207,14 @@ fn script<'a>(scripts: &'a [EmbeddedScript], label: &str) -> &'a EmbeddedScript 
         .iter()
         .find(|script| script.label == label)
         .unwrap_or_else(|| panic!("missing extracted script `{label}`"))
+}
+
+fn expression_source(script: &EmbeddedScript, expression_index: usize) -> &str {
+    let segment_index = script.expressions[expression_index].segment_index;
+    let shuck_ast::GitHubTemplateSegment::Expression(expression) =
+        &script.template.segments[segment_index]
+    else {
+        panic!("expression metadata must point to an expression segment");
+    };
+    expression.body_range.slice(&script.source)
 }

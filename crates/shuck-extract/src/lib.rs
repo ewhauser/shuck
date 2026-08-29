@@ -2,7 +2,9 @@
 
 //! Extract embedded shell scripts from non-shell host files.
 
-use std::collections::{HashMap, HashSet};
+mod github_actions_expression;
+
+use std::collections::HashMap;
 use std::ops::Range;
 use std::path::Path;
 
@@ -11,8 +13,12 @@ use saphyr::{
     AnnotatedMapping, AnnotatedSequence, MarkedYaml, Scalar, ScanError, YamlData, YamlLoader,
 };
 use saphyr_parser::{BufferedInput, Event, Marker, Parser, Span, SpannedEventReceiver};
+use shuck_ast::{
+    GitHubExpressionParse, GitHubTemplate, GitHubTemplateExpression, GitHubTemplateSegment,
+    TextRange, TextSize,
+};
 
-const GITHUB_ACTIONS_PLACEHOLDER_PREFIX: &str = "_SHUCK_GHA_";
+const GITHUB_ACTIONS_PROJECTION_EXPANSION: &str = "${1}";
 
 type YamlNode<'a> = MarkedYaml<'a>;
 type YamlMapping<'a> = AnnotatedMapping<'a, YamlNode<'a>>;
@@ -21,8 +27,12 @@ type YamlSequence<'a> = AnnotatedSequence<YamlNode<'a>>;
 /// A shell snippet extracted from a host file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmbeddedScript {
-    /// The shell source code after placeholder substitution.
+    /// The decoded `run:` source exactly as represented by the YAML scalar.
     pub source: String,
+    /// Source-preserving GitHub template syntax over [`Self::source`].
+    pub template: GitHubTemplate,
+    /// Opaque parser input derived from [`Self::template`].
+    shell_projection: ShellProjection,
     /// Byte offset of the snippet's first character within the host file.
     pub host_offset: usize,
     /// 1-based line number of the snippet's first character within the host file.
@@ -39,10 +49,62 @@ pub struct EmbeddedScript {
     pub label: String,
     /// Which embedded format produced this snippet.
     pub format: EmbeddedFormat,
-    /// Placeholder mappings produced during expression substitution.
-    pub placeholders: Vec<PlaceholderMapping>,
+    /// Platform metadata associated with expression segments in [`Self::template`].
+    pub expressions: Vec<EmbeddedExpression>,
     /// Shell flags implied by the host environment.
     pub implicit_flags: ImplicitShellFlags,
+}
+
+impl EmbeddedScript {
+    /// Construct an embedded script from already decoded and mapped parts.
+    #[doc(hidden)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_parts(
+        source: String,
+        template: GitHubTemplate,
+        shell_projection: ShellProjection,
+        host_offset: usize,
+        host_start_line: usize,
+        host_start_column: usize,
+        host_line_starts: Vec<HostLineStart>,
+        host_column_mappings: Vec<HostColumnMapping>,
+        dialect: ExtractedDialect,
+        label: String,
+        format: EmbeddedFormat,
+        expressions: Vec<EmbeddedExpression>,
+        implicit_flags: ImplicitShellFlags,
+    ) -> Self {
+        Self {
+            source,
+            template,
+            shell_projection,
+            host_offset,
+            host_start_line,
+            host_start_column,
+            host_line_starts,
+            host_column_mappings,
+            dialect,
+            label,
+            format,
+            expressions,
+            implicit_flags,
+        }
+    }
+
+    /// Return the shell-parser projection for this template.
+    pub fn analysis_source(&self) -> &str {
+        self.shell_projection.source()
+    }
+
+    /// Map one byte boundary in the shell projection back to the decoded template source.
+    pub fn source_offset_for_analysis_offset(&self, offset: usize) -> usize {
+        self.shell_projection.template_offset(offset)
+    }
+
+    /// Return the template segment represented at one shell-projection byte offset.
+    pub fn expression_segment_for_analysis_offset(&self, offset: usize) -> Option<usize> {
+        self.shell_projection.expression_segment_at(offset)
+    }
 }
 
 /// Shell dialect inferred for an extracted snippet.
@@ -85,21 +147,54 @@ pub struct HostColumnMapping {
     pub host_column: usize,
 }
 
-/// Mapping between a synthetic placeholder and the original template expression.
+/// Platform metadata for one GitHub Actions expression segment.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlaceholderMapping {
-    /// Placeholder variable name without the leading `$`.
-    pub name: String,
-    /// Original expression including `${{` / `}}`.
-    pub original: String,
-    /// Inner expression text.
-    pub expression: String,
+pub struct EmbeddedExpression {
+    /// Index of the corresponding [`GitHubTemplateSegment::Expression`] segment.
+    pub segment_index: usize,
     /// Taint classification for the expression.
     pub taint: ExpressionTaint,
-    /// Span of the substituted `${NAME}` text within the extracted source.
-    pub substituted_span: Range<usize>,
-    /// Approximate span of the original `${{ ... }}` text within the host file.
-    pub host_span: Range<usize>,
+}
+
+/// A deterministic shell-parser view of a GitHub Actions template.
+///
+/// The projection is deliberately opaque: callers can parse its source and map byte boundaries
+/// back to the authoritative template, but synthetic identifiers are not part of the public
+/// GitHub template syntax tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShellProjection {
+    source: String,
+    projection_to_template: Vec<usize>,
+    expression_spans: Vec<ProjectionExpression>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProjectionExpression {
+    segment_index: usize,
+    range: Range<usize>,
+}
+
+impl ShellProjection {
+    /// Return the projected shell source.
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
+    /// Map a projection byte boundary back to a decoded-template byte boundary.
+    pub fn template_offset(&self, projection_offset: usize) -> usize {
+        self.projection_to_template
+            .get(projection_offset)
+            .copied()
+            .unwrap_or_else(|| self.projection_to_template.last().copied().unwrap_or(0))
+    }
+
+    /// Return the expression-segment index covering one projection byte offset.
+    pub fn expression_segment_at(&self, projection_offset: usize) -> Option<usize> {
+        self.expression_spans
+            .iter()
+            .find(|expression| expression.range.contains(&projection_offset))
+            .map(|expression| expression.segment_index)
+    }
 }
 
 /// Trust level for a GitHub Actions expression.
@@ -113,6 +208,15 @@ pub enum ExpressionTaint {
     Trusted,
     /// Value could not be classified confidently.
     Unknown,
+}
+
+/// Parse a GitHub Actions expression body without the surrounding `${{` and `}}` delimiters.
+///
+/// Returned node ranges are relative to `expression`. A malformed expression returns an
+/// expression-local diagnostic instead of preventing the surrounding workflow script from being
+/// extracted.
+pub fn parse_github_actions_expression(expression: &str) -> GitHubExpressionParse {
+    github_actions_expression::parse(expression)
 }
 
 /// Shell flags injected by the host environment.
@@ -859,10 +963,12 @@ fn build_embedded_script(
     let host_offset = source_mapping.host_offset;
     let host_start_line = source_mapping.host_line_starts[0].line;
     let host_start_column = source_mapping.host_line_starts[0].column;
-    let (source, placeholders) = substitute_github_actions_expressions(raw_source, host_offset);
+    let (template, shell_projection, expressions) = parse_github_actions_template(raw_source);
 
     EmbeddedScript {
-        source,
+        source: raw_source.to_owned(),
+        template,
+        shell_projection,
         host_offset,
         host_start_line,
         host_start_column,
@@ -871,7 +977,7 @@ fn build_embedded_script(
         dialect: shell.dialect,
         label: label.to_owned(),
         format,
-        placeholders,
+        expressions,
         implicit_flags: shell.implicit_flags,
     }
 }
@@ -1654,96 +1760,147 @@ fn adjust_offset_to_scalar_content(source: &str, offset: usize, scalar: &str) ->
         .unwrap_or(offset)
 }
 
-fn substitute_github_actions_expressions(
+/// Parse one decoded GitHub Actions `run:` value into its source-preserving template and shell
+/// analysis projection.
+///
+/// Expression ranges in the returned template are absolute byte ranges in `source`. The shell
+/// projection is an implementation view whose offsets can be mapped back through
+/// [`ShellProjection::template_offset`].
+pub fn parse_github_actions_template(
     source: &str,
-    host_offset: usize,
-) -> (String, Vec<PlaceholderMapping>) {
-    let mut output = String::with_capacity(source.len());
-    let mut placeholders = Vec::new();
-    let mut occupied_names = collect_placeholder_names(source);
+) -> (GitHubTemplate, ShellProjection, Vec<EmbeddedExpression>) {
+    let mut projection = ProjectionBuilder::new(source.len());
+    let mut segments = Vec::new();
+    let mut expressions = Vec::new();
     let mut cursor = 0usize;
-    let mut counter = 1usize;
 
     while let Some(start_relative) = source[cursor..].find("${{") {
         let start = cursor + start_relative;
-        output.push_str(&source[cursor..start]);
+        if cursor < start {
+            segments.push(GitHubTemplateSegment::Literal {
+                range: text_range(cursor, start),
+            });
+            projection.push_literal(&source[cursor..start], cursor);
+        }
         let expression_start = start + 3;
         let Some(end) = find_github_actions_expression_end(source, expression_start) else {
-            output.push_str(&source[start..]);
+            segments.push(GitHubTemplateSegment::Literal {
+                range: text_range(start, source.len()),
+            });
+            projection.push_literal(&source[start..], start);
             cursor = source.len();
             break;
         };
-        let original = &source[start..end];
-        let expression = original
-            .trim_start_matches("${{")
-            .trim_end_matches("}}")
-            .trim()
-            .to_owned();
-        let name = next_placeholder_name(&mut occupied_names, &mut counter);
-        let replacement = format!("${{{name}}}");
-        let substituted_start = output.len();
-        output.push_str(&replacement);
-        let substituted_end = output.len();
-        placeholders.push(PlaceholderMapping {
-            name,
-            original: original.to_owned(),
-            expression: expression.clone(),
-            taint: classify_expression_taint(&expression),
-            substituted_span: substituted_start..substituted_end,
-            host_span: host_offset + start..host_offset + end,
+
+        let raw_body_end = end - 2;
+        let raw_body = &source[expression_start..raw_body_end];
+        let leading_whitespace = raw_body.len() - raw_body.trim_start().len();
+        let trailing_whitespace = raw_body.len() - raw_body.trim_end().len();
+        let body_start = expression_start + leading_whitespace;
+        let body_end = raw_body_end - trailing_whitespace;
+        let expression = &source[body_start..body_end];
+        let mut parsed = parse_github_actions_expression(expression);
+        parsed.offset_by(text_size(body_start));
+
+        let segment_index = segments.len();
+        segments.push(GitHubTemplateSegment::Expression(
+            GitHubTemplateExpression {
+                range: text_range(start, end),
+                body_range: text_range(body_start, body_end),
+                parsed,
+            },
+        ));
+        expressions.push(EmbeddedExpression {
+            segment_index,
+            taint: classify_expression_taint(expression),
         });
+
+        projection.push_expression(
+            GITHUB_ACTIONS_PROJECTION_EXPANSION,
+            start..end,
+            segment_index,
+        );
         cursor = end;
     }
 
     if cursor < source.len() {
-        output.push_str(&source[cursor..]);
+        segments.push(GitHubTemplateSegment::Literal {
+            range: text_range(cursor, source.len()),
+        });
+        projection.push_literal(&source[cursor..], cursor);
+    } else if segments.is_empty() {
+        segments.push(GitHubTemplateSegment::Literal {
+            range: text_range(0, source.len()),
+        });
     }
 
-    (output, placeholders)
+    (
+        GitHubTemplate {
+            segments,
+            range: text_range(0, source.len()),
+        },
+        projection.finish(),
+        expressions,
+    )
 }
 
-fn collect_placeholder_names(source: &str) -> HashSet<String> {
-    let mut names = HashSet::new();
-    let bytes = source.as_bytes();
-    let mut index = 0usize;
-
-    while index < bytes.len() {
-        if !is_shell_identifier_start(bytes[index]) {
-            index += 1;
-            continue;
-        }
-
-        let start = index;
-        index += 1;
-        while index < bytes.len() && is_shell_identifier_continue(bytes[index]) {
-            index += 1;
-        }
-
-        let candidate = &source[start..index];
-        if candidate.starts_with(GITHUB_ACTIONS_PLACEHOLDER_PREFIX) {
-            names.insert(candidate.to_owned());
-        }
-    }
-
-    names
+struct ProjectionBuilder {
+    source: String,
+    projection_to_template: Vec<usize>,
+    expression_spans: Vec<ProjectionExpression>,
 }
 
-fn next_placeholder_name(occupied_names: &mut HashSet<String>, counter: &mut usize) -> String {
-    loop {
-        let name = format!("{GITHUB_ACTIONS_PLACEHOLDER_PREFIX}{counter}");
-        *counter += 1;
-        if occupied_names.insert(name.clone()) {
-            return name;
+impl ProjectionBuilder {
+    fn new(capacity: usize) -> Self {
+        Self {
+            source: String::with_capacity(capacity),
+            projection_to_template: vec![0],
+            expression_spans: Vec::new(),
         }
     }
+
+    fn push_literal(&mut self, literal: &str, template_start: usize) {
+        self.source.push_str(literal);
+        self.projection_to_template
+            .extend((1..=literal.len()).map(|offset| template_start + offset));
+    }
+
+    fn push_expression(
+        &mut self,
+        replacement: &str,
+        template_range: Range<usize>,
+        segment_index: usize,
+    ) {
+        let projection_start = self.source.len();
+        self.source.push_str(replacement);
+        let template_len = template_range.end - template_range.start;
+        let replacement_len = replacement.len();
+        self.projection_to_template.extend(
+            (1..=replacement_len)
+                .map(|offset| template_range.start + template_len * offset / replacement_len),
+        );
+        self.expression_spans.push(ProjectionExpression {
+            segment_index,
+            range: projection_start..self.source.len(),
+        });
+    }
+
+    fn finish(self) -> ShellProjection {
+        debug_assert_eq!(self.projection_to_template.len(), self.source.len() + 1);
+        ShellProjection {
+            source: self.source,
+            projection_to_template: self.projection_to_template,
+            expression_spans: self.expression_spans,
+        }
+    }
 }
 
-fn is_shell_identifier_start(byte: u8) -> bool {
-    byte.is_ascii_alphabetic() || byte == b'_'
+fn text_range(start: usize, end: usize) -> TextRange {
+    TextRange::new(text_size(start), text_size(end))
 }
 
-fn is_shell_identifier_continue(byte: u8) -> bool {
-    is_shell_identifier_start(byte) || byte.is_ascii_digit()
+fn text_size(offset: usize) -> TextSize {
+    TextSize::new(u32::try_from(offset).unwrap_or(u32::MAX))
 }
 
 fn find_github_actions_expression_end(source: &str, expression_start: usize) -> Option<usize> {
@@ -1872,6 +2029,20 @@ fn line_column_for_offset(source: &str, target_offset: usize) -> (usize, usize) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shuck_ast::GitHubExpressionKind;
+
+    fn template_expression(
+        script: &EmbeddedScript,
+        expression_index: usize,
+    ) -> &GitHubTemplateExpression {
+        let segment_index = script.expressions[expression_index].segment_index;
+        let GitHubTemplateSegment::Expression(expression) =
+            &script.template.segments[segment_index]
+        else {
+            panic!("expression metadata must point to an expression segment");
+        };
+        expression
+    }
 
     #[test]
     fn matches_github_actions_paths() {
@@ -1897,7 +2068,7 @@ mod tests {
     }
 
     #[test]
-    fn extracts_workflow_steps_with_shell_hierarchy_and_placeholders() {
+    fn extracts_workflow_steps_with_shell_hierarchy_and_expressions() {
         let source = r#"
 on: push
 defaults:
@@ -1922,10 +2093,14 @@ jobs:
 
         assert_eq!(scripts[0].label, "jobs.build.steps[0].run");
         assert_eq!(scripts[0].dialect, ExtractedDialect::Bash);
-        assert_eq!(scripts[0].source, "echo ${_SHUCK_GHA_1}");
-        assert_eq!(scripts[0].placeholders.len(), 1);
         assert_eq!(
-            scripts[0].placeholders[0].taint,
+            scripts[0].source,
+            "echo ${{ github.event.pull_request.title }}"
+        );
+        assert_eq!(scripts[0].analysis_source(), "echo ${1}");
+        assert_eq!(scripts[0].expressions.len(), 1);
+        assert_eq!(
+            scripts[0].expressions[0].taint,
             ExpressionTaint::UserControlled
         );
         assert!(!scripts[0].implicit_flags.errexit);
@@ -2210,8 +2385,9 @@ runs:
         assert_eq!(scripts[0].dialect, ExtractedDialect::Bash);
         assert_eq!(scripts[0].host_start_line, 7);
         assert_eq!(scripts[0].host_start_column, 9);
-        assert_eq!(scripts[0].source, "echo hi\necho \"${_SHUCK_GHA_1}\"\n");
-        assert_eq!(scripts[0].placeholders[0].taint, ExpressionTaint::Trusted);
+        assert_eq!(scripts[0].source, "echo hi\necho \"${{ github.sha }}\"\n");
+        assert_eq!(scripts[0].analysis_source(), "echo hi\necho \"${1}\"\n");
+        assert_eq!(scripts[0].expressions[0].taint, ExpressionTaint::Trusted);
     }
 
     #[test]
@@ -2420,7 +2596,7 @@ jobs:
     }
 
     #[test]
-    fn wraps_placeholder_expansions_to_preserve_identifier_boundaries() {
+    fn wraps_projection_expansions_to_preserve_identifier_boundaries() {
         let source = r#"
 on: push
 jobs:
@@ -2432,12 +2608,13 @@ jobs:
 
         let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
         assert_eq!(scripts.len(), 1);
-        assert_eq!(scripts[0].source, "echo ${_SHUCK_GHA_1}suffix");
-        assert_eq!(scripts[0].placeholders[0].substituted_span, 5..20);
+        assert_eq!(scripts[0].source, "echo ${{ github.ref }}suffix");
+        assert_eq!(scripts[0].analysis_source(), "echo ${1}suffix");
+        assert_eq!(template_expression(&scripts[0], 0).range, text_range(5, 22));
     }
 
     #[test]
-    fn skips_placeholder_names_already_present_in_source() {
+    fn projection_does_not_introduce_named_bindings() {
         let source = r#"
 on: push
 jobs:
@@ -2453,10 +2630,13 @@ jobs:
         assert_eq!(scripts.len(), 1);
         assert_eq!(
             scripts[0].source,
-            "_SHUCK_GHA_1=1\necho \"${_SHUCK_GHA_2}\"\n"
+            "_SHUCK_GHA_1=1\necho \"${{ github.ref }}\"\n"
         );
-        assert_eq!(scripts[0].placeholders.len(), 1);
-        assert_eq!(scripts[0].placeholders[0].name, "_SHUCK_GHA_2");
+        assert_eq!(
+            scripts[0].analysis_source(),
+            "_SHUCK_GHA_1=1\necho \"${1}\"\n"
+        );
+        assert_eq!(scripts[0].expressions.len(), 1);
     }
 
     #[test]
@@ -2472,11 +2652,107 @@ jobs:
 
         let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
         assert_eq!(scripts.len(), 1);
-        assert_eq!(scripts[0].source, "echo ${_SHUCK_GHA_1}");
-        assert_eq!(scripts[0].placeholders.len(), 1);
+        assert_eq!(scripts[0].source, "echo ${{ format('}}', github.ref) }}");
+        assert_eq!(scripts[0].analysis_source(), "echo ${1}");
+        assert_eq!(scripts[0].expressions.len(), 1);
         assert_eq!(
-            scripts[0].placeholders[0].expression,
+            template_expression(&scripts[0], 0)
+                .body_range
+                .slice(&scripts[0].source),
             "format('}}', github.ref)"
+        );
+        assert!(matches!(
+            template_expression(&scripts[0], 0).parsed,
+            GitHubExpressionParse::Parsed(_)
+        ));
+    }
+
+    #[test]
+    fn recovers_from_one_invalid_expression_and_parses_the_next() {
+        let source = r#"
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ${{ github. }} ${{ matrix.os }}
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "echo ${{ github. }} ${{ matrix.os }}");
+        assert_eq!(scripts[0].analysis_source(), "echo ${1} ${1}");
+        assert_eq!(scripts[0].expressions.len(), 2);
+        assert!(matches!(
+            template_expression(&scripts[0], 0).parsed,
+            GitHubExpressionParse::Invalid(_)
+        ));
+        assert!(matches!(
+            template_expression(&scripts[0], 1).parsed,
+            GitHubExpressionParse::Parsed(_)
+        ));
+    }
+
+    #[test]
+    fn builds_source_preserving_template_with_absolute_expression_ranges() {
+        let source = "echo ${{  !failure() || github.ref == 'main'  }} done";
+        let (template, projection, expressions) = parse_github_actions_template(source);
+
+        assert_eq!(template.range.slice(source), source);
+        assert_eq!(template.segments.len(), 3);
+        assert_eq!(expressions.len(), 1);
+        let GitHubTemplateSegment::Expression(expression) = &template.segments[1] else {
+            panic!("expected an expression segment");
+        };
+        assert_eq!(
+            expression.range.slice(source),
+            "${{  !failure() || github.ref == 'main'  }}"
+        );
+        assert_eq!(
+            expression.body_range.slice(source),
+            "!failure() || github.ref == 'main'"
+        );
+        let GitHubExpressionParse::Parsed(root) = &expression.parsed else {
+            panic!("expected a parsed expression");
+        };
+        assert_eq!(root.range, expression.body_range);
+        let GitHubExpressionKind::Binary { operator_range, .. } = &root.kind else {
+            panic!("expected a binary expression");
+        };
+        assert_eq!(operator_range.slice(source), "||");
+        assert_eq!(projection.source(), "echo ${1} done");
+    }
+
+    #[test]
+    fn projection_mapping_is_total_for_unicode_and_multiline_expressions() {
+        let source = "α${{\n  github.ref\n}}\nβ";
+        let (_template, projection, _expressions) = parse_github_actions_template(source);
+
+        assert_eq!(projection.source(), "α${1}\nβ");
+        assert_eq!(
+            projection.projection_to_template.len(),
+            projection.source().len() + 1
+        );
+        assert!(
+            projection
+                .projection_to_template
+                .windows(2)
+                .all(|pair| pair[0] <= pair[1])
+        );
+        let projected_beta = projection.source().find('β').unwrap();
+        assert_eq!(
+            projection.template_offset(projected_beta),
+            source.find('β').unwrap()
+        );
+        let projected_expression = projection.source().find("${1}").unwrap();
+        assert_eq!(
+            projection.expression_segment_at(projected_expression),
+            Some(1)
+        );
+        assert_eq!(projection.expression_segment_at(projected_beta), None);
+        assert_eq!(
+            projection.template_offset(projection.source().len()),
+            source.len()
         );
     }
 

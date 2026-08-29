@@ -2,11 +2,17 @@
 
 ## Status
 
-Proposed
+Partially Implemented — extraction, the source-preserving composite AST, expression parsing, and
+projection-based diagnostic remapping exist; GitHub-specific rule plumbing remains future work.
 
 ## Summary
 
-Adds support for linting shell scripts embedded inside non-shell files, starting with GitHub Actions workflow files (`.github/workflows/*.yml`, `action.yml`). The design introduces an `Extractor` trait that takes a file's source and yields a list of embedded shell snippets with offset, dialect, and metadata. The check pipeline gains an extraction phase between file discovery and parsing: discovered YAML files are probed for GHA structure, `run:` blocks are extracted with shell dialect resolved from the `shell:` / `defaults.run.shell` hierarchy, `${{ }}` expressions are replaced with synthetic placeholder variables, and each snippet is linted independently with line numbers mapped back to the host YAML file.
+Adds support for linting shell scripts embedded inside non-shell files, starting with GitHub Actions workflow files (`.github/workflows/*.yml`, `action.yml`). The design introduces an `Extractor` trait that takes a file's source and yields a list of embedded shell snippets with offset, dialect, and metadata. The check pipeline gains an extraction phase between file discovery and parsing: discovered YAML files are probed for GHA structure, `run:` blocks are extracted with shell dialect resolved from the `shell:` / `defaults.run.shell` hierarchy, and each snippet is represented as a source-preserving template AST whose segments alternate between literal shell source and parsed GitHub Actions expressions.
+
+Shell analysis uses a private, deterministic projection of the template into valid shell. The
+projection is explicitly an analysis view rather than the user-facing AST: expression nodes retain
+their original source ranges and parsed structure, projection offsets map back to decoded template
+offsets, and the projection does not introduce named shell bindings or references.
 
 Other embedded formats (GitLab CI, Dockerfiles, Justfiles) are explicitly out of scope but the trait boundary makes them addable without touching the core pipeline.
 
@@ -27,8 +33,12 @@ A new `shuck-extract` crate provides the core abstraction:
 ```rust
 /// A shell snippet extracted from a host file.
 pub struct EmbeddedScript {
-    /// The shell source code, after placeholder substitution.
+    /// The decoded `run:` source exactly as authored after YAML scalar decoding.
     pub source: String,
+    /// Source-preserving literal/expression template tree over `source`.
+    pub template: GitHubTemplate,
+    /// Private shell projection used only to run the shell parser and existing analyses.
+    shell_projection: ShellProjection,
     /// Byte offset of the snippet's first character within the host file.
     pub host_offset: usize,
     /// 1-based line number of the snippet's first character in the host file.
@@ -41,9 +51,8 @@ pub struct EmbeddedScript {
     pub label: String,
     /// Which embedded format this snippet was extracted from.
     pub format: EmbeddedFormat,
-    /// Mapping from placeholder variables back to the original template expressions.
-    /// Empty when the format has no template expression syntax.
-    pub placeholders: Vec<PlaceholderMapping>,
+    /// Platform facts associated with expression segments.
+    pub expressions: Vec<EmbeddedExpression>,
     /// Shell flags implied by the host environment (e.g., GHA's default bash template
     /// sets errexit and pipefail). Rules use this to know what error-handling behavior
     /// is active even when the script doesn't set it explicitly.
@@ -65,21 +74,39 @@ pub enum EmbeddedFormat {
     // Future: GitLabCi, Dockerfile, Justfile, ...
 }
 
-/// Records the relationship between a synthetic placeholder variable and
-/// the original template expression it replaced.
-pub struct PlaceholderMapping {
-    /// The placeholder variable name, e.g. "_SHUCK_GHA_1".
-    pub name: String,
-    /// The full original expression including delimiters, e.g. "${{ github.ref }}".
-    pub original: String,
-    /// The inner expression text, e.g. "github.ref".
-    pub expression: String,
+/// Platform metadata for one expression segment in `EmbeddedScript::template`.
+pub struct EmbeddedExpression {
+    /// Index of the corresponding `GitHubTemplateSegment::Expression`.
+    pub segment_index: usize,
     /// Taint classification for security rules.
     pub taint: ExpressionTaint,
-    /// Byte range of the `$_SHUCK_GHA_N` reference in the substituted source.
-    pub substituted_span: Range<usize>,
-    /// Byte range of the original `${{ ... }}` in the host file.
-    pub host_span: Range<usize>,
+}
+
+pub struct GitHubTemplate {
+    /// Alternating literal and expression segments covering the complete decoded source.
+    pub segments: Vec<GitHubTemplateSegment>,
+    pub range: TextRange,
+}
+
+pub enum GitHubTemplateSegment {
+    Literal { range: TextRange },
+    Expression(GitHubTemplateExpression),
+}
+
+pub struct GitHubTemplateExpression {
+    /// Full `${{ ... }}` range in the decoded template source.
+    pub range: TextRange,
+    /// Trimmed inner expression range in the decoded template source.
+    pub body_range: TextRange,
+    /// Owned parsed expression tree, or a recoverable expression-local diagnostic.
+    pub parsed: GitHubExpressionParse,
+}
+
+/// Private shell-parser input plus a total mapping from projection byte boundaries back to
+/// decoded template byte boundaries.
+struct ShellProjection {
+    source: String,
+    projection_to_template: Vec<usize>,
 }
 
 /// Classifies how trustworthy a template expression's value is at runtime.
@@ -188,21 +215,46 @@ When the `shell:` value is a custom template (contains `{0}`), the extractor par
 
 The `ImplicitShellFlags` are attached to each `EmbeddedScript` so that error-handling rules can reason about what's active without the script explicitly containing `set -e` or `set -o pipefail`.
 
-#### `${{ }}` Placeholder Substitution
+#### GitHub Template AST
 
-GitHub Actions interpolates `${{ expression }}` syntax into `run:` blocks before the shell sees them. These are not valid shell syntax and would cause parse errors.
+GitHub Actions interpolates `${{ expression }}` syntax into `run:` blocks before the shell sees
+them. The decoded scalar is therefore parsed first as a template. `GitHubTemplate::segments` covers
+the entire decoded source without gaps: literal ranges point back into the original shell text and
+expression segments retain the outer delimiter range, the trimmed body range, and an owned
+GitHub-expression AST.
 
-The extractor replaces each `${{ ... }}` occurrence with a synthetic environment variable reference: `$_SHUCK_GHA_1`, `$_SHUCK_GHA_2`, etc. (monotonically increasing per snippet). This approach:
+Expression bodies are parsed with the `github-actions-expressions` crate and lowered immediately
+into owned `shuck-ast` nodes. The dependency's borrowed nodes never escape the adapter. Every owned
+node has a decoded-template byte range. The adapter reconstructs grouping and operator ranges that
+the dependency normalizes away when enough source information is available. If an expression is
+invalid, the segment contains `GitHubExpressionParse::Invalid`; template scanning and later shell
+analysis continue.
 
-- Produces valid shell syntax — no parse errors from template expressions
-- Preserves expansion semantics — quoting rules (S001/SC2086) still fire on `echo $_SHUCK_GHA_1` just as they would on `echo ${{ github.ref }}`
-- Is deterministic — same input always produces same placeholders
+The expression terminator scanner is quote-aware. In particular, `}}` inside a single-quoted
+GitHub expression string does not end the expression, and doubled single quotes are treated as an
+escaped quote.
 
-Nested expressions like `${{ format('refs/heads/{0}', matrix.branch) }}` are handled by matching the outermost `${{` ... `}}` pair. The regex pattern is `\$\{\{.*?\}\}` applied non-greedily.
+#### Private Shell Projection
 
-#### Placeholder Provenance
+The shell parser still needs valid shell input, but its projection is not the public syntax model.
+Each expression segment is replaced with a deterministic parameter expansion solely for shell
+analysis. The current projection uses `${1}` for every expression; expression identity lives in
+the projection span table rather than in a fabricated variable name. `ShellProjection` records a
+total byte-boundary mapping back to the decoded template, so diagnostics remain correct when
+expression and projection lengths differ, include non-ASCII text, or cross lines.
 
-Each substitution is recorded in a `PlaceholderMapping` that preserves the original expression text, its span in both the substituted source and the host file, and a taint classification. This metadata enables GHA-specific security and correctness rules (see [GHA-Specific Rules](#gha-specific-rules)) without requiring those rules to re-parse the YAML.
+The public `EmbeddedScript::source` remains the original decoded template. Consumers request the
+analysis view through a narrow method and must use the projection map when reporting positions.
+Because the projection introduces no named variable, linter facts cannot mistake a synthetic
+GitHub-expression identifier for a real shell binding or reference. GitHub-specific rules consume
+the authoritative expression segments and their platform metadata instead.
+
+#### Expression Provenance
+
+Each expression segment is associated with `EmbeddedExpression` platform metadata. Syntax and
+source ranges live in `GitHubTemplate`; host-specific policy such as taint remains in
+`shuck-extract`. This separation lets parser, formatter, and editor consumers understand expression
+syntax without depending on GitHub security policy.
 
 #### Taint Classification
 
@@ -245,7 +297,7 @@ All styles are handled by the YAML parser library, which resolves the scalar val
 
 #### Composite Actions
 
-For `action.yml` / `action.yaml` files with `runs.using: composite`, the extractor walks `runs.steps[*]` using the same logic as workflow steps. The only difference is the path into the YAML structure; the shell resolution, placeholder substitution, and extraction are identical (composite action steps also support `shell:` and default to the runner's default shell).
+For `action.yml` / `action.yaml` files with `runs.using: composite`, the extractor walks `runs.steps[*]` using the same logic as workflow steps. The only difference is the path into the YAML structure; shell resolution, template parsing, projection, and extraction are identical (composite action steps also support `shell:` and default to the runner's default shell).
 
 #### YAML Parsing Library
 
@@ -269,7 +321,9 @@ The implementation should choose whichever provides the most reliable span infor
 | "Is this source actually GHA?" (`probe`) | `shuck-extract` (via `Extractor` trait) |
 | YAML parsing and span tracking | `shuck-extract` |
 | Shell dialect resolution | `shuck-extract` |
-| `${{ }}` placeholder substitution | `shuck-extract` |
+| GitHub template segmentation and expression parsing | `shuck-extract` |
+| Owned expression and template AST types | `shuck-ast` |
+| Private shell projection and projection-to-template map | `shuck-extract` |
 | Offset computation for remapping | `shuck-extract` |
 
 `shuck-extract` exposes a registry of extractors and a convenience function:
@@ -312,9 +366,9 @@ Discovery does **not** read file contents — the `matches()` check is path-only
 1. Read the file source
 2. Call `shuck_extract::extract_all(path, source)` — this probes and extracts in one call
 3. For each `EmbeddedScript` with a supported dialect:
-   a. Parse the extracted `source` as a standalone shell script
+   a. Parse the private shell projection as a standalone shell script
    b. Run the linter with embedded-snippet metadata available to the checker (see below)
-   c. Remap diagnostic line/column numbers by adding `host_start_line` and `host_start_column` offsets
+   c. Map diagnostic positions through the projection-to-template map and decoded-YAML host map
 4. Collect all diagnostics under the host file's path
 
 Each `run:` block is parsed and linted independently — there is no cross-step analysis.
@@ -351,7 +405,10 @@ When a snippet originates from an extractor, the checker receives metadata from 
 1. Rules that are inherently file-level (shebang checks, file-level directive checks) skip silently for extracted snippets.
 2. Format-specific rules (see [GHA-Specific Rules](#gha-specific-rules)) check the embedded format to enable GHA-aware analysis.
 
-The `EmbeddedScript` struct's `placeholders` and `implicit_flags` are also made available to rules through the `Checker` — either via a new `EmbeddedContext` field on `Checker` or by extending `LinterFacts` with an `embedded` section. The exact plumbing is an implementation detail, but the contract is: any rule can query placeholder provenance, taint classification, and implicit shell flags for the current snippet.
+The `EmbeddedScript` struct's template expressions and `implicit_flags` are also made available to
+rules through linter facts. The contract is: rules can query expression syntax, source provenance,
+taint classification, and implicit shell flags for the current snippet without rediscovering
+structure from projection text.
 
 #### Caching
 
@@ -535,11 +592,28 @@ Simpler, no dependency on a YAML parser. Rejected because YAML block scalar sema
 
 ### Inline extraction into shuck-linter instead of a separate crate
 
-Would avoid the new crate, but the extraction logic (YAML parsing, shell dialect resolution, placeholder substitution) has no overlap with the linter's AST-based rule checking. A separate crate keeps the linter focused on shell analysis and makes it possible to test extraction independently.
+Would avoid the new crate, but the extraction logic (YAML parsing, shell dialect resolution, template parsing, and projection) has no overlap with the linter's AST-based rule checking. A separate crate keeps the linter focused on shell analysis and makes it possible to test extraction independently.
 
-### Skip `${{ }}` blocks entirely instead of replacing with placeholders
+### Skip `${{ }}` blocks entirely instead of building a template AST
 
-Simpler, but loses the ability to lint quoting around GHA expressions. `echo ${{ secrets.TOKEN }}` is a real quoting bug that placeholder substitution catches (S001 would fire on the unquoted expansion). Skipping would produce false negatives on one of the most common GHA mistakes.
+Simpler, but loses expression provenance, context analysis, and the ability to reason about where a
+runtime value enters shell source.
+
+### Expose synthetic shell variables as the expression AST
+
+The first implementation represented each expression as `${_SHUCK_GHA_N}` and exposed the
+substitution through `PlaceholderMapping`. This kept the shell parser running but leaked an
+implementation detail into semantic analysis, created false shell bindings, and required
+length-delta remapping. The projection remains useful internally, but it is rejected as the public
+AST or provenance model.
+
+### Parse expressions directly inside the shell lexer
+
+This would avoid a projection, but GitHub evaluates expressions before invoking the shell, so an
+expression can produce whitespace, operators, quotes, or complete shell fragments. Treating the
+syntax as a Bash expansion would promise a single shell-tree interpretation that does not exist.
+The composite model instead preserves the authoritative template and labels the shell tree as a
+projection.
 
 ### Correlate variables across steps
 
@@ -547,7 +621,7 @@ Would catch cases like a variable exported in step 1 and used in step 2. Rejecte
 
 ### Classify taint at rule time instead of extraction time
 
-The taint classification could live in the rule rather than the extractor — the rule would inspect placeholder expressions and classify them on the fly. Rejected because (1) the taint table is a property of the GHA platform, not a lint policy, so it belongs with the extractor; (2) multiple rules need taint (injection, secrets-in-args, GITHUB_ENV writes), so classifying once avoids duplication and inconsistency; (3) keeping taint in `PlaceholderMapping` makes it testable independently of the rule engine.
+The taint classification could live in the rule rather than the extractor — the rule would inspect expression segments and classify them on the fly. Rejected because (1) the taint table is a property of the GHA platform, not a lint policy, so it belongs with the extractor; (2) multiple rules need taint (injection, secrets-in-args, GITHUB_ENV writes), so classifying once avoids duplication and inconsistency; (3) keeping taint in `EmbeddedExpression` makes it testable independently of the rule engine.
 
 ### Default `embedded = false` (opt-in)
 
@@ -559,8 +633,15 @@ Safer rollout, but reduces the value of the feature — most users wouldn't know
 
 - **Extractor trait**: Test `matches()`, `probe()`, and `extract()` independently for the GHA extractor.
 - **Shell resolution**: Verify the three-level hierarchy (workflow → job → step) resolves correctly with all combinations of `shell:` and `runs-on:`.
-- **Placeholder substitution**: Confirm `${{ expr }}` is replaced with `$_SHUCK_GHA_N`, including nested braces and multi-line expressions.
-- **Placeholder provenance**: Verify each `PlaceholderMapping` records the correct original expression text, inner expression, and spans in both the substituted source and host file.
+- **Template segmentation**: Confirm literal and expression segments cover the decoded `run:`
+  source without gaps, including quoted `}}`, adjacent expressions, non-ASCII strings, and
+  multi-line expressions.
+- **Expression AST**: Verify literals, calls, contexts, filters, indices, unary/binary operators,
+  grouping, exact decoded-source ranges, and recoverable invalid nodes.
+- **Shell projection**: Verify projection parsing succeeds and every projection byte boundary maps
+  monotonically back to a decoded-template boundary.
+- **Projection isolation**: Verify the analysis projection introduces no named shell bindings or
+  references and expression identity remains in the projection span table.
 - **Taint classification**: Test that known attacker-controlled expressions (`github.event.pull_request.title`, `github.head_ref`, etc.) are classified as `UserControlled`, secrets as `Secret`, repo-scoped values as `Trusted`, and unrecognized expressions as `Unknown`.
 - **Implicit shell flags**: Verify that the default bash template produces `errexit: true, pipefail: true`, `shell: sh` produces `errexit: true, pipefail: false`, and custom templates like `bash {0}` produce `errexit: false, pipefail: false`.
 - **Block scalar handling**: Test literal (`|`), folded (`>`), strip (`|-`), and flow scalar extraction with correct offset computation.
