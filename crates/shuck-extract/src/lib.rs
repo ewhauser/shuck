@@ -100,11 +100,6 @@ impl EmbeddedScript {
     pub fn source_offset_for_analysis_offset(&self, offset: usize) -> usize {
         self.shell_projection.template_offset(offset)
     }
-
-    /// Return the template segment represented at one shell-projection byte offset.
-    pub fn expression_segment_for_analysis_offset(&self, offset: usize) -> Option<usize> {
-        self.shell_projection.expression_segment_at(offset)
-    }
 }
 
 /// Shell dialect inferred for an extracted snippet.
@@ -188,8 +183,8 @@ impl ShellProjection {
             .unwrap_or_else(|| self.projection_to_template.last().copied().unwrap_or(0))
     }
 
-    /// Return the expression-segment index covering one projection byte offset.
-    pub fn expression_segment_at(&self, projection_offset: usize) -> Option<usize> {
+    #[cfg(test)]
+    fn expression_segment_at(&self, projection_offset: usize) -> Option<usize> {
         self.expression_spans
             .iter()
             .find(|expression| expression.range.contains(&projection_offset))

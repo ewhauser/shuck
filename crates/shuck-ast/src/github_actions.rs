@@ -23,16 +23,6 @@ pub enum GitHubTemplateSegment {
     Expression(GitHubTemplateExpression),
 }
 
-impl GitHubTemplateSegment {
-    /// Return the segment's byte range in the decoded template source.
-    pub fn range(&self) -> TextRange {
-        match self {
-            Self::Literal { range } => *range,
-            Self::Expression(expression) => expression.range,
-        }
-    }
-}
-
 /// One parsed `${{ ... }}` segment in a GitHub Actions template.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitHubTemplateExpression {
@@ -54,22 +44,6 @@ pub enum GitHubExpressionParse {
 }
 
 impl GitHubExpressionParse {
-    /// Return the parsed root node, if parsing succeeded.
-    pub fn as_node(&self) -> Option<&GitHubExpressionNode> {
-        match self {
-            Self::Parsed(node) => Some(node),
-            Self::Invalid(_) => None,
-        }
-    }
-
-    /// Return the parse diagnostic, if parsing failed.
-    pub fn as_diagnostic(&self) -> Option<&GitHubExpressionDiagnostic> {
-        match self {
-            Self::Parsed(_) => None,
-            Self::Invalid(diagnostic) => Some(diagnostic),
-        }
-    }
-
     /// Shift every stored range by `base` bytes.
     pub fn offset_by(&mut self, base: TextSize) {
         match self {
