@@ -27,10 +27,13 @@ tikv-jemallocator = "0.6"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+lsp-server = { workspace = true }
+lsp-types = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 shuck-cli = { workspace = true }
 shuck-indexer = { workspace = true }
+shuck-server = { workspace = true }
 shuck-semantic = { workspace = true }
 similar = { workspace = true }
 tempfile = { workspace = true }
@@ -70,6 +73,10 @@ harness = false
 
 [[bench]]
 name = "editor"
+harness = false
+
+[[bench]]
+name = "lsp"
 harness = false
 
 [[bench]]
