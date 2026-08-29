@@ -697,6 +697,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 
 [[package]]
+name = "github-actions-expressions"
+version = "1.30.0-rc1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ff45dd95f6df84a4dea60ced554d5b7de0d6f702696c2b4654670a10780dc8b"
+dependencies = [
+ "serde_json",
+ "subfeature",
+ "thiserror",
+]
+
+[[package]]
 name = "globset"
 version = "0.4.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1666,9 +1677,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.149"
+version = "1.0.151"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86"
+checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
 dependencies = [
  "itoa",
  "memchr",
@@ -1863,8 +1874,10 @@ name = "shuck-extract"
 version = "0.1.3"
 dependencies = [
  "anyhow",
+ "github-actions-expressions",
  "saphyr",
  "saphyr-parser",
+ "shuck-ast",
 ]
 
 [[package]]
@@ -2038,6 +2051,17 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "subfeature"
+version = "1.30.0-rc1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d802024ba43958242d4e1f35ace368ba44522b6084342203d3a9f1a4dc516894"
+dependencies = [
+ "memchr",
+ "regex",
+ "serde",
+]
 
 [[package]]
 name = "syn"

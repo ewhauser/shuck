@@ -54,7 +54,7 @@ pub(super) fn analyze_embedded_file(
             continue;
         };
 
-        let snippet_source: Arc<str> = Arc::from(embedded.source.clone());
+        let snippet_source: Arc<str> = Arc::from(embedded.analysis_source());
         let parse_result = Parser::with_dialect(&snippet_source, parse_dialect).parse();
         let snippet_parse_failed = parse_result.is_err();
         parse_failed |= snippet_parse_failed;
@@ -212,7 +212,11 @@ pub(super) fn remap_embedded_position(
     line: usize,
     column: usize,
 ) -> DisplayPosition {
-    let snippet_line = line.max(1);
+    let analysis_offset =
+        byte_offset_for_line_column(embedded.analysis_source(), line.max(1), column.max(1));
+    let source_offset = embedded.source_offset_for_analysis_offset(analysis_offset);
+    let (snippet_line, decoded_column) =
+        source_line_column_for_offset(&embedded.source, source_offset);
     let host_line_start = embedded
         .host_line_starts
         .get(snippet_line.saturating_sub(1))
@@ -221,53 +225,7 @@ pub(super) fn remap_embedded_position(
             line: embedded.host_start_line + snippet_line.saturating_sub(1),
             column: embedded.host_start_column,
         });
-    remap_embedded_column(embedded, snippet_line, host_line_start, column)
-}
-
-fn remap_embedded_column(
-    embedded: &EmbeddedScript,
-    snippet_line: usize,
-    host_line_start: HostLineStart,
-    snippet_column: usize,
-) -> DisplayPosition {
-    let decoded_column = remap_placeholder_column(embedded, snippet_line, snippet_column);
     remap_decoded_yaml_column(embedded, snippet_line, host_line_start, decoded_column)
-}
-
-fn remap_placeholder_column(
-    embedded: &EmbeddedScript,
-    snippet_line: usize,
-    snippet_column: usize,
-) -> usize {
-    let local_column = snippet_column.saturating_sub(1);
-    let mut cumulative_delta = 0isize;
-
-    for placeholder in &embedded.placeholders {
-        let (placeholder_line, placeholder_column) =
-            source_line_column_for_offset(&embedded.source, placeholder.substituted_span.start);
-        if placeholder_line != snippet_line {
-            continue;
-        }
-
-        let substituted_start = placeholder_column.saturating_sub(1);
-        let substituted_len = span_char_len(&embedded.source, &placeholder.substituted_span);
-        let substituted_end = substituted_start + substituted_len;
-        let host_len = placeholder.original.chars().count();
-
-        if local_column >= substituted_end {
-            cumulative_delta += host_len as isize - substituted_len as isize;
-            continue;
-        }
-
-        if local_column >= substituted_start {
-            let decoded_start = substituted_start as isize + cumulative_delta;
-            let relative = local_column - substituted_start;
-            let mapped = decoded_start + relative.min(host_len.saturating_sub(1)) as isize;
-            return mapped.max(0) as usize + 1;
-        }
-    }
-
-    (local_column as isize + cumulative_delta).max(0) as usize + 1
 }
 
 fn remap_decoded_yaml_column(
@@ -316,10 +274,23 @@ fn source_line_column_for_offset(source: &str, offset: usize) -> (usize, usize) 
     (line, column)
 }
 
-fn span_char_len(source: &str, span: &std::ops::Range<usize>) -> usize {
-    source
-        .get(span.clone())
-        .map_or(0, |value| value.chars().count())
+fn byte_offset_for_line_column(source: &str, target_line: usize, target_column: usize) -> usize {
+    let mut line = 1usize;
+    let mut column = 1usize;
+
+    for (offset, ch) in source.char_indices() {
+        if line == target_line && column == target_column {
+            return offset;
+        }
+        if ch == '\n' {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+    }
+
+    source.len()
 }
 
 fn prefixed_embedded_message(embedded: &EmbeddedScript, message: &str) -> String {
@@ -338,6 +309,7 @@ mod tests {
     use notify::event::{CreateKind, EventAttributes, ModifyKind, RemoveKind, RenameMode};
     use shuck_extract::{
         EmbeddedFormat, EmbeddedScript, ExtractedDialect, HostLineStart, ImplicitShellFlags,
+        parse_github_actions_template,
     };
     use shuck_linter::{
         Category, LinterSettings, Rule, RuleSelector, RuleSet, ShellCheckCodeMap, ShellDialect,
@@ -358,6 +330,25 @@ mod tests {
     use crate::commands::check::cache::CachedDisplayedDiagnosticKind;
     use crate::commands::check::display::display_lint_diagnostics;
     use crate::commands::check::embedded::remap_embedded_position;
+
+    fn test_embedded_script(source: &str) -> EmbeddedScript {
+        let (template, shell_projection, expressions) = parse_github_actions_template(source);
+        EmbeddedScript::from_parts(
+            source.to_owned(),
+            template,
+            shell_projection,
+            0,
+            1,
+            1,
+            vec![HostLineStart { line: 1, column: 1 }],
+            Vec::new(),
+            ExtractedDialect::Bash,
+            "jobs.test.steps[0].run".to_owned(),
+            EmbeddedFormat::GitHubActions,
+            expressions,
+            ImplicitShellFlags::default(),
+        )
+    }
     use crate::commands::check::run::run_check_with_cwd;
     use crate::commands::check::settings::{
         CompiledPerFileShellList, PerFileShell, parse_rule_selectors,
@@ -457,23 +448,14 @@ jobs:
 
     #[test]
     fn remaps_embedded_columns_on_later_lines() {
-        let embedded = EmbeddedScript {
-            source: "echo hi\necho bye\n".to_owned(),
-            host_offset: 0,
-            host_start_line: 7,
-            host_start_column: 9,
-            host_line_starts: vec![
-                HostLineStart { line: 7, column: 9 },
-                HostLineStart { line: 8, column: 9 },
-                HostLineStart { line: 9, column: 9 },
-            ],
-            host_column_mappings: Vec::new(),
-            dialect: ExtractedDialect::Bash,
-            label: "jobs.test.steps[0].run".to_owned(),
-            format: EmbeddedFormat::GitHubActions,
-            placeholders: Vec::new(),
-            implicit_flags: ImplicitShellFlags::default(),
-        };
+        let mut embedded = test_embedded_script("echo hi\necho bye\n");
+        embedded.host_start_line = 7;
+        embedded.host_start_column = 9;
+        embedded.host_line_starts = vec![
+            HostLineStart { line: 7, column: 9 },
+            HostLineStart { line: 8, column: 9 },
+            HostLineStart { line: 9, column: 9 },
+        ];
 
         let position = remap_embedded_position(&embedded, 2, 5);
         assert_eq!(position.line, 8);
@@ -481,89 +463,69 @@ jobs:
     }
 
     #[test]
-    fn remaps_columns_after_placeholder_expansion_on_the_same_line() {
-        let embedded = EmbeddedScript {
-            source: "echo ${_SHUCK_GHA_1}$FOO\n".to_owned(),
-            host_offset: 0,
-            host_start_line: 7,
-            host_start_column: 9,
-            host_line_starts: vec![HostLineStart { line: 7, column: 9 }],
-            host_column_mappings: Vec::new(),
-            dialect: ExtractedDialect::Bash,
-            label: "jobs.test.steps[0].run".to_owned(),
-            format: EmbeddedFormat::GitHubActions,
-            placeholders: vec![shuck_extract::PlaceholderMapping {
-                name: "_SHUCK_GHA_1".to_owned(),
-                original: "${{ github.ref }}".to_owned(),
-                expression: "github.ref".to_owned(),
-                taint: shuck_extract::ExpressionTaint::Trusted,
-                substituted_span: 5..20,
-                host_span: 5..22,
-            }],
-            implicit_flags: ImplicitShellFlags::default(),
-        };
+    fn remaps_columns_after_template_expansion_on_the_same_line() {
+        let mut embedded = test_embedded_script("echo ${{ github.ref }}$FOO\n");
+        embedded.host_start_line = 7;
+        embedded.host_start_column = 9;
+        embedded.host_line_starts = vec![HostLineStart { line: 7, column: 9 }];
 
-        let position = remap_embedded_position(&embedded, 1, 21);
+        let position = remap_embedded_position(&embedded, 1, 10);
         assert_eq!(position.line, 7);
         assert_eq!(position.column, 31);
     }
 
     #[test]
-    fn remaps_columns_after_non_ascii_placeholder_expansion() {
-        let embedded = EmbeddedScript {
-            source: "echo ${_SHUCK_GHA_1}$FOO\n".to_owned(),
-            host_offset: 0,
-            host_start_line: 7,
-            host_start_column: 9,
-            host_line_starts: vec![HostLineStart { line: 7, column: 9 }],
-            host_column_mappings: Vec::new(),
-            dialect: ExtractedDialect::Bash,
-            label: "jobs.test.steps[0].run".to_owned(),
-            format: EmbeddedFormat::GitHubActions,
-            placeholders: vec![shuck_extract::PlaceholderMapping {
-                name: "_SHUCK_GHA_1".to_owned(),
-                original: "${{ github.refé }}".to_owned(),
-                expression: "github.refé".to_owned(),
-                taint: shuck_extract::ExpressionTaint::Trusted,
-                substituted_span: 5..20,
-                host_span: 5..24,
-            }],
-            implicit_flags: ImplicitShellFlags::default(),
-        };
+    fn remaps_columns_after_non_ascii_template_expansion() {
+        let mut embedded = test_embedded_script("echo ${{ github.refé }}$FOO\n");
+        embedded.host_start_line = 7;
+        embedded.host_start_column = 9;
+        embedded.host_line_starts = vec![HostLineStart { line: 7, column: 9 }];
 
-        let position = remap_embedded_position(&embedded, 1, 21);
+        let position = remap_embedded_position(&embedded, 1, 10);
         assert_eq!(position.line, 7);
         assert_eq!(position.column, 32);
     }
 
     #[test]
+    fn remaps_positions_after_multiline_template_expressions() {
+        let mut embedded = test_embedded_script("echo ${{\n  github.ref\n}}; unused=1\n");
+        embedded.host_start_line = 7;
+        embedded.host_start_column = 9;
+        embedded.host_line_starts = vec![
+            HostLineStart { line: 7, column: 9 },
+            HostLineStart { line: 8, column: 9 },
+            HostLineStart { line: 9, column: 9 },
+            HostLineStart {
+                line: 10,
+                column: 9,
+            },
+        ];
+
+        assert_eq!(embedded.analysis_source(), "echo ${1}; unused=1\n");
+        let position = remap_embedded_position(&embedded, 1, 12);
+        assert_eq!(position.line, 9);
+        assert_eq!(position.column, 13);
+    }
+
+    #[test]
     fn remaps_positions_for_escaped_yaml_newlines() {
-        let embedded = EmbeddedScript {
-            source: "echo hi\nif true\n".to_owned(),
-            host_offset: 0,
-            host_start_line: 7,
-            host_start_column: 15,
-            host_line_starts: vec![
-                HostLineStart {
-                    line: 7,
-                    column: 15,
-                },
-                HostLineStart {
-                    line: 7,
-                    column: 24,
-                },
-                HostLineStart {
-                    line: 7,
-                    column: 33,
-                },
-            ],
-            host_column_mappings: Vec::new(),
-            dialect: ExtractedDialect::Bash,
-            label: "jobs.test.steps[0].run".to_owned(),
-            format: EmbeddedFormat::GitHubActions,
-            placeholders: Vec::new(),
-            implicit_flags: ImplicitShellFlags::default(),
-        };
+        let mut embedded = test_embedded_script("echo hi\nif true\n");
+        embedded.host_start_line = 7;
+        embedded.host_start_column = 15;
+        embedded.host_line_starts = vec![
+            HostLineStart {
+                line: 7,
+                column: 15,
+            },
+            HostLineStart {
+                line: 7,
+                column: 24,
+            },
+            HostLineStart {
+                line: 7,
+                column: 33,
+            },
+        ];
 
         let position = remap_embedded_position(&embedded, 2, 1);
         assert_eq!(position.line, 7);
@@ -572,27 +534,19 @@ jobs:
 
     #[test]
     fn remaps_columns_after_non_newline_yaml_escapes() {
-        let embedded = EmbeddedScript {
-            source: "echo\tif true\n".to_owned(),
-            host_offset: 0,
-            host_start_line: 7,
-            host_start_column: 15,
-            host_line_starts: vec![HostLineStart {
-                line: 7,
-                column: 15,
-            }],
-            host_column_mappings: vec![shuck_extract::HostColumnMapping {
-                line: 1,
-                column: 6,
-                host_line: 7,
-                host_column: 21,
-            }],
-            dialect: ExtractedDialect::Bash,
-            label: "jobs.test.steps[0].run".to_owned(),
-            format: EmbeddedFormat::GitHubActions,
-            placeholders: Vec::new(),
-            implicit_flags: ImplicitShellFlags::default(),
-        };
+        let mut embedded = test_embedded_script("echo\tif true\n");
+        embedded.host_start_line = 7;
+        embedded.host_start_column = 15;
+        embedded.host_line_starts = vec![HostLineStart {
+            line: 7,
+            column: 15,
+        }];
+        embedded.host_column_mappings = vec![shuck_extract::HostColumnMapping {
+            line: 1,
+            column: 6,
+            host_line: 7,
+            host_column: 21,
+        }];
 
         let position = remap_embedded_position(&embedded, 1, 6);
         assert_eq!(position.line, 7);
@@ -601,27 +555,19 @@ jobs:
 
     #[test]
     fn remaps_columns_after_folded_double_quoted_yaml_newlines() {
-        let embedded = EmbeddedScript {
-            source: "echo ok ; unused=1\n".to_owned(),
-            host_offset: 0,
-            host_start_line: 6,
-            host_start_column: 15,
-            host_line_starts: vec![HostLineStart {
-                line: 6,
-                column: 15,
-            }],
-            host_column_mappings: vec![shuck_extract::HostColumnMapping {
-                line: 1,
-                column: 9,
-                host_line: 7,
-                host_column: 13,
-            }],
-            dialect: ExtractedDialect::Bash,
-            label: "jobs.test.steps[0].run".to_owned(),
-            format: EmbeddedFormat::GitHubActions,
-            placeholders: Vec::new(),
-            implicit_flags: ImplicitShellFlags::default(),
-        };
+        let mut embedded = test_embedded_script("echo ok ; unused=1\n");
+        embedded.host_start_line = 6;
+        embedded.host_start_column = 15;
+        embedded.host_line_starts = vec![HostLineStart {
+            line: 6,
+            column: 15,
+        }];
+        embedded.host_column_mappings = vec![shuck_extract::HostColumnMapping {
+            line: 1,
+            column: 9,
+            host_line: 7,
+            host_column: 13,
+        }];
 
         let position = remap_embedded_position(&embedded, 1, 9);
         assert_eq!(position.line, 7);
