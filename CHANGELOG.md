@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.0](https://github.com/ewhauser/shuck/compare/v0.1.3...v0.2.0) (2026-08-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* **api:** harden public analysis APIs ([#1268](https://github.com/ewhauser/shuck/issues/1268))
+
+### Features
+
+* **api:** harden public analysis APIs ([#1268](https://github.com/ewhauser/shuck/issues/1268)) ([e5f8733](https://github.com/ewhauser/shuck/commit/e5f87335f1c0058c89e4d6aa40658be6dfc4b879))
+* **parser:** add GitHub Actions expression AST support ([#1270](https://github.com/ewhauser/shuck/issues/1270)) ([00fd650](https://github.com/ewhauser/shuck/commit/00fd650ab2a8e7a5f21cf06a99f42849b32b7ab7))
+
+
+### Bug Fixes
+
+* **api:** expose transitive rustdoc types ([#1269](https://github.com/ewhauser/shuck/issues/1269)) ([6cb2bad](https://github.com/ewhauser/shuck/commit/6cb2bad80ae2e5e0f14e52b6ea44f6777734d139))
+
 ## [0.1.3](https://github.com/ewhauser/shuck/compare/v0.1.2...v0.1.3) (2026-08-23)
 
 
