@@ -10,3 +10,7 @@ Use `LinterSettings` constructors plus `AnalysisRequest` as the supported embedd
 and result fields remain readable, while non-exhaustive types protect routine field and rule
 growth. Match `Rule` with a fallback. The workspace documents the full boundary in
 [`docs/rust-api-compatibility.md`](../../docs/rust-api-compatibility.md).
+
+Analysis results expose types owned by `shuck-ast`, `shuck-indexer`, and `shuck-semantic`; add
+direct dependencies when traversing those APIs. Resolver traits and their companion types are
+re-exported from `shuck-linter` because they configure `AnalysisRequest` directly.

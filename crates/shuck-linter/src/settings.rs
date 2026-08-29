@@ -171,17 +171,23 @@ impl Default for S082RuleOptions {
 /// Which functions require a leading documentation comment for `S083`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum S083FunctionDocRequirement {
+    /// Require documentation for every function.
     All,
+    /// Require documentation only for exported functions.
     Exported,
+    /// Require documentation for functions at or above the configured line threshold.
     #[default]
     Long,
+    /// Require documentation only for functions that accept arguments.
     Parameterized,
 }
 
 /// Behavior overrides for `S083` missing function documentation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct S083RuleOptions {
+    /// Function classification that determines when documentation is required.
     pub require_for: S083FunctionDocRequirement,
+    /// Minimum function length used when [`S083FunctionDocRequirement::Long`] is selected.
     pub long_function_line_threshold: usize,
 }
 
@@ -197,9 +203,13 @@ impl Default for S083RuleOptions {
 /// Behavior overrides for `S084` function documentation content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct S084RuleOptions {
+    /// Whether documentation must describe referenced global variables.
     pub require_globals: bool,
+    /// Whether documentation must describe function arguments.
     pub require_arguments: bool,
+    /// Whether documentation must describe output written by the function.
     pub require_outputs: bool,
+    /// Whether documentation must describe the function's return status.
     pub require_returns: bool,
 }
 
@@ -320,21 +330,34 @@ impl Default for C161RuleOptions {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct LinterSettings {
+    /// Rules enabled for this analysis pass.
     pub rules: RuleSet,
+    /// Per-rule severity overrides applied to emitted diagnostics.
     pub severity_overrides: FxHashMap<Rule, Severity>,
+    /// Shell dialect used when the parser did not determine one more specifically.
     pub shell: ShellDialect,
+    /// Shell options assumed to be active before the analyzed source begins.
     pub ambient_shell_options: AmbientShellOptions,
+    /// Pre-resolved declarations and effects supplied by the host environment.
     pub ambient_contracts: Arc<ResolvedAmbientContracts>,
+    /// Canonicalized paths included in the current analysis scope, when bounded.
     pub analyzed_paths: Option<Arc<FxHashSet<PathBuf>>>,
+    /// Compiled path-specific rule exclusions.
     pub per_file_ignores: Arc<CompiledPerFileIgnoreList>,
+    /// Whether style diagnostics should name environment variables in their messages.
     pub report_environment_style_names: bool,
+    /// Whether semantic analysis should follow resolvable `source` commands.
     pub resolve_source_closure: bool,
+    /// Rule-specific behavior overrides.
     pub rule_options: LinterRuleOptions,
 }
 
+/// Shell options assumed to be enabled before the analyzed source runs.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AmbientShellOptions {
+    /// Assume `errexit` (`set -e`) behavior is active.
     pub errexit: bool,
+    /// Assume `pipefail` behavior is active.
     pub pipefail: bool,
 }
 
@@ -355,6 +378,7 @@ impl Default for LinterSettings {
     }
 }
 
+/// A glob pattern paired with the rules ignored for matching files.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PerFileIgnore {
     pattern: String,
@@ -362,6 +386,7 @@ pub struct PerFileIgnore {
 }
 
 impl PerFileIgnore {
+    /// Creates a path-specific rule exclusion.
     pub fn new(pattern: impl Into<String>, rules: RuleSet) -> Self {
         Self {
             pattern: pattern.into(),
@@ -369,15 +394,18 @@ impl PerFileIgnore {
         }
     }
 
+    /// Returns the configured glob pattern.
     pub fn pattern(&self) -> &str {
         &self.pattern
     }
 
+    /// Returns the rules excluded by this entry.
     pub const fn rules(&self) -> RuleSet {
         self.rules
     }
 }
 
+/// Compiled per-file rule exclusions resolved relative to one project root.
 #[derive(Debug, Clone, Default)]
 pub struct CompiledPerFileIgnoreList {
     project_root: PathBuf,
@@ -455,6 +483,7 @@ impl PartialEq for CompiledPerFileIgnore {
 impl Eq for CompiledPerFileIgnore {}
 
 impl LinterSettings {
+    /// Creates settings with only `rule` enabled.
     pub fn for_rule(rule: Rule) -> Self {
         Self {
             rules: RuleSet::from_iter([rule]),
@@ -462,6 +491,7 @@ impl LinterSettings {
         }
     }
 
+    /// Creates settings with only the supplied rules enabled.
     pub fn for_rules(rules: impl IntoIterator<Item = Rule>) -> Self {
         Self {
             rules: rules.into_iter().collect(),
@@ -469,6 +499,7 @@ impl LinterSettings {
         }
     }
 
+    /// Returns the default non-style rule set.
     pub fn default_rules() -> RuleSet {
         Rule::iter()
             .filter(|rule| !matches!(rule.category(), Category::Style))
@@ -476,6 +507,7 @@ impl LinterSettings {
             .subtract(&default_disabled_non_style_rules())
     }
 
+    /// Creates settings from ordered rule selectors and exclusions.
     pub fn from_selectors(select: &[RuleSelector], ignore: &[RuleSelector]) -> Self {
         let mut rules = RuleSet::EMPTY;
         for selector in select {
@@ -491,11 +523,13 @@ impl LinterSettings {
         }
     }
 
+    /// Sets the fallback shell dialect.
     pub fn with_shell(mut self, shell: ShellDialect) -> Self {
         self.shell = shell;
         self
     }
 
+    /// Sets shell options assumed to be active before analysis.
     pub fn with_ambient_shell_options(
         mut self,
         ambient_shell_options: AmbientShellOptions,
@@ -504,6 +538,7 @@ impl LinterSettings {
         self
     }
 
+    /// Canonicalizes paths where possible and collects them into a shared analysis set.
     pub fn analyzed_path_set(paths: impl IntoIterator<Item = PathBuf>) -> Arc<FxHashSet<PathBuf>> {
         Arc::new(
             paths
@@ -513,15 +548,18 @@ impl LinterSettings {
         )
     }
 
+    /// Sets a precomputed set of paths included in the analysis scope.
     pub fn with_analyzed_path_set(mut self, paths: Arc<FxHashSet<PathBuf>>) -> Self {
         self.analyzed_paths = Some(paths);
         self
     }
 
+    /// Canonicalizes and sets the paths included in the analysis scope.
     pub fn with_analyzed_paths(self, paths: impl IntoIterator<Item = PathBuf>) -> Self {
         self.with_analyzed_path_set(Self::analyzed_path_set(paths))
     }
 
+    /// Configures whether `C001` treats scalar indirect-expansion targets as uses.
     pub fn with_c001_treat_indirect_expansion_targets_as_used(mut self, value: bool) -> Self {
         self.rule_options
             .c001
@@ -529,81 +567,97 @@ impl LinterSettings {
         self
     }
 
+    /// Configures whether semantic analysis follows resolvable `source` commands.
     pub fn with_resolve_source_closure(mut self, value: bool) -> Self {
         self.resolve_source_closure = value;
         self
     }
 
+    /// Configures whether `C063` reports unreachable nested function definitions.
     pub fn with_c063_report_unreached_nested_definitions(mut self, value: bool) -> Self {
         self.rule_options.c063.report_unreached_nested_definitions = value;
         self
     }
 
+    /// Sets the maximum accepted line count for `S080`.
     pub fn with_s080_max_lines(mut self, value: usize) -> Self {
         self.rule_options.s080.max_lines = value;
         self
     }
 
+    /// Sets the line-counting mode for `S080`.
     pub fn with_s080_count(mut self, value: impl Into<String>) -> Self {
         self.rule_options.s080.count = value.into();
         self
     }
 
+    /// Configures whether `S081` ignores files containing only a shebang.
     pub fn with_s081_ignore_shebang_only_files(mut self, value: bool) -> Self {
         self.rule_options.s081.ignore_shebang_only_files = value;
         self
     }
 
+    /// Sets the comment markers checked by `S082`.
     pub fn with_s082_kinds(mut self, kinds: impl IntoIterator<Item = String>) -> Self {
         self.rule_options.s082.kinds = kinds.into_iter().collect();
         self
     }
 
+    /// Configures whether `S082` requires an owner after a comment marker.
     pub fn with_s082_require_owner(mut self, value: bool) -> Self {
         self.rule_options.s082.require_owner = value;
         self
     }
 
+    /// Configures whether `S082` requires explanatory text after a comment marker.
     pub fn with_s082_require_message(mut self, value: bool) -> Self {
         self.rule_options.s082.require_message = value;
         self
     }
 
+    /// Sets the function classification checked by `S083`.
     pub fn with_s083_require_for(mut self, value: S083FunctionDocRequirement) -> Self {
         self.rule_options.s083.require_for = value;
         self
     }
 
+    /// Sets the minimum function length checked by `S083` in long-function mode.
     pub fn with_s083_long_function_line_threshold(mut self, value: usize) -> Self {
         self.rule_options.s083.long_function_line_threshold = value;
         self
     }
 
+    /// Configures whether `S084` requires function output documentation.
     pub fn with_s084_require_outputs(mut self, value: bool) -> Self {
         self.rule_options.s084.require_outputs = value;
         self
     }
 
+    /// Configures whether `S084` requires return-status documentation.
     pub fn with_s084_require_returns(mut self, value: bool) -> Self {
         self.rule_options.s084.require_returns = value;
         self
     }
 
+    /// Sets the minimum script length checked by `S085`.
     pub fn with_s085_non_trivial_line_threshold(mut self, value: usize) -> Self {
         self.rule_options.s085.non_trivial_line_threshold = value;
         self
     }
 
+    /// Sets the minimum function count checked by `S085`.
     pub fn with_s085_non_trivial_function_count(mut self, value: usize) -> Self {
         self.rule_options.s085.non_trivial_function_count = value;
         self
     }
 
+    /// Sets the expected entrypoint function name for `S085`.
     pub fn with_s085_main_name(mut self, value: impl Into<String>) -> Self {
         self.rule_options.s085.main_name = value.into();
         self
     }
 
+    /// Sets the interpreter names accepted by `S078`.
     pub fn with_s078_allowed_shells(
         mut self,
         allowed_shells: impl IntoIterator<Item = impl Into<String>>,
@@ -613,21 +667,25 @@ impl LinterSettings {
         self
     }
 
+    /// Configures whether `C158` treats top-level readonly declarations as documented globals.
     pub fn with_c158_treat_readonly_as_documented(mut self, value: bool) -> Self {
         self.rule_options.c158.treat_readonly_as_documented = value;
         self
     }
 
+    /// Configures whether `C158` treats exported bindings as intentional globals.
     pub fn with_c158_treat_export_as_intentional(mut self, value: bool) -> Self {
         self.rule_options.c158.treat_export_as_intentional = value;
         self
     }
 
+    /// Configures whether `C159` permits self-referential default initializers.
     pub fn with_c159_allow_conditional_init(mut self, value: bool) -> Self {
         self.rule_options.c159.allow_conditional_init = value;
         self
     }
 
+    /// Sets the source-path anchors accepted by `C160`.
     pub fn with_c160_allowed_anchors<I, S>(mut self, anchors: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -637,11 +695,13 @@ impl LinterSettings {
         self
     }
 
+    /// Configures whether `C161` ignores calls after a `source` command.
     pub fn with_c161_ignore_after_source(mut self, value: bool) -> Self {
         self.rule_options.c161.ignore_after_source = value;
         self
     }
 
+    /// Sets the shebang invocation forms accepted by `S079`.
     pub fn with_s079_allowed_forms(
         mut self,
         allowed_forms: impl IntoIterator<Item = impl Into<String>>,
@@ -650,6 +710,7 @@ impl LinterSettings {
         self
     }
 
+    /// Sets exact shebang invocation strings accepted by `S079`.
     pub fn with_s079_allowed_paths(
         mut self,
         allowed_paths: impl IntoIterator<Item = impl Into<String>>,
@@ -658,6 +719,7 @@ impl LinterSettings {
         self
     }
 
+    /// Returns the rules ignored for `path` by the compiled per-file configuration.
     pub fn per_file_ignored_rules(&self, path: Option<&Path>) -> RuleSet {
         path.map_or(RuleSet::EMPTY, |path| {
             self.per_file_ignores.ignored_rules(path)
@@ -670,6 +732,7 @@ fn default_disabled_non_style_rules() -> RuleSet {
 }
 
 impl CompiledPerFileIgnoreList {
+    /// Compiles per-file exclusions for paths under `project_root`.
     pub fn resolve(
         project_root: impl Into<PathBuf>,
         per_file_ignores: impl IntoIterator<Item = PerFileIgnore>,
@@ -711,6 +774,7 @@ impl CompiledPerFileIgnoreList {
         })
     }
 
+    /// Returns the rules ignored for `path`.
     pub fn ignored_rules(&self, path: &Path) -> RuleSet {
         let relative_path = path.strip_prefix(&self.project_root).unwrap_or(path);
         let file_name = relative_path.file_name().or_else(|| path.file_name());

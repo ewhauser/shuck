@@ -5,13 +5,17 @@ use shuck_ast::{Span, TextRange, TextSize};
 
 use crate::Diagnostic;
 
+/// Confidence level required before an edit may be applied automatically.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Applicability {
+    /// Apply only edits designed to preserve program behavior.
     Safe,
+    /// Allow edits that may change behavior and require review.
     Unsafe,
 }
 
 impl Applicability {
+    /// Returns whether this threshold includes an edit with `applicability`.
     pub const fn includes(self, applicability: Self) -> bool {
         match self {
             Self::Safe => matches!(applicability, Self::Safe),
@@ -20,13 +24,18 @@ impl Applicability {
     }
 }
 
+/// Whether a rule can provide an autofix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FixAvailability {
+    /// The rule does not provide fixes.
     None,
+    /// The rule provides fixes for some diagnostics.
     Sometimes,
+    /// Every diagnostic from the rule has a fix.
     Always,
 }
 
+/// One source replacement within a [`Fix`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Edit {
     range: TextRange,
@@ -34,18 +43,22 @@ pub struct Edit {
 }
 
 impl Edit {
+    /// Creates an edit that deletes `span`.
     pub fn deletion(span: Span) -> Self {
         Self::deletion_at(span.start.offset(), span.end.offset())
     }
 
+    /// Creates an edit that deletes the byte range `start..end`.
     pub fn deletion_at(start: usize, end: usize) -> Self {
         Self::replacement_at(start, end, CompactString::default())
     }
 
+    /// Creates an edit that replaces `span` with `content`.
     pub fn replacement(content: impl Into<CompactString>, span: Span) -> Self {
         Self::replacement_at(span.start.offset(), span.end.offset(), content)
     }
 
+    /// Creates an edit that replaces byte range `start..end` with `content`.
     pub fn replacement_at(start: usize, end: usize, content: impl Into<CompactString>) -> Self {
         let (start, end) = ordered_offsets(start, end);
         Self {
@@ -54,14 +67,17 @@ impl Edit {
         }
     }
 
+    /// Creates an edit that inserts `content` at the byte offset.
     pub fn insertion(offset: usize, content: impl Into<CompactString>) -> Self {
         Self::replacement_at(offset, offset, content)
     }
 
+    /// Returns the source byte range replaced by this edit.
     pub const fn range(&self) -> TextRange {
         self.range
     }
 
+    /// Returns the replacement text.
     pub fn content(&self) -> &str {
         &self.content
     }
@@ -79,6 +95,7 @@ impl Edit {
     }
 }
 
+/// A non-empty set of source edits and its applicability level.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fix {
     edits: Box<[Edit]>,
@@ -86,6 +103,7 @@ pub struct Fix {
 }
 
 impl Fix {
+    /// Creates a fix from an applicability level and source edits.
     pub fn new(applicability: Applicability, edits: impl IntoIterator<Item = Edit>) -> Self {
         let edits = edits.into_iter().collect::<Vec<_>>().into_boxed_slice();
         debug_assert!(!edits.is_empty(), "fixes should contain at least one edit");
@@ -95,34 +113,43 @@ impl Fix {
         }
     }
 
+    /// Creates a safe fix containing one edit.
     pub fn safe_edit(edit: Edit) -> Self {
         Self::safe_edits([edit])
     }
 
+    /// Creates a safe fix containing the supplied edits.
     pub fn safe_edits(edits: impl IntoIterator<Item = Edit>) -> Self {
         Self::new(Applicability::Safe, edits)
     }
 
+    /// Creates an unsafe fix containing one edit.
     pub fn unsafe_edit(edit: Edit) -> Self {
         Self::unsafe_edits([edit])
     }
 
+    /// Creates an unsafe fix containing the supplied edits.
     pub fn unsafe_edits(edits: impl IntoIterator<Item = Edit>) -> Self {
         Self::new(Applicability::Unsafe, edits)
     }
 
+    /// Returns the edits in this fix.
     pub fn edits(&self) -> &[Edit] {
         &self.edits
     }
 
+    /// Returns the applicability level of this fix.
     pub const fn applicability(&self) -> Applicability {
         self.applicability
     }
 }
 
+/// Source text and count produced by [`apply_fixes`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppliedFixes {
+    /// Source text after applying all compatible edits.
     pub code: String,
+    /// Number of diagnostic fixes applied.
     pub fixes_applied: usize,
 }
 
@@ -131,6 +158,7 @@ struct CandidateFix {
     edits: Vec<Edit>,
 }
 
+/// Applies non-conflicting diagnostic fixes at or below `applicability`.
 pub fn apply_fixes(
     source: &str,
     diagnostics: &[Diagnostic],

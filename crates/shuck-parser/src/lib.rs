@@ -8,6 +8,8 @@
 //! [`parser::ParseResult`] is produced by [`parser::Parser::parse`] and keeps its fields public for
 //! inspection. It is non-exhaustive so parser-owned output can gain fields without invalidating
 //! downstream code. [`parser::ParseStatus`] and shell dialects remain exhaustive semantic sets.
+//! The returned syntax tree is a [`shuck_ast::File`]; consumers that traverse AST nodes should add
+//! `shuck-ast` as a direct dependency.
 //!
 //! ```
 //! use shuck_parser::parser::{ParseStatus, Parser};

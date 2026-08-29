@@ -1,9 +1,9 @@
 # Rust API compatibility
 
 Shuck publishes its analysis crates so tools can embed the parser and linter. Those crates are
-still versioned `0.0.x`, and the entire public type graph is not yet a stable compatibility
-contract. The supported integration path is intentionally narrower than everything that Rust
-visibility makes reachable today.
+still pre-1.0, and the entire public type graph is not yet a stable compatibility contract. The
+supported integration path is intentionally narrower than everything that Rust visibility makes
+reachable today.
 
 ## Supported integration path
 
@@ -17,6 +17,21 @@ For lint integrations, prefer these root-level APIs from `shuck-linter`:
 
 For parser integrations, construct a `shuck_parser::parser::Parser`, call `parse`, and inspect the
 public fields on `ParseResult`.
+
+## Returned type and dependency graph
+
+Supported entrypoints intentionally cross crate boundaries. Add a direct dependency on the crate
+that owns a returned type when traversing it or naming it in your own public API.
+
+| Supported API | Exposed type | Consumer dependency |
+| --- | --- | --- |
+| `shuck_parser::parser::ParseResult` | `shuck_ast::File`, plus `Span` values in parser diagnostics and syntax facts | Depend on `shuck-ast` to traverse the syntax tree or work with source ranges. |
+| `shuck_linter::AnalysisRequest` | `shuck_parser::parser::ParseResult`, `shuck_ast::File`, `shuck_indexer::Indexer`, and semantic resolver traits | Depend directly on the parser, AST, or indexer crate when using those types. `SourcePathResolver`, `PluginResolver`, and plugin request/response types are re-exported by `shuck-linter`. |
+| `shuck_linter::AnalysisResult` | `shuck_semantic::SemanticModel` | Depend on `shuck-semantic` when naming the model or traversing its semantic query results. |
+| `shuck_linter::Diagnostic` | `shuck_ast::Span` | Depend on `shuck-ast` for position, span, and byte-range operations. |
+
+The `shuck-ast` crate documents syntax nodes at its root, beginning with `File`, `Stmt`, and
+`Command`. Internal traversal and semantic-build helpers remain hidden.
 
 `LinterSettings`, `Diagnostic`, `AnalysisResult`, and `ParseResult` are non-exhaustive structs.
 Their fields remain public for ergonomic inspection and, for settings, mutation. Downstream code
