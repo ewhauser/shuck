@@ -76,8 +76,8 @@ pub enum EmbeddedFormat {
 
 /// Platform metadata for one expression segment in `EmbeddedScript::template`.
 pub struct EmbeddedExpression {
-    /// Index of the corresponding `GitHubTemplateSegment::Expression`.
-    pub segment_index: usize,
+    /// Full source range of the corresponding `GitHubTemplateSegment::Expression`.
+    pub range: TextRange,
     /// Taint classification for security rules.
     pub taint: ExpressionTaint,
 }
@@ -106,7 +106,7 @@ pub struct GitHubTemplateExpression {
 /// decoded template byte boundaries.
 struct ShellProjection {
     source: String,
-    projection_to_template: Vec<usize>,
+    projection_to_template: Vec<TextSize>,
 }
 
 /// Classifies how trustworthy a template expression's value is at runtime.
@@ -230,6 +230,11 @@ the dependency normalizes away when enough source information is available. If a
 invalid, the segment contains `GitHubExpressionParse::Invalid`; template scanning and later shell
 analysis continue.
 
+The owned model uses closed enums for built-in functions and operators, a numeric value newtype for
+IEEE-754 literals, and owned string storage for cooked string literals. Identifiers alone use the
+AST's `Name` type. Parse diagnostics retain a stable error category in addition to an adapter-owned
+message, so consumers do not need to infer failure types from dependency wording.
+
 The expression terminator scanner is quote-aware. In particular, `}}` inside a single-quoted
 GitHub expression string does not end the expression, and doubled single quotes are treated as an
 escaped quote.
@@ -238,10 +243,12 @@ escaped quote.
 
 The shell parser still needs valid shell input, but its projection is not the public syntax model.
 Each expression segment is replaced with a deterministic parameter expansion solely for shell
-analysis. The current projection uses `${1}` for every expression; expression identity lives in
-the projection span table rather than in a fabricated variable name. `ShellProjection` records a
-total byte-boundary mapping back to the decoded template, so diagnostics remain correct when
-expression and projection lengths differ, include non-ASCII text, or cross lines.
+analysis. The current projection uses `${1}` for every expression; expression identity is recovered
+by mapping a projection offset back to the decoded template and matching the resulting position to
+an `EmbeddedExpression::range`, rather than encoding identity in a fabricated variable name.
+`ShellProjection` records a total byte-boundary mapping back to the decoded template, so diagnostics
+remain correct when expression and projection lengths differ, include non-ASCII text, or cross
+lines.
 
 The public `EmbeddedScript::source` remains the original decoded template. Consumers request the
 analysis view through a narrow method and must use the projection map when reporting positions.
@@ -641,7 +648,7 @@ Safer rollout, but reduces the value of the feature — most users wouldn't know
 - **Shell projection**: Verify projection parsing succeeds and every projection byte boundary maps
   monotonically back to a decoded-template boundary.
 - **Projection isolation**: Verify the analysis projection introduces no named shell bindings or
-  references and expression identity remains in the projection span table.
+  references and expression identity can be recovered through decoded-template ranges.
 - **Taint classification**: Test that known attacker-controlled expressions (`github.event.pull_request.title`, `github.head_ref`, etc.) are classified as `UserControlled`, secrets as `Secret`, repo-scoped values as `Trusted`, and unrecognized expressions as `Unknown`.
 - **Implicit shell flags**: Verify that the default bash template produces `errexit: true, pipefail: true`, `shell: sh` produces `errexit: true, pipefail: false`, and custom templates like `bash {0}` produce `errexit: false, pipefail: false`.
 - **Block scalar handling**: Test literal (`|`), folded (`>`), strip (`|-`), and flow scalar extraction with correct offset computation.

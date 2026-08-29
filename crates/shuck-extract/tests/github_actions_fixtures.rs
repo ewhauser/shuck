@@ -210,11 +210,20 @@ fn script<'a>(scripts: &'a [EmbeddedScript], label: &str) -> &'a EmbeddedScript 
 }
 
 fn expression_source(script: &EmbeddedScript, expression_index: usize) -> &str {
-    let segment_index = script.expressions[expression_index].segment_index;
-    let shuck_ast::GitHubTemplateSegment::Expression(expression) =
-        &script.template.segments[segment_index]
-    else {
-        panic!("expression metadata must point to an expression segment");
-    };
+    let metadata = &script.expressions[expression_index];
+    let expression = script
+        .template
+        .segments
+        .iter()
+        .find_map(|segment| match segment {
+            shuck_ast::GitHubTemplateSegment::Expression(expression)
+                if expression.range == metadata.range =>
+            {
+                Some(expression)
+            }
+            shuck_ast::GitHubTemplateSegment::Literal { .. }
+            | shuck_ast::GitHubTemplateSegment::Expression(_) => None,
+        })
+        .expect("expression metadata must identify an expression segment");
     expression.body_range.slice(&script.source)
 }

@@ -7,9 +7,10 @@ use github_actions_expressions::{
     op::{BinExpr, BinOp, UnOp},
 };
 use shuck_ast::{
-    GitHubExpressionBinaryOperator, GitHubExpressionDiagnostic, GitHubExpressionKind,
-    GitHubExpressionLiteral, GitHubExpressionNode, GitHubExpressionParse,
-    GitHubExpressionUnaryOperator, Name, TextRange, TextSize,
+    GitHubExpressionBinaryOperator, GitHubExpressionDiagnostic, GitHubExpressionDiagnosticKind,
+    GitHubExpressionFunction, GitHubExpressionKind, GitHubExpressionLiteral, GitHubExpressionNode,
+    GitHubExpressionNumber, GitHubExpressionParse, GitHubExpressionUnaryOperator, Name, TextRange,
+    TextSize,
 };
 
 pub(crate) fn parse(source: &str) -> GitHubExpressionParse {
@@ -26,7 +27,7 @@ fn lower_expression(source: &str, expression: &SpannedExpr<'_>) -> GitHubExpress
         Expr::Literal(literal) => GitHubExpressionKind::Literal(lower_literal(literal)),
         Expr::Star => GitHubExpressionKind::Star,
         Expr::Call(Call { func, args }) => GitHubExpressionKind::Call {
-            function: Name::new(function_name(*func)),
+            function: lower_function(*func),
             arguments: args
                 .iter()
                 .map(|argument| lower_expression(source, argument))
@@ -159,35 +160,45 @@ fn find_operator_range(source: &str, start: usize, end: usize, operator: &str) -
 
 fn lower_literal(literal: &Literal<'_>) -> GitHubExpressionLiteral {
     match literal {
-        Literal::Number(number) => GitHubExpressionLiteral::Number(Name::new(number_text(*number))),
-        Literal::String(string) => GitHubExpressionLiteral::String(Name::new(string)),
+        Literal::Number(number) => {
+            GitHubExpressionLiteral::Number(GitHubExpressionNumber::new(*number))
+        }
+        Literal::String(string) => {
+            GitHubExpressionLiteral::String(string.clone().into_owned().into_boxed_str())
+        }
         Literal::Boolean(boolean) => GitHubExpressionLiteral::Boolean(*boolean),
         Literal::Null => GitHubExpressionLiteral::Null,
     }
 }
 
-fn number_text(number: f64) -> String {
-    if number.is_nan() {
-        "NaN".to_owned()
-    } else if number == f64::INFINITY {
-        "Infinity".to_owned()
-    } else if number == f64::NEG_INFINITY {
-        "-Infinity".to_owned()
-    } else {
-        number.to_string()
+fn lower_function(function: Function) -> GitHubExpressionFunction {
+    match function {
+        Function::Contains => GitHubExpressionFunction::Contains,
+        Function::StartsWith => GitHubExpressionFunction::StartsWith,
+        Function::EndsWith => GitHubExpressionFunction::EndsWith,
+        Function::Format => GitHubExpressionFunction::Format,
+        Function::Join => GitHubExpressionFunction::Join,
+        Function::ToJSON => GitHubExpressionFunction::ToJson,
+        Function::FromJSON => GitHubExpressionFunction::FromJson,
+        Function::HashFiles => GitHubExpressionFunction::HashFiles,
+        Function::Case => GitHubExpressionFunction::Case,
+        Function::Success => GitHubExpressionFunction::Success,
+        Function::Always => GitHubExpressionFunction::Always,
+        Function::Cancelled => GitHubExpressionFunction::Cancelled,
+        Function::Failure => GitHubExpressionFunction::Failure,
     }
 }
 
 fn function_name(function: Function) -> &'static str {
     match function {
         Function::Contains => "contains",
-        Function::StartsWith => "startswith",
-        Function::EndsWith => "endswith",
+        Function::StartsWith => "startsWith",
+        Function::EndsWith => "endsWith",
         Function::Format => "format",
         Function::Join => "join",
-        Function::ToJSON => "tojson",
-        Function::FromJSON => "fromjson",
-        Function::HashFiles => "hashfiles",
+        Function::ToJSON => "toJSON",
+        Function::FromJSON => "fromJSON",
+        Function::HashFiles => "hashFiles",
         Function::Case => "case",
         Function::Success => "success",
         Function::Always => "always",
@@ -235,25 +246,41 @@ fn unary_operator_text(operator: &UnOp) -> &'static str {
 }
 
 fn lower_error(source: &str, error: &Error) -> GitHubExpressionDiagnostic {
-    let (message, offset) = match error {
-        Error::Syntax(error) => (error.to_string(), error.offset),
-        Error::Call(error) => (error.to_string(), call_error_offset(source, error)),
+    let (kind, message, range) = match error {
+        Error::Syntax(error) => (
+            GitHubExpressionDiagnosticKind::Syntax,
+            format!("invalid GitHub Actions expression: {}", error.message),
+            text_range(error.offset, error.offset),
+        ),
+        Error::Call(github_actions_expressions::call::Error::UnknownFunction(function)) => {
+            let offset = find_ascii_case_insensitive(source, function).unwrap_or(0);
+            (
+                GitHubExpressionDiagnosticKind::UnknownFunction {
+                    function: function.clone().into_boxed_str(),
+                },
+                format!("unknown GitHub Actions function `{function}`"),
+                text_range(offset, offset.saturating_add(function.len())),
+            )
+        }
+        Error::Call(github_actions_expressions::call::Error::Arity(function, expected)) => {
+            let function_name = function_name(*function);
+            let offset = find_ascii_case_insensitive(source, function_name).unwrap_or(0);
+            (
+                GitHubExpressionDiagnosticKind::InvalidFunctionArguments {
+                    function: lower_function(*function),
+                },
+                format!(
+                    "invalid arguments for GitHub Actions function `{function_name}`: expected {expected}"
+                ),
+                text_range(offset, offset.saturating_add(function_name.len())),
+            )
+        }
     };
 
     GitHubExpressionDiagnostic {
+        kind,
         message,
-        range: text_range(offset, offset),
-    }
-}
-
-fn call_error_offset(source: &str, error: &github_actions_expressions::call::Error) -> usize {
-    match error {
-        github_actions_expressions::call::Error::UnknownFunction(function) => {
-            find_ascii_case_insensitive(source, function).unwrap_or(0)
-        }
-        github_actions_expressions::call::Error::Arity(function, _) => {
-            find_ascii_case_insensitive(source, function_name(*function)).unwrap_or(0)
-        }
+        range,
     }
 }
 
@@ -275,7 +302,10 @@ fn text_size(offset: usize) -> TextSize {
 
 #[cfg(test)]
 mod tests {
-    use shuck_ast::{GitHubExpressionKind, GitHubExpressionLiteral, GitHubExpressionParse};
+    use shuck_ast::{
+        GitHubExpressionDiagnosticKind, GitHubExpressionFunction, GitHubExpressionKind,
+        GitHubExpressionLiteral, GitHubExpressionParse,
+    };
 
     use super::parse;
 
@@ -306,7 +336,7 @@ mod tests {
         assert!(matches!(
             literal.kind,
             GitHubExpressionKind::Literal(GitHubExpressionLiteral::String(ref value))
-                if value == "main"
+                if value.as_ref() == "main"
         ));
 
         let GitHubExpressionKind::Call {
@@ -316,9 +346,28 @@ mod tests {
         else {
             panic!("expected a function call");
         };
-        assert_eq!(function, "format");
+        assert_eq!(*function, GitHubExpressionFunction::Format);
         assert_eq!(arguments.len(), 2);
         assert_eq!(arguments[1].source(source), "matrix.os");
+    }
+
+    #[test]
+    fn stores_numeric_literals_as_typed_values() {
+        let GitHubExpressionParse::Parsed(hex) = parse("0xFF") else {
+            panic!("expected a parsed hexadecimal literal");
+        };
+        let GitHubExpressionKind::Literal(GitHubExpressionLiteral::Number(value)) = hex.kind else {
+            panic!("expected a numeric literal");
+        };
+        assert_eq!(value.value(), 255.0);
+
+        let GitHubExpressionParse::Parsed(nan) = parse("NaN") else {
+            panic!("expected a parsed NaN literal");
+        };
+        let GitHubExpressionKind::Literal(GitHubExpressionLiteral::Number(value)) = nan.kind else {
+            panic!("expected a numeric literal");
+        };
+        assert!(value.value().is_nan());
     }
 
     #[test]
@@ -392,13 +441,33 @@ mod tests {
         let GitHubExpressionParse::Invalid(syntax) = parse("github.") else {
             panic!("expected invalid syntax");
         };
+        assert_eq!(syntax.kind, GitHubExpressionDiagnosticKind::Syntax);
         assert_eq!(usize::from(syntax.range.start()), 7);
+        assert!(syntax.range.is_empty());
         assert!(syntax.message.contains("identifier"));
 
         let GitHubExpressionParse::Invalid(call) = parse("mystery(github.ref)") else {
             panic!("expected an unknown function error");
         };
+        assert_eq!(
+            call.kind,
+            GitHubExpressionDiagnosticKind::UnknownFunction {
+                function: "mystery".into(),
+            }
+        );
         assert_eq!(usize::from(call.range.start()), 0);
+        assert_eq!(call.range.slice("mystery(github.ref)"), "mystery");
         assert!(call.message.contains("mystery"));
+
+        let GitHubExpressionParse::Invalid(arity) = parse("contains(github.ref)") else {
+            panic!("expected an invalid function argument error");
+        };
+        assert_eq!(
+            arity.kind,
+            GitHubExpressionDiagnosticKind::InvalidFunctionArguments {
+                function: GitHubExpressionFunction::Contains,
+            }
+        );
+        assert_eq!(arity.range.slice("contains(github.ref)"), "contains");
     }
 }

@@ -1,5 +1,7 @@
 //! Owned syntax tree types for GitHub Actions expressions.
 
+use std::fmt::{Debug, Formatter};
+
 use crate::{Name, TextRange, TextSize};
 
 /// A source-preserving GitHub Actions template embedded in a decoded YAML scalar.
@@ -58,10 +60,29 @@ impl GitHubExpressionParse {
 /// A syntax error within a GitHub Actions expression body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitHubExpressionDiagnostic {
-    /// Description returned by the expression parser adapter.
+    /// Stable classification of the parse failure.
+    pub kind: GitHubExpressionDiagnosticKind,
+    /// Human-readable description authored by the expression parser adapter.
     pub message: String,
-    /// Empty byte range at the error position in the tree's backing source.
+    /// Byte range of the offending syntax, or an empty range at the error position.
     pub range: TextRange,
+}
+
+/// Stable categories of GitHub Actions expression parse failures.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GitHubExpressionDiagnosticKind {
+    /// The expression does not conform to the expression grammar.
+    Syntax,
+    /// The expression calls a function that GitHub Actions does not recognize.
+    UnknownFunction {
+        /// Function name as written in the expression.
+        function: Box<str>,
+    },
+    /// A built-in function received an unsupported argument count.
+    InvalidFunctionArguments {
+        /// Function whose argument count is invalid.
+        function: GitHubExpressionFunction,
+    },
 }
 
 /// A source-backed GitHub Actions expression node.
@@ -130,8 +151,8 @@ pub enum GitHubExpressionKind {
     },
     /// A built-in function call.
     Call {
-        /// Canonical lowercase function name.
-        function: Name,
+        /// Built-in function being called.
+        function: GitHubExpressionFunction,
         /// Function arguments in source order.
         arguments: Vec<GitHubExpressionNode>,
     },
@@ -166,14 +187,80 @@ pub enum GitHubExpressionKind {
 /// Literal values supported by GitHub Actions expressions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GitHubExpressionLiteral {
-    /// A normalized numeric value. The node range retains its original spelling.
-    Number(Name),
+    /// Parsed numeric value. The node range retains its original spelling.
+    Number(GitHubExpressionNumber),
     /// A cooked string value with doubled quote escapes decoded.
-    String(Name),
+    String(Box<str>),
     /// A boolean value.
     Boolean(bool),
     /// The null value.
     Null,
+}
+
+/// An IEEE-754 numeric value parsed from a GitHub Actions expression.
+///
+/// Zero and NaN values are canonicalized so structural equality remains reflexive while the
+/// original literal spelling remains available through the containing node's source range.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct GitHubExpressionNumber(u64);
+
+impl GitHubExpressionNumber {
+    /// Construct a numeric literal value.
+    pub fn new(value: f64) -> Self {
+        let canonical = if value == 0.0 {
+            0.0
+        } else if value.is_nan() {
+            f64::NAN
+        } else {
+            value
+        };
+        Self(canonical.to_bits())
+    }
+
+    /// Return the numeric value.
+    pub fn value(self) -> f64 {
+        f64::from_bits(self.0)
+    }
+}
+
+impl Debug for GitHubExpressionNumber {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("GitHubExpressionNumber")
+            .field(&self.value())
+            .finish()
+    }
+}
+
+/// Built-in functions supported by GitHub Actions expressions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GitHubExpressionFunction {
+    /// Test whether one value contains another.
+    Contains,
+    /// Test whether a string starts with a prefix.
+    StartsWith,
+    /// Test whether a string ends with a suffix.
+    EndsWith,
+    /// Interpolate values into a format string.
+    Format,
+    /// Join an array into a string.
+    Join,
+    /// Serialize a value as JSON.
+    ToJson,
+    /// Parse a JSON value.
+    FromJson,
+    /// Hash one or more workspace file patterns.
+    HashFiles,
+    /// Select a value from predicate/value pairs.
+    Case,
+    /// Test whether earlier workflow work succeeded.
+    Success,
+    /// Always evaluate as successful for status gating.
+    Always,
+    /// Test whether the workflow was cancelled.
+    Cancelled,
+    /// Test whether earlier workflow work failed.
+    Failure,
 }
 
 /// Binary operators supported by GitHub Actions expressions.
@@ -202,4 +289,21 @@ pub enum GitHubExpressionBinaryOperator {
 pub enum GitHubExpressionUnaryOperator {
     /// Logical negation (`!`).
     Not,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GitHubExpressionNumber;
+
+    #[test]
+    fn expression_numbers_have_reflexive_structural_equality() {
+        let nan = GitHubExpressionNumber::new(f64::NAN);
+        assert_eq!(nan, nan);
+        assert!(nan.value().is_nan());
+
+        assert_eq!(
+            GitHubExpressionNumber::new(-0.0),
+            GitHubExpressionNumber::new(0.0)
+        );
+    }
 }

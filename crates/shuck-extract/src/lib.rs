@@ -5,7 +5,6 @@
 mod github_actions_expression;
 
 use std::collections::HashMap;
-use std::ops::Range;
 use std::path::Path;
 
 use anyhow::{Result, anyhow};
@@ -145,8 +144,8 @@ pub struct HostColumnMapping {
 /// Platform metadata for one GitHub Actions expression segment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmbeddedExpression {
-    /// Index of the corresponding [`GitHubTemplateSegment::Expression`] segment.
-    pub segment_index: usize,
+    /// Full source range of the corresponding [`GitHubTemplateSegment::Expression`] segment.
+    pub range: TextRange,
     /// Taint classification for the expression.
     pub taint: ExpressionTaint,
 }
@@ -159,14 +158,7 @@ pub struct EmbeddedExpression {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellProjection {
     source: String,
-    projection_to_template: Vec<usize>,
-    expression_spans: Vec<ProjectionExpression>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ProjectionExpression {
-    segment_index: usize,
-    range: Range<usize>,
+    projection_to_template: Vec<TextSize>,
 }
 
 impl ShellProjection {
@@ -177,18 +169,17 @@ impl ShellProjection {
 
     /// Map a projection byte boundary back to a decoded-template byte boundary.
     pub fn template_offset(&self, projection_offset: usize) -> usize {
-        self.projection_to_template
-            .get(projection_offset)
-            .copied()
-            .unwrap_or_else(|| self.projection_to_template.last().copied().unwrap_or(0))
-    }
-
-    #[cfg(test)]
-    fn expression_segment_at(&self, projection_offset: usize) -> Option<usize> {
-        self.expression_spans
-            .iter()
-            .find(|expression| expression.range.contains(&projection_offset))
-            .map(|expression| expression.segment_index)
+        usize::from(
+            self.projection_to_template
+                .get(projection_offset)
+                .copied()
+                .unwrap_or_else(|| {
+                    self.projection_to_template
+                        .last()
+                        .copied()
+                        .unwrap_or_default()
+                }),
+        )
     }
 }
 
@@ -1797,24 +1788,20 @@ pub fn parse_github_actions_template(
         let mut parsed = parse_github_actions_expression(expression);
         parsed.offset_by(text_size(body_start));
 
-        let segment_index = segments.len();
+        let expression_range = text_range(start, end);
         segments.push(GitHubTemplateSegment::Expression(
             GitHubTemplateExpression {
-                range: text_range(start, end),
+                range: expression_range,
                 body_range: text_range(body_start, body_end),
                 parsed,
             },
         ));
         expressions.push(EmbeddedExpression {
-            segment_index,
+            range: expression_range,
             taint: classify_expression_taint(expression),
         });
 
-        projection.push_expression(
-            GITHUB_ACTIONS_PROJECTION_EXPANSION,
-            start..end,
-            segment_index,
-        );
+        projection.push_expression(GITHUB_ACTIONS_PROJECTION_EXPANSION, expression_range);
         cursor = end;
     }
 
@@ -1841,43 +1828,32 @@ pub fn parse_github_actions_template(
 
 struct ProjectionBuilder {
     source: String,
-    projection_to_template: Vec<usize>,
-    expression_spans: Vec<ProjectionExpression>,
+    projection_to_template: Vec<TextSize>,
 }
 
 impl ProjectionBuilder {
     fn new(capacity: usize) -> Self {
         Self {
             source: String::with_capacity(capacity),
-            projection_to_template: vec![0],
-            expression_spans: Vec::new(),
+            projection_to_template: vec![TextSize::default()],
         }
     }
 
     fn push_literal(&mut self, literal: &str, template_start: usize) {
         self.source.push_str(literal);
         self.projection_to_template
-            .extend((1..=literal.len()).map(|offset| template_start + offset));
+            .extend((1..=literal.len()).map(|offset| text_size(template_start + offset)));
     }
 
-    fn push_expression(
-        &mut self,
-        replacement: &str,
-        template_range: Range<usize>,
-        segment_index: usize,
-    ) {
-        let projection_start = self.source.len();
+    fn push_expression(&mut self, replacement: &str, template_range: TextRange) {
         self.source.push_str(replacement);
-        let template_len = template_range.end - template_range.start;
+        let template_start = usize::from(template_range.start());
+        let template_len = usize::from(template_range.len());
         let replacement_len = replacement.len();
         self.projection_to_template.extend(
             (1..=replacement_len)
-                .map(|offset| template_range.start + template_len * offset / replacement_len),
+                .map(|offset| text_size(template_start + template_len * offset / replacement_len)),
         );
-        self.expression_spans.push(ProjectionExpression {
-            segment_index,
-            range: projection_start..self.source.len(),
-        });
     }
 
     fn finish(self) -> ShellProjection {
@@ -1885,7 +1861,6 @@ impl ProjectionBuilder {
         ShellProjection {
             source: self.source,
             projection_to_template: self.projection_to_template,
-            expression_spans: self.expression_spans,
         }
     }
 }
@@ -2030,13 +2005,22 @@ mod tests {
         script: &EmbeddedScript,
         expression_index: usize,
     ) -> &GitHubTemplateExpression {
-        let segment_index = script.expressions[expression_index].segment_index;
-        let GitHubTemplateSegment::Expression(expression) =
-            &script.template.segments[segment_index]
-        else {
-            panic!("expression metadata must point to an expression segment");
-        };
-        expression
+        let metadata = &script.expressions[expression_index];
+        script
+            .template
+            .segments
+            .iter()
+            .find_map(|segment| match segment {
+                GitHubTemplateSegment::Expression(expression)
+                    if expression.range == metadata.range =>
+                {
+                    Some(expression)
+                }
+                GitHubTemplateSegment::Literal { .. } | GitHubTemplateSegment::Expression(_) => {
+                    None
+                }
+            })
+            .expect("expression metadata must identify an expression segment")
     }
 
     #[test]
@@ -2721,7 +2705,7 @@ jobs:
     #[test]
     fn projection_mapping_is_total_for_unicode_and_multiline_expressions() {
         let source = "α${{\n  github.ref\n}}\nβ";
-        let (_template, projection, _expressions) = parse_github_actions_template(source);
+        let (_template, projection, expressions) = parse_github_actions_template(source);
 
         assert_eq!(projection.source(), "α${1}\nβ");
         assert_eq!(
@@ -2740,11 +2724,9 @@ jobs:
             source.find('β').unwrap()
         );
         let projected_expression = projection.source().find("${1}").unwrap();
-        assert_eq!(
-            projection.expression_segment_at(projected_expression),
-            Some(1)
-        );
-        assert_eq!(projection.expression_segment_at(projected_beta), None);
+        let expression_offset = projection.template_offset(projected_expression);
+        assert!(expression_offset >= usize::from(expressions[0].range.start()));
+        assert!(expression_offset < usize::from(expressions[0].range.end()));
         assert_eq!(
             projection.template_offset(projection.source().len()),
             source.len()
