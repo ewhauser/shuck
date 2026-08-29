@@ -79,6 +79,9 @@ pub struct ParseDiagnostic {
 #[non_exhaustive]
 pub struct ParseResult {
     /// Parsed syntax tree for the file.
+    ///
+    /// The concrete type is [`shuck_ast::File`]. Traverse its statement and command nodes through
+    /// a direct dependency on `shuck-ast`.
     pub file: File,
     /// Recovery diagnostics emitted while producing the AST.
     pub diagnostics: Vec<ParseDiagnostic>,

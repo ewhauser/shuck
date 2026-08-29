@@ -5,6 +5,10 @@
 //!
 //! `shuck-parser` produces these data structures, while crates such as `shuck-indexer`,
 //! `shuck-linter`, `shuck-semantic`, and `shuck-formatter` consume them.
+//!
+//! Parser consumers normally start at [`File`], traverse [`File::body`], and then inspect
+//! [`Stmt`] and [`Command`]. Syntax node types are re-exported at this crate root even though
+//! their implementation module is private.
 
 #[doc(hidden)]
 mod arena;
@@ -22,7 +26,6 @@ mod tokens;
 
 /// Compact typed arena index and list storage utilities.
 pub use arena::{IdRange, Idx, ListArena};
-#[doc(hidden)]
 pub use ast::*;
 #[doc(hidden)]
 pub use command_resolution::*;

@@ -511,8 +511,15 @@ pub struct NoopTraversalObserver;
 
 impl<'a> TraversalObserver<'a> for NoopTraversalObserver {}
 
-#[doc(hidden)]
+/// Resolves a static shell source candidate relative to the file that contains it.
+///
+/// Implement this trait when source files can be found through project-specific search roots or
+/// virtual filesystem rules. A closure with the same signature also implements this trait.
 pub trait SourcePathResolver {
+    /// Returns candidate paths for `candidate` as referenced from `source_path`.
+    ///
+    /// Returning an empty vector leaves the source unresolved. Candidates are evaluated by the
+    /// semantic source-closure builder in the order returned.
     fn resolve_candidate_paths(&self, source_path: &Path, candidate: &str) -> Vec<PathBuf>;
 }
 

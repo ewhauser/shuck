@@ -157,12 +157,14 @@ impl PartialEq<&str> for LiteralText {
 /// source: `comment.range.slice(source)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Comment {
+    /// Byte range covering the comment in the original source.
     pub range: TextRange,
 }
 
 /// A complete bash source file.
 #[derive(Debug, Clone)]
 pub struct File {
+    /// Top-level statements and comments in source order.
     pub body: StmtSeq,
     /// Source span of the entire file.
     pub span: Span,

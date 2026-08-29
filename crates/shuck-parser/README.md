@@ -7,5 +7,6 @@ lets callers choose shell dialects and zsh option profiles. The crate is pre-1.0
 between `0.x` releases.
 
 `ParseResult` is a producer-owned, non-exhaustive result with public fields for inspection.
-`ParseStatus` and shell dialects remain deliberately exhaustive. See
+Its `file` field is a `shuck_ast::File`; add `shuck-ast` as a direct dependency when traversing
+syntax nodes. `ParseStatus` and shell dialects remain deliberately exhaustive. See
 [`docs/rust-api-compatibility.md`](../../docs/rust-api-compatibility.md) for the supported boundary.

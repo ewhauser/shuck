@@ -11,6 +11,11 @@
 //! available for inspection and customization after construction. [`Rule`] can grow as new rules
 //! are implemented, so downstream matches need a fallback arm.
 //!
+//! Public entrypoints intentionally expose parser, AST, indexer, and semantic model types. Add
+//! direct dependencies on `shuck-parser`, `shuck-ast`, `shuck-indexer`, or `shuck-semantic` when
+//! naming or traversing types owned by those crates. Resolver traits used to configure
+//! [`AnalysisRequest`] are re-exported here for convenience.
+//!
 //! ```
 //! use shuck_linter::{LinterSettings, Rule, Severity};
 //!
@@ -140,6 +145,14 @@ pub use shuck_semantic::{
     GlobPatternBehavior, PathnameExpansionBehavior, PatternOperatorBehavior,
     SubscriptIndexBehavior,
 };
+/// Semantic resolver extension points and their request/response types.
+///
+/// These types are defined by `shuck-semantic` and re-exported here because they appear directly
+/// in [`AnalysisRequest`] resolver methods.
+pub use shuck_semantic::{
+    FileContract, PluginFramework, PluginRequest, PluginRequestKind, PluginResolution,
+    PluginResolver, SourcePathResolver,
+};
 /// Suppression directives, shellcheck mappings, and rewrite helpers.
 pub use suppression::{
     AddIgnoreParseError, AddIgnoreResult, ShellCheckCodeMap, SuppressionAction,
@@ -155,9 +168,8 @@ use shuck_indexer::Indexer;
 
 use shuck_parser::parser::ParseResult;
 use shuck_semantic::{
-    CommandKind, CompoundCommandKind, FlowContext, PluginResolver, ScopeId, SemanticBuildOptions,
-    SemanticCommandContext, SemanticModel, SourcePathResolver, TraversalObserver,
-    build_with_observer_with_options,
+    CommandKind, CompoundCommandKind, FlowContext, ScopeId, SemanticBuildOptions,
+    SemanticCommandContext, SemanticModel, TraversalObserver, build_with_observer_with_options,
 };
 use std::ops::Deref;
 use std::path::Path;
@@ -169,7 +181,9 @@ use crate::suppression::{
 
 /// Combined semantic model and diagnostic output for a file analysis pass.
 ///
-/// This is a producer-owned result. Its fields remain public for ergonomic inspection.
+/// This is a producer-owned result. Its fields remain public for ergonomic inspection. The
+/// semantic model is defined by the `shuck-semantic` crate; consumers that call its query methods
+/// should depend on that crate directly.
 ///
 /// ```compile_fail
 /// use shuck_linter::AnalysisResult;
@@ -182,6 +196,9 @@ use crate::suppression::{
 #[non_exhaustive]
 pub struct AnalysisResult {
     /// Semantic model built for the analyzed file.
+    ///
+    /// The concrete type is [`shuck_semantic::SemanticModel`]. Its query methods return additional
+    /// semantic types from that crate.
     pub semantic: SemanticModel,
     /// Diagnostics emitted by linter rules and parse checks.
     pub diagnostics: Vec<Diagnostic>,
@@ -192,6 +209,11 @@ pub struct AnalysisResult {
 /// Build one from a [`ParseResult`] when lint output should include parse-aware diagnostics and
 /// inline suppression directives. Build one from a parsed [`File`] only when the caller already
 /// owns parse diagnostics and wants rule diagnostics for that AST.
+///
+/// The constructors cross crate boundaries intentionally: parser results come from
+/// `shuck-parser`, AST nodes from `shuck-ast`, positional indexes from `shuck-indexer`, and
+/// semantic resolvers from `shuck-semantic`. Add direct dependencies on the first three crates
+/// when traversing or naming their returned types. Resolver traits are re-exported from this crate.
 pub struct AnalysisRequest<'a> {
     input: AnalysisInput<'a>,
     source: &'a str,
@@ -218,6 +240,9 @@ enum SuppressionRequest<'a> {
 impl<'a> AnalysisRequest<'a> {
     /// Creates a request from a parsed shell file.
     ///
+    /// `file` is a [`shuck_ast::File`]. Consumers that inspect its statements, commands, or words
+    /// should depend on `shuck-ast` directly.
+    ///
     /// This form runs rule analysis over the provided AST without parse diagnostics or
     /// directive-derived suppressions. Use [`AnalysisRequest::from_parse_result`] for the normal
     /// linting path where parser diagnostics and inline suppressions should be honored.
@@ -235,6 +260,9 @@ impl<'a> AnalysisRequest<'a> {
     }
 
     /// Creates a request from a parser result.
+    ///
+    /// `parse_result` is produced by [`shuck_parser::parser::Parser::parse`]. Consumers should
+    /// depend on `shuck-parser` directly to construct it.
     ///
     /// This form lets [`analyze`] and [`lint`] include parse-aware diagnostics from the supplied
     /// parser result.
@@ -267,7 +295,7 @@ impl<'a> AnalysisRequest<'a> {
         self
     }
 
-    /// Sets a resolver for shell sources reached from the analyzed file.
+    /// Sets a [`SourcePathResolver`] for shell sources reached from the analyzed file.
     pub fn with_source_path_resolver(
         mut self,
         source_path_resolver: &'a (dyn SourcePathResolver + Send + Sync),
@@ -276,7 +304,7 @@ impl<'a> AnalysisRequest<'a> {
         self
     }
 
-    /// Sets an optional resolver for shell sources reached from the analyzed file.
+    /// Sets an optional [`SourcePathResolver`] for shell sources reached from the analyzed file.
     pub fn with_optional_source_path_resolver(
         mut self,
         source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
@@ -285,7 +313,7 @@ impl<'a> AnalysisRequest<'a> {
         self
     }
 
-    /// Sets a plugin resolver used while building semantic facts.
+    /// Sets a [`PluginResolver`] used while building semantic facts.
     pub fn with_plugin_resolver(
         mut self,
         plugin_resolver: &'a (dyn PluginResolver + Send + Sync),
@@ -294,7 +322,7 @@ impl<'a> AnalysisRequest<'a> {
         self
     }
 
-    /// Sets an optional plugin resolver used while building semantic facts.
+    /// Sets an optional [`PluginResolver`] used while building semantic facts.
     pub fn with_optional_plugin_resolver(
         mut self,
         plugin_resolver: Option<&'a (dyn PluginResolver + Send + Sync)>,
@@ -332,6 +360,9 @@ impl<'a> AnalysisRequest<'a> {
     }
 
     /// Returns the positional index built for this request's source and AST.
+    ///
+    /// The concrete type is [`shuck_indexer::Indexer`]. Consumers that query its component indexes
+    /// should depend on `shuck-indexer` directly.
     pub fn indexer(&self) -> &Indexer {
         &self.indexer
     }
@@ -372,6 +403,9 @@ struct LinterAnalysisResult<'a> {
 }
 
 /// Semantic model plus linter-private traversal artifacts needed to build facts.
+///
+/// This lower-level API crosses into `shuck-ast`, `shuck-indexer`, and `shuck-semantic` directly.
+/// Consumers using it should declare direct dependencies on those crates.
 pub struct LinterSemanticArtifacts<'a> {
     semantic: SemanticModel,
     command_visits_by_id: Vec<Option<facts::CommandVisit<'a>>>,
@@ -383,12 +417,14 @@ pub struct LinterSemanticArtifacts<'a> {
 }
 
 impl<'a> LinterSemanticArtifacts<'a> {
-    /// Builds semantic analysis artifacts for linter fact construction.
+    /// Builds semantic analysis artifacts for linter fact construction from a
+    /// [`shuck_ast::File`] and [`shuck_indexer::Indexer`].
     pub fn build(file: &'a File, source: &'a str, indexer: &Indexer) -> Self {
         Self::build_with_options(file, source, indexer, SemanticBuildOptions::default())
     }
 
-    /// Builds semantic analysis artifacts for linter fact construction with custom options.
+    /// Builds semantic analysis artifacts for linter fact construction with custom
+    /// [`shuck_semantic::SemanticBuildOptions`].
     pub fn build_with_options(
         file: &'a File,
         source: &'a str,
@@ -421,12 +457,13 @@ impl<'a> LinterSemanticArtifacts<'a> {
         }
     }
 
-    /// Returns the semantic model built for this file.
+    /// Returns the [`shuck_semantic::SemanticModel`] built for this file.
     pub fn semantic(&self) -> &SemanticModel {
         &self.semantic
     }
 
-    /// Converts this linter semantic model into the underlying semantic model.
+    /// Converts this linter semantic model into the underlying
+    /// [`shuck_semantic::SemanticModel`].
     pub fn into_semantic(self) -> SemanticModel {
         self.semantic
     }
