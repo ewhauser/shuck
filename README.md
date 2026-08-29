@@ -438,6 +438,12 @@ Override the cache root with `--cache-dir` or `SHUCK_CACHE_DIR`.
 
 Disable caching with `--no-cache` or remove a project's cache entries with `shuck clean [PATH]`.
 
+## Rust API
+
+Shuck's parser and analysis crates are published for embedders. Their supported pre-1.0
+integration path and selective compatibility guarantees are documented in
+[Rust API compatibility](docs/rust-api-compatibility.md).
+
 ## Acknowledgements
 
 Shuck builds on ideas and inspiration from several excellent open-source projects. This section is a thank-you to those communities — it does not imply endorsement, affiliation, or any formal relationship between shuck and these projects.
