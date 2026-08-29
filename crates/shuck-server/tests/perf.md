@@ -1,5 +1,31 @@
 # shuck-server perf notes
 
+## Criterion LSP suite
+
+Run the end-to-end in-memory LSP benchmarks with:
+
+```bash
+make bench-lsp
+```
+
+The suite measures warm and invalidated pull diagnostics for a 5 KiB open
+document, a one-character incremental edit followed by diagnostics, warm hover,
+completion, and document-symbol requests, and warm versus invalidated workspace
+diagnostics across 32 closed files. These measurements include server request
+scheduling, snapshot/cache behavior, handler work, and response serialization.
+The lower-level `editor` benchmark remains the source for isolated semantic
+query costs.
+
+Use Criterion baselines for regression comparisons rather than committing a
+machine-specific latency threshold:
+
+```bash
+cargo bench -p shuck-benchmark --bench lsp -- --save-baseline=lsp-main
+cargo bench -p shuck-benchmark --bench lsp -- --baseline=lsp-main
+```
+
+## Historical measurements
+
 Recorded on 2026-05-03 from `/Users/ewhauser/working/shuck-lsp`.
 
 ## Benchmark gate
