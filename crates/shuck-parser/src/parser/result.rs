@@ -60,7 +60,23 @@ pub struct ParseDiagnostic {
 /// `ParseResult` always carries the best AST the parser produced. Inspect
 /// [`ParseResult::status`] or [`ParseResult::is_ok`] before assuming it was a
 /// clean parse.
+///
+/// This is a parser-owned output type. Its fields remain public for inspection, but consumers
+/// should obtain it from [`crate::parser::Parser::parse`] instead of using a struct literal.
+///
+/// ```compile_fail
+/// use shuck_parser::parser::{ParseResult, ParseStatus, SyntaxFacts};
+///
+/// let _ = ParseResult {
+///     file: todo!(),
+///     diagnostics: Vec::new(),
+///     status: ParseStatus::Clean,
+///     terminal_error: None,
+///     syntax_facts: SyntaxFacts::default(),
+/// };
+/// ```
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ParseResult {
     /// Parsed syntax tree for the file.
     pub file: File,

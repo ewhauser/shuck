@@ -32,7 +32,12 @@ macro_rules! declare_rules {
     ($(
         ($code:literal, $category:expr, $severity:expr, $name:ident),
     )+) => {
+        /// Identifier for a registered lint rule.
+        ///
+        /// New rules are added routinely. Downstream matches must include a fallback arm; use
+        /// [`Rule::code`] for a stable persisted identity and [`Rule::iter`] to discover rules.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[non_exhaustive]
         #[repr(u16)]
         pub enum Rule {
             $($name,)*

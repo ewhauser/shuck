@@ -410,14 +410,13 @@ fn resolved_linter_settings_for_layers(
                 CompiledPerFileShellList::default()
             });
 
+    let mut base = LinterSettings::for_rules(rules.iter());
+    base.shell = LinterShellDialect::Unknown;
+    base.per_file_ignores = Arc::new(compiled_per_file_ignores);
+    base.rule_options = rule_options;
+
     ResolvedLinterSettings {
-        base: LinterSettings {
-            rules,
-            shell: LinterShellDialect::Unknown,
-            per_file_ignores: Arc::new(compiled_per_file_ignores),
-            rule_options,
-            ..LinterSettings::default()
-        },
+        base,
         per_file_shell: compiled_per_file_shell,
     }
 }

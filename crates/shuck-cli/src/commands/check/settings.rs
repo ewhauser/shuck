@@ -923,15 +923,13 @@ pub(super) fn resolve_project_check_settings(
         lint_sources,
         embedded_enabled,
     );
+    let mut linter_settings = LinterSettings::for_rules(enabled_rules.iter());
+    linter_settings.ambient_contracts = Arc::clone(&ambient_contracts);
+    linter_settings.per_file_ignores = Arc::new(compiled_per_file_ignores);
+    linter_settings.rule_options = rule_options;
 
     Ok(ResolvedCheckSettings {
-        linter_settings: LinterSettings {
-            rules: enabled_rules,
-            ambient_contracts: Arc::clone(&ambient_contracts),
-            per_file_ignores: Arc::new(compiled_per_file_ignores),
-            rule_options,
-            ..LinterSettings::default()
-        },
+        linter_settings,
         per_file_shell: Arc::new(compiled_per_file_shell),
         zsh_plugins: Arc::new(resolved_zsh_plugins),
         fixable_rules,

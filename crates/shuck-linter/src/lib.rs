@@ -5,6 +5,26 @@
 //!
 //! This crate combines parser output, semantic analysis, suppressions, and rule metadata into a
 //! diagnostics pipeline used by `shuck check`.
+//!
+//! Construct settings through [`LinterSettings::default`], [`LinterSettings::for_rule`],
+//! [`LinterSettings::for_rules`], or [`LinterSettings::from_selectors`]. Public fields remain
+//! available for inspection and customization after construction. [`Rule`] can grow as new rules
+//! are implemented, so downstream matches need a fallback arm.
+//!
+//! ```
+//! use shuck_linter::{LinterSettings, Rule, Severity};
+//!
+//! let mut settings = LinterSettings::for_rule(Rule::UnusedAssignment);
+//! settings
+//!     .severity_overrides
+//!     .insert(Rule::UnusedAssignment, Severity::Hint);
+//!
+//! let is_assignment_rule = match Rule::UnusedAssignment {
+//!     Rule::UnusedAssignment | Rule::AssignmentSpacing => true,
+//!     _ => false,
+//! };
+//! assert!(is_assignment_rule);
+//! ```
 mod ambient_contracts;
 #[allow(missing_docs)]
 mod checker;
@@ -148,6 +168,18 @@ use crate::suppression::{
 };
 
 /// Combined semantic model and diagnostic output for a file analysis pass.
+///
+/// This is a producer-owned result. Its fields remain public for ergonomic inspection.
+///
+/// ```compile_fail
+/// use shuck_linter::AnalysisResult;
+///
+/// let _ = AnalysisResult {
+///     semantic: todo!(),
+///     diagnostics: Vec::new(),
+/// };
+/// ```
+#[non_exhaustive]
 pub struct AnalysisResult {
     /// Semantic model built for the analyzed file.
     pub semantic: SemanticModel,
@@ -1155,7 +1187,7 @@ mod tests {
     use shuck_ast::{Command, Position, Span, StmtSeq, WordPart, WordPartNode};
     use shuck_parser::Error as ParseError;
     use shuck_parser::parser::{
-        ParseDiagnostic, ParseStatus, Parser, ShellDialect as ParseDialect, SyntaxFacts,
+        ParseDiagnostic, ParseStatus, Parser, ShellDialect as ParseDialect,
     };
     use shuck_semantic::{
         FileContract, PluginFramework, PluginRequest, PluginRequestKind, PluginResolution,
@@ -1452,18 +1484,14 @@ mod tests {
 
     #[test]
     fn parse_error_position_falls_back_to_first_diagnostic_span() {
-        let file = Parser::new("#!/bin/bash\n").parse().unwrap().file;
         let diagnostic_start = Position::at(3, 2, 14);
-        let parse_result = ParseResult {
-            file,
-            diagnostics: vec![ParseDiagnostic {
-                message: "expected command".to_owned(),
-                span: Span::at(diagnostic_start),
-            }],
-            status: ParseStatus::Recovered,
-            terminal_error: Some(ParseError::parse("expected command")),
-            syntax_facts: SyntaxFacts::default(),
-        };
+        let mut parse_result = Parser::new("#!/bin/bash\n").parse().unwrap();
+        parse_result.diagnostics.push(ParseDiagnostic {
+            message: "expected command".to_owned(),
+            span: Span::at(diagnostic_start),
+        });
+        parse_result.status = ParseStatus::Recovered;
+        parse_result.terminal_error = Some(ParseError::parse("expected command"));
 
         assert_eq!(parse_error_position(&parse_result), Some((3, 2)));
     }

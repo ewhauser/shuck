@@ -99,10 +99,7 @@ fn bench_linter_facts(c: &mut Criterion) {
 
 fn bench_linter(c: &mut Criterion) {
     let mut group = c.benchmark_group("linter");
-    let settings = LinterSettings {
-        rules: RuleSet::all(),
-        ..LinterSettings::default()
-    };
+    let settings = LinterSettings::for_rules(RuleSet::all().iter());
     let shellcheck_map = ShellCheckCodeMap::default();
 
     for case in benchmark_cases() {

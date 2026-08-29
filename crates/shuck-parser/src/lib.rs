@@ -4,6 +4,21 @@
 //!
 //! `shuck-parser` turns shell source text into `shuck-ast` syntax trees and also exposes a
 //! source-backed lexer for lower-level tooling.
+//!
+//! [`parser::ParseResult`] is produced by [`parser::Parser::parse`] and keeps its fields public for
+//! inspection. It is non-exhaustive so parser-owned output can gain fields without invalidating
+//! downstream code. [`parser::ParseStatus`] and shell dialects remain exhaustive semantic sets.
+//!
+//! ```
+//! use shuck_parser::parser::{ParseStatus, Parser};
+//!
+//! let result = Parser::new("echo hello\n").parse();
+//! match result.status {
+//!     ParseStatus::Clean => assert!(result.diagnostics.is_empty()),
+//!     ParseStatus::Recovered | ParseStatus::Fatal => {}
+//! }
+//! let _file = &result.file;
+//! ```
 
 mod error;
 /// Parsing entrypoints, lexer types, and shell-profile configuration.

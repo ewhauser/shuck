@@ -301,7 +301,24 @@ impl Default for C161RuleOptions {
     }
 }
 
+/// Configuration for a linter analysis pass.
+///
+/// Start with [`LinterSettings::default`], [`LinterSettings::for_rule`],
+/// [`LinterSettings::for_rules`], or [`LinterSettings::from_selectors`]. Fields remain public so
+/// embedders can inspect and customize settings after construction.
+///
+/// Direct struct construction is intentionally unsupported so future settings can be added
+/// without invalidating downstream struct literals:
+///
+/// ```compile_fail
+/// use shuck_linter::LinterSettings;
+///
+/// let _ = LinterSettings {
+///     ..LinterSettings::default()
+/// };
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LinterSettings {
     pub rules: RuleSet,
     pub severity_overrides: FxHashMap<Rule, Severity>,

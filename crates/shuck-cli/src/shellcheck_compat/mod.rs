@@ -939,18 +939,11 @@ fn lint_with_context(
     };
     let mut rule_options = shuck_linter::LinterRuleOptions::default();
     rule_options.c063.report_unreached_nested_definitions = true;
-    let settings = LinterSettings {
-        rules: options.enabled_rules,
-        severity_overrides: Default::default(),
-        shell,
-        ambient_shell_options: Default::default(),
-        ambient_contracts: Default::default(),
-        analyzed_paths: Some(Arc::new(explicit.into_iter().collect())),
-        per_file_ignores: Default::default(),
-        report_environment_style_names: options.report_environment_style_names,
-        resolve_source_closure: options.external_sources,
-        rule_options,
-    };
+    let mut settings = LinterSettings::for_rules(options.enabled_rules.iter()).with_shell(shell);
+    settings.analyzed_paths = Some(Arc::new(explicit.into_iter().collect()));
+    settings.report_environment_style_names = options.report_environment_style_names;
+    settings.resolve_source_closure = options.external_sources;
+    settings.rule_options = rule_options;
 
     let analysis =
         shuck_linter::AnalysisRequest::from_parse_result(&parse_result, source, &settings)
