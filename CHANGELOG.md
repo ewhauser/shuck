@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/ewhauser/shuck/compare/v0.2.0...v0.2.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* **server:** resolve current-file source anchors ([#1273](https://github.com/ewhauser/shuck/issues/1273)) ([de286ae](https://github.com/ewhauser/shuck/commit/de286ae222f7abcc49adce695b3ce7330500f20f))
+
 ## [0.2.0](https://github.com/ewhauser/shuck/compare/v0.1.3...v0.2.0) (2026-08-29)
 
 
