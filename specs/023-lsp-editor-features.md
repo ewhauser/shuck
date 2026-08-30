@@ -103,9 +103,9 @@ land:
 |---|---|---|
 | Completion | `textDocument/completion`, `completionItem/resolve` | Variables, declaration names, runtime names, shell keywords, and functions visible locally or through unconditional static source edges |
 | Hover | `textDocument/hover` | Rule-code and semantic-symbol hovers, including exact function bindings through the statically resolved source graph |
-| Definition | `textDocument/definition` | File-scope variables through unambiguous static source edges and exact function definitions through the statically resolved source graph; lexical variable shadows remain local |
-| Document links | `textDocument/documentLink` | Literal source operands and valid source hints that resolve to one target within the workspace |
-| References | `textDocument/references` | File-scope variable families through unambiguous static source edges and exact function references through the statically resolved workspace graph; lexical variable shadows remain local |
+| Definition | `textDocument/definition` | File-scope variables through unambiguous statically resolved source edges, including recognized current-file anchors, and exact function definitions through the same graph; lexical variable shadows remain local |
+| Document links | `textDocument/documentLink` | Literal source operands, valid source hints, and recognized current-file anchors that resolve to one target within the workspace |
+| References | `textDocument/references` | File-scope variable families through unambiguous statically resolved source edges, including recognized current-file anchors, and exact function references through the same workspace graph; lexical variable shadows remain local |
 | Document highlight | `textDocument/documentHighlight` | Read/write highlights for the symbol under the cursor |
 | Document symbols | `textDocument/documentSymbol` | Hierarchical symbols for functions plus top-level declarations and assignments |
 | Workspace symbols | `workspace/symbol` | Fuzzy search over indexed shell files in workspace folders |
@@ -313,8 +313,9 @@ location list when multiple static definitions are intentionally visible, such
 as a top-level variable with multiple declaration forms that Shuck groups into
 one storage family. Function calls additionally resolve through determinable
 source edges in the shared workspace function index, preserving source order,
-redefinitions, and open-buffer content. Dynamic or unresolved calls return no
-cross-file target. If all candidates are ambiguous, the result is `None`.
+redefinitions, and open-buffer content. Conservatively recognized current-file
+anchors participate; other dynamic or unresolved calls return no cross-file
+target. If all candidates are ambiguous, the result is `None`.
 
 References honor `ReferenceContext::include_declaration`:
 
@@ -433,9 +434,10 @@ pub(crate) enum CompletionData {
 ```
 
 At command positions, the workspace function index contributes definitions
-installed by literal source operands, valid source hints, and configured
-`[lint] source-paths`. Only edges executed before the completion position are
-considered. Source order is applied transitively, later definitions shadow
+installed by literal source operands, valid source hints, configured
+`[lint] source-paths`, and recognized current-file anchors. Only edges executed
+before the completion position are considered. Source order is applied
+transitively, later definitions shadow
 earlier ones, and duplicate labels identify only the winning binding. Open
 buffers shadow disk content. Conditional, dynamic, unresolved, and cyclic
 edges do not introduce speculative candidates; cycles terminate traversal

@@ -290,8 +290,10 @@ YAML comments outside the `run:` scalar are not visible to the shell parser and 
 ## Sourced files
 
 When a `source`/`.` path is computed (for example `source "$DIR/lib.sh"`), shuck
-cannot resolve it statically and reports it as an untracked source. Point shuck
-at the real file with a hint comment on (or just above) the `source` line:
+usually cannot resolve it statically and reports it as an untracked source.
+Current-file anchors such as `$(dirname "${BASH_SOURCE[0]}")/lib.sh` are
+recognized conservatively. For other computed paths, point shuck at the real
+file with a hint comment on (or just above) the `source` line:
 
 ```sh
 # Import the file's definitions so references resolve, and stop the

@@ -858,7 +858,7 @@ pub(crate) fn source_path_template(
     source: &str,
     bash_runtime_vars_enabled: bool,
     zsh_runtime_vars_enabled: bool,
-) -> Option<SourcePathTemplate> {
+) -> Option<ResolvedSourcePathTemplate> {
     if static_word_text(word, source).is_some() {
         return None;
     }
@@ -870,7 +870,6 @@ pub(crate) fn source_path_template(
         zsh_runtime_vars_enabled,
         |_, _| None,
     )
-    .map(|resolved| resolved.template)
 }
 
 pub(crate) fn assignment_source_path_template(
@@ -890,9 +889,9 @@ pub(crate) fn assignment_source_path_template(
     .map(|resolved| resolved.template)
 }
 
-struct ResolvedSourcePathTemplate {
-    template: SourcePathTemplate,
-    ignored_root: bool,
+pub(crate) struct ResolvedSourcePathTemplate {
+    pub(crate) template: SourcePathTemplate,
+    pub(crate) ignored_root: bool,
 }
 
 fn source_path_template_with_resolver(
@@ -1387,6 +1386,38 @@ fn source_candidates_from_template(
             }
         }
     }
+}
+
+pub(crate) fn current_file_source_candidate(
+    model: &SemanticModel,
+    source_ref: &crate::SourceRef,
+    source_path: &Path,
+) -> Option<PathBuf> {
+    if !matches!(
+        source_ref.kind,
+        SourceRefKind::Dynamic | SourceRefKind::SingleVariableStaticTail { .. }
+    ) {
+        return None;
+    }
+
+    let info = model
+        .recorded_program()
+        .command_info_for_span(source_ref.span)?;
+    if info.source_path_template_ignored_root {
+        return None;
+    }
+    let template = info.source_path_template.as_ref()?;
+    if source_template_uses_positional_args(template)
+        || !template_has_current_source_anchor(template)
+    {
+        return None;
+    }
+
+    let candidate = source_candidates_from_template(Some(template), None, source_path)
+        .into_iter()
+        .next()?;
+    let candidate = PathBuf::from(candidate);
+    candidate.is_absolute().then_some(candidate)
 }
 
 fn local_helper_command_candidate(name: &Name) -> Option<String> {
@@ -2039,6 +2070,28 @@ coproc loader { . \"$2\"; }
 
         assert_eq!(source_call_count, 2);
         assert_eq!(facts.source_templates.len(), 2);
+    }
+
+    #[test]
+    fn current_file_source_candidates_exclude_unknown_roots_and_arguments() {
+        let source_path = tempdir().unwrap().path().join("main.bash");
+        for source in [
+            "#!/bin/bash\nsource \"$ROOT$(dirname \"${BASH_SOURCE[0]}\")/helper.bash\"\n",
+            "#!/bin/bash\nsource \"$(dirname \"${BASH_SOURCE[0]}\")/$1\"\n",
+        ] {
+            let output = Parser::with_dialect(source, ShellDialect::Bash)
+                .parse()
+                .unwrap();
+            let indexer = Indexer::new(source, &output);
+            let model = SemanticModel::build(&output.file, source, &indexer);
+
+            assert_eq!(model.source_refs().len(), 1);
+            assert!(
+                current_file_source_candidate(&model, &model.source_refs()[0], &source_path)
+                    .is_none(),
+                "unexpected candidate for {source}"
+            );
+        }
     }
 
     #[test]

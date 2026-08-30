@@ -2236,6 +2236,21 @@ impl SemanticModel {
         &self.source_refs
     }
 
+    /// Returns a concrete path for a conservatively recognized source operand
+    /// anchored to the current file.
+    ///
+    /// This covers templates made only from the current Bash/Zsh source file
+    /// or directory plus literal path components. It excludes arbitrary
+    /// command substitutions, unknown roots, and positional arguments, and it
+    /// does not require the returned path to exist.
+    pub fn current_file_source_candidate(
+        &self,
+        source_ref: &SourceRef,
+        source_path: &Path,
+    ) -> Option<PathBuf> {
+        source_closure::current_file_source_candidate(self, source_ref, source_path)
+    }
+
     /// Returns whether a source operation is guaranteed to have executed in
     /// the completion point's enclosing execution scope.
     pub fn source_ref_visible_at_offset(&self, source_ref: &SourceRef, offset: usize) -> bool {

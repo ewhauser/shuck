@@ -1835,6 +1835,97 @@ fn cross_file_variable_definition_and_references_follow_static_sources() {
 }
 
 #[test]
+fn cross_file_variable_navigation_follows_current_bash_source_anchor() {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+
+    let workspace = tempfile::tempdir().expect("tempdir should be created");
+    let definition_path = workspace.path().join("definition.sh");
+    let reference_path = workspace.path().join("reference.sh");
+    std::fs::write(
+        &definition_path,
+        "#!/usr/bin/env bash\n\nexport DEFINITION=definition\n",
+    )
+    .unwrap();
+    let reference_source = "#!/usr/bin/env bash\n\n# shuck: source-path=SCRIPTDIR\nsource \"$(dirname \"${BASH_SOURCE[0]}\")/definition.sh\"\n\necho \"${DEFINITION}\"\n";
+    std::fs::write(&reference_path, reference_source).unwrap();
+
+    let definition_uri =
+        Url::from_file_path(std::fs::canonicalize(&definition_path).unwrap()).unwrap();
+    let reference_uri = Url::from_file_path(&reference_path).unwrap();
+
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": replay_capabilities(),
+            "rootUri": Url::from_file_path(workspace.path()).unwrap(),
+        }),
+    );
+    let _ = recv_response(&client_connection, 1);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("initialized should send");
+    open_document(&client_connection, &reference_uri, reference_source);
+
+    send_request(
+        &client_connection,
+        2,
+        "textDocument/definition",
+        serde_json::json!({
+            "textDocument": { "uri": reference_uri },
+            "position": { "line": 5, "character": 10 },
+        }),
+    );
+    let definition = recv_response(&client_connection, 2);
+    assert_eq!(definition["uri"], serde_json::json!(definition_uri));
+    assert_eq!(definition["range"]["start"]["line"], 2);
+
+    send_request(
+        &client_connection,
+        3,
+        "textDocument/references",
+        serde_json::json!({
+            "textDocument": { "uri": reference_uri },
+            "position": { "line": 5, "character": 10 },
+            "context": { "includeDeclaration": true },
+        }),
+    );
+    let references = recv_response(&client_connection, 3);
+    let references = references
+        .as_array()
+        .unwrap_or_else(|| panic!("expected variable locations: {references:#}"));
+    assert_eq!(references.len(), 2);
+    assert!(references.iter().any(|location| {
+        location["uri"] == serde_json::json!(definition_uri)
+            && location["range"]["start"]["line"] == 2
+    }));
+    assert!(references.iter().any(|location| {
+        location["uri"] == serde_json::json!(reference_uri)
+            && location["range"]["start"]["line"] == 5
+    }));
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("exit notification should send");
+    server_thread
+        .join()
+        .expect("server thread should join")
+        .expect("server should exit cleanly");
+}
+
+#[test]
 fn prepare_call_hierarchy_resolves_sourced_cross_file_call() {
     let (server_connection, client_connection) = Connection::memory();
     let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));

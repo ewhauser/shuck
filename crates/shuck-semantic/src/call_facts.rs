@@ -184,8 +184,9 @@ pub struct FileCallFacts {
     pub definitions: Vec<CallFactDefinition>,
     /// Call sites contained in this file.
     pub call_sites: Vec<CallFactSite>,
-    /// Resolved on-disk paths of this file's determinable source edges (literal
-    /// resolvable paths plus `source=` directive targets).
+    /// Resolved on-disk paths of this file's determinable source edges,
+    /// including literals, `source=` directive targets, and conservatively
+    /// recognized current-file anchors.
     pub source_edges: Vec<CallFactSourceEdge>,
     /// All source operations, including unresolved or conditional effects.
     pub source_effects: Vec<CallFactSourceEffect>,
