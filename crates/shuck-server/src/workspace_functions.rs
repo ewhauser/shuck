@@ -699,25 +699,31 @@ fn insert_file(
         .iter()
         .filter_map(|source_ref| {
             let scope = model.scope_at(source_ref.span.start.offset());
-            source_ref_candidate_paths(
+            let mut candidates = source_ref_candidate_paths(
                 input.path,
                 source_ref,
                 &source_paths.roots,
                 &source_paths.project_root,
-            )
-            .into_iter()
-            .map(|candidate| canonical_path(&candidate))
-            .find(|candidate| open_paths.contains(candidate) || candidate.is_file())
-            .map(|target| CallFactSourceEdge {
-                path: target,
-                span: source_ref.span,
-                conditional: source_ref.conditionally_executed,
-                completion_visible: !source_ref.conditionally_executed
-                    && model.enclosing_function_scope(scope).is_none()
-                    && model
-                        .innermost_transient_scope_within_function(scope)
-                        .is_none(),
-            })
+            );
+            if candidates.is_empty()
+                && let Some(candidate) = model.current_file_source_candidate(source_ref, input.path)
+            {
+                candidates.push(candidate);
+            }
+            candidates
+                .into_iter()
+                .map(|candidate| canonical_path(&candidate))
+                .find(|candidate| open_paths.contains(candidate) || candidate.is_file())
+                .map(|target| CallFactSourceEdge {
+                    path: target,
+                    span: source_ref.span,
+                    conditional: source_ref.conditionally_executed,
+                    completion_visible: !source_ref.conditionally_executed
+                        && model.enclosing_function_scope(scope).is_none()
+                        && model
+                            .innermost_transient_scope_within_function(scope)
+                            .is_none(),
+                })
         })
         .collect::<Vec<_>>();
     let call_facts = FileCallFacts::project_with_source_edges(&model, edges);

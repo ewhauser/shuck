@@ -375,6 +375,7 @@ pub(crate) struct RecordedCommandInfo {
     pub(crate) dynamic_name_span: Option<Span>,
     pub(crate) static_args: Box<[Option<compact_str::CompactString>]>,
     pub(crate) source_path_template: Option<SourcePathTemplate>,
+    pub(crate) source_path_template_ignored_root: bool,
     pub(crate) zsh_effects: Vec<RecordedZshCommandEffect>,
 }
 
@@ -384,6 +385,7 @@ impl RecordedCommandInfo {
             && self.dynamic_name_span.is_none()
             && self.static_args.is_empty()
             && self.source_path_template.is_none()
+            && !self.source_path_template_ignored_root
             && self.zsh_effects.is_empty()
     }
 }

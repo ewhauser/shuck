@@ -78,7 +78,7 @@ pub(super) fn recorded_simple_command_info_with(
         .then_some(normalized.body_word_span())
         .flatten();
     let static_args = recorded_static_args(command, normalized, source);
-    let source_path_template = normalized
+    let resolved_source_path_template = normalized
         .literal_name
         .as_deref()
         .filter(|name| matches!(*name, "source" | "."))
@@ -91,12 +91,17 @@ pub(super) fn recorded_simple_command_info_with(
                 zsh_runtime_vars_enabled,
             )
         });
+    let source_path_template_ignored_root = resolved_source_path_template
+        .as_ref()
+        .is_some_and(|resolved| resolved.ignored_root);
+    let source_path_template = resolved_source_path_template.map(|resolved| resolved.template);
 
     let mut info = RecordedCommandInfo {
         static_callee,
         dynamic_name_span,
         static_args,
         source_path_template,
+        source_path_template_ignored_root,
         zsh_effects: Vec::new(),
     };
     let Some(effect_command) = normalized_zsh_effect_command(normalized, source) else {
