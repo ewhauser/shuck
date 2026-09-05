@@ -4,6 +4,7 @@ pub use super::core::CommandFactRef;
 
 #[derive(Debug, Clone)]
 pub struct CommandFact<'a> {
+    pub(crate) span: Span,
     pub(crate) id: CommandId,
     pub(crate) visit: CommandVisit<'a>,
     pub(crate) nested_word_command: bool,
@@ -69,7 +70,7 @@ impl<'a> CommandFact<'a> {
     }
 
     pub fn span(&self) -> Span {
-        command_span(self.visit.command)
+        self.span
     }
 
     pub fn span_in_source(&self, source: &str) -> Span {

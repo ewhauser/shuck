@@ -290,6 +290,66 @@ pub(crate) struct ReachableCasePattern {
     matcher: StaticCasePatternMatcher,
 }
 
+/// A short literal-prefix index avoids comparing unrelated option patterns.
+/// Candidate streams are merged in insertion order so diagnostics still select
+/// the same first shadowing pattern as an exhaustive scan.
+#[derive(Default)]
+struct ReachableCasePatterns {
+    patterns: Vec<ReachableCasePattern>,
+    by_prefix: FxHashMap<(usize, [char; 4]), Vec<usize>>,
+}
+
+impl ReachableCasePatterns {
+    fn push(&mut self, pattern: ReachableCasePattern) {
+        let len = pattern.matcher.literal_prefix.len().min(4);
+        let mut prefix = ['\0'; 4];
+        prefix[..len].copy_from_slice(&pattern.matcher.literal_prefix[..len]);
+        self.by_prefix
+            .entry((len, prefix))
+            .or_default()
+            .push(self.patterns.len());
+        self.patterns.push(pattern);
+    }
+
+    fn append(&mut self, other: &mut Self) {
+        for pattern in other.patterns.drain(..) {
+            self.push(pattern);
+        }
+        other.by_prefix.clear();
+    }
+
+    fn clear(&mut self) {
+        self.patterns.clear();
+        self.by_prefix.clear();
+    }
+
+    fn candidates<'a>(
+        &'a self,
+        matcher: &StaticCasePatternMatcher,
+    ) -> impl Iterator<Item = &'a ReachableCasePattern> {
+        let mut streams: [&[usize]; 5] = std::array::from_fn(|len| -> &[usize] {
+            if len > matcher.literal_prefix.len() {
+                return &[];
+            }
+            let mut prefix = ['\0'; 4];
+            prefix[..len].copy_from_slice(&matcher.literal_prefix[..len]);
+            self.by_prefix
+                .get(&(len, prefix))
+                .map(Vec::as_slice)
+                .unwrap_or_default()
+        });
+        std::iter::from_fn(move || {
+            let (stream, index) = streams
+                .iter()
+                .enumerate()
+                .filter_map(|(stream, indices)| indices.first().map(|index| (stream, *index)))
+                .min_by_key(|(_, index)| *index)?;
+            streams[stream] = &streams[stream][1..];
+            Some(&self.patterns[index])
+        })
+    }
+}
+
 impl StaticCasePatternMatcher {
     fn from_pattern(
         pattern: &Pattern,
@@ -1110,12 +1170,12 @@ pub(crate) fn build_case_pattern_facts(
 
         let subject_matcher = StaticCasePatternMatcher::from_case_subject(&command.word, source);
 
-        let mut prior_arm_patterns = Vec::<ReachableCasePattern>::new();
-        let mut fallthrough_arm_patterns = Vec::<ReachableCasePattern>::new();
+        let mut prior_arm_patterns = ReachableCasePatterns::default();
+        let mut fallthrough_arm_patterns = ReachableCasePatterns::default();
         let mut spent_shadowing_patterns = FxHashSet::default();
 
         for item in &command.cases {
-            let mut same_item_patterns = Vec::<ReachableCasePattern>::new();
+            let mut same_item_patterns = ReachableCasePatterns::default();
 
             for pattern in &item.patterns {
                 let Some(matcher) =
@@ -1131,9 +1191,9 @@ pub(crate) fn build_case_pattern_facts(
                 }
 
                 for previous in prior_arm_patterns
-                    .iter()
-                    .chain(fallthrough_arm_patterns.iter())
-                    .chain(same_item_patterns.iter())
+                    .candidates(&matcher)
+                    .chain(fallthrough_arm_patterns.candidates(&matcher))
+                    .chain(same_item_patterns.candidates(&matcher))
                 {
                     if spent_shadowing_patterns.contains(&FactSpan::new(previous.span)) {
                         continue;
@@ -1158,10 +1218,10 @@ pub(crate) fn build_case_pattern_facts(
             match item.terminator {
                 CaseTerminator::Break => {
                     prior_arm_patterns.append(&mut fallthrough_arm_patterns);
-                    prior_arm_patterns.extend(same_item_patterns);
+                    prior_arm_patterns.append(&mut same_item_patterns);
                 }
                 CaseTerminator::FallThrough => {
-                    fallthrough_arm_patterns.extend(same_item_patterns);
+                    fallthrough_arm_patterns.append(&mut same_item_patterns);
                 }
                 CaseTerminator::Continue | CaseTerminator::ContinueMatching => {
                     fallthrough_arm_patterns.clear();
@@ -1485,4 +1545,95 @@ pub(crate) fn static_case_pattern_text(pattern: &Pattern, source: &str) -> Optio
 
 pub(crate) fn case_subject_variable_name(word: &Word) -> Option<&str> {
     standalone_variable_name_from_word_parts(&word.parts)
+}
+
+#[cfg(test)]
+mod candidate_index_tests {
+    use super::*;
+
+    fn matcher(text: &str) -> StaticCasePatternMatcher {
+        let mut tokens = CasePatternTokens::new();
+        assert!(collect_static_case_pattern_tokens(text, &mut tokens).is_some());
+        let StaticCasePatternSummary {
+            min_len,
+            max_len,
+            literal_prefix,
+            literal_suffix,
+            literal_symbols,
+            start_states,
+        } = summarize_static_case_pattern_tokens(&tokens);
+        let bit_nfa = StaticCasePatternBitNfa::new(&tokens);
+        StaticCasePatternMatcher {
+            tokens,
+            min_len,
+            max_len,
+            literal_prefix,
+            literal_suffix,
+            literal_symbols,
+            start_states,
+            bit_nfa,
+        }
+    }
+
+    #[test]
+    fn indexed_candidates_preserve_exhaustive_match_order_after_append_and_clear() {
+        let patterns = [
+            "abc",
+            "b*",
+            "*",
+            "a*",
+            "?bc",
+            "a?c",
+            "é*",
+            "abc",
+            "*bc",
+            "",
+            "--help",
+            "--h*",
+            "--version",
+            "--*",
+            "éclair",
+            "écla*",
+        ];
+        let mut indexed = ReachableCasePatterns::default();
+        for (index, text) in patterns.iter().enumerate() {
+            let mut batch = ReachableCasePatterns::default();
+            batch.push(ReachableCasePattern {
+                span: Span::default(),
+                matcher: matcher(text),
+            });
+            indexed.append(&mut batch);
+            assert!(batch.patterns.is_empty());
+            for probe in &patterns {
+                let probe = matcher(probe);
+                let expected = indexed
+                    .patterns
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, pattern)| pattern.matcher.subsumes(&probe))
+                    .map(|(i, _)| i)
+                    .collect::<Vec<_>>();
+                let actual = indexed
+                    .candidates(&probe)
+                    .filter(|pattern| pattern.matcher.subsumes(&probe))
+                    .map(|pattern| {
+                        indexed
+                            .patterns
+                            .iter()
+                            .position(|p| std::ptr::eq(p, pattern))
+                            .unwrap()
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(actual, expected, "after pattern {index}");
+            }
+        }
+        indexed.clear();
+        assert_eq!(indexed.candidates(&matcher("abc")).count(), 0);
+        indexed.push(ReachableCasePattern {
+            span: Span::default(),
+            matcher: matcher("a*"),
+        });
+        assert_eq!(indexed.candidates(&matcher("abc")).count(), 1);
+        assert_eq!(indexed.candidates(&matcher("bcd")).count(), 0);
+    }
 }

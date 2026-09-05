@@ -7,6 +7,55 @@ mod word_classification_tests {
     }
 
     #[test]
+    fn quoting_literal_scan_preserves_backslash_runs_and_unicode_whitespace() {
+        fn reference(text: &str, literal_newlines: bool) -> bool {
+            if text.contains(['"', '\'']) { return true; }
+            let mut chars = text.chars().peekable();
+            while let Some(ch) = chars.next() {
+                if ch != '\\' { continue; }
+                while chars.peek() == Some(&'\\') { chars.next(); }
+                if chars.peek().is_some_and(|next| next.is_whitespace()
+                    && (literal_newlines || !matches!(next, '\n' | '\r'))) { return true; }
+            }
+            false
+        }
+        let atoms = ["a", "é", "\\", "\n", "\r", " ", "\t", "\u{a0}", "\"", "'"];
+        for a in atoms { for b in atoms { for c in atoms {
+            let text = format!("{a}{b}{c}");
+            for literal_newlines in [false, true] {
+                let context = if literal_newlines {
+                    ShellQuotingLiteralTextContext::LiteralBackslashNewlines
+                } else { ShellQuotingLiteralTextContext::ShellContinuationAware };
+                assert_eq!(text_contains_shell_quoting_literals(&text, context),
+                    reference(&text, literal_newlines), "{text:?}");
+            }
+        } } }
+    }
+
+    #[test]
+    fn reused_expansion_buffers_do_not_leak_between_words() {
+        let source = r#"printf "$first" literal $(date) "${array[@]}" '$quoted' $last {a,b} end"#;
+        let commands = parse_commands(source);
+        let Command::Simple(command) = &commands[0].command else { panic!("simple command"); };
+        let lines = shuck_indexer::LineIndex::new(source);
+        let locator = Locator::new(source, &lines);
+        let mut reused = DerivedWordTraversalSpans::default();
+        for word in &command.args {
+            let mut actual = ListArena::new();
+            let mut expected = ListArena::new();
+            let mut scratch = Vec::new();
+            let (actual_data, actual_array) = derive_word_fact_data(word, locator,
+                shuck_semantic::ShellDialect::Bash, &mut actual, &mut scratch, &mut reused, None);
+            let (expected_data, expected_array) = derive_word_fact_data(word, locator,
+                shuck_semantic::ShellDialect::Bash, &mut expected, &mut scratch,
+                &mut DerivedWordTraversalSpans::default(), None);
+            assert_eq!(actual.as_slice(), expected.as_slice());
+            assert_eq!(format!("{actual_data:?}"), format!("{expected_data:?}"));
+            assert_eq!(actual_array, expected_array);
+        }
+    }
+
+    #[test]
     fn detects_alias_positional_parameters_with_runtime_quote_state() {
         assert!(contains_positional_parameter_reference("echo $1"));
         assert!(contains_positional_parameter_reference("echo \"${1}\""));

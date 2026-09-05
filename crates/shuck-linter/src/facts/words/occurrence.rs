@@ -1345,6 +1345,7 @@ pub(crate) struct WordFactOutputs<'out, 'a> {
     pub(crate) word_nodes: &'out mut Vec<WordNode<'a>>,
     pub(crate) word_spans: &'out mut ListArena<Span>,
     pub(crate) word_span_scratch: &'out mut Vec<Span>,
+    pub(crate) traversal_span_scratch: &'out mut DerivedWordTraversalSpans,
     pub(crate) word_node_ids_by_span: &'out mut FxHashMap<FactSpan, WordNodeId>,
     pub(crate) word_occurrences: &'out mut Vec<WordOccurrence>,
     pub(crate) pending_arithmetic_word_occurrences:
@@ -1394,6 +1395,7 @@ fn derive_word_fact_data<'a>(
     shell_dialect: shuck_semantic::ShellDialect,
     span_store: &mut ListArena<Span>,
     scratch: &mut Vec<Span>,
+    traversal_spans: &mut DerivedWordTraversalSpans,
     zsh_array_fanout: Option<ZshArrayFanoutContext<'_, '_, 'a>>,
 ) -> (WordNodeDerived<'a>, bool) {
     let source = locator.source();
@@ -1402,13 +1404,14 @@ fn derive_word_fact_data<'a>(
     let may_have_command_substitution_spans = word_may_have_command_substitution_spans(word);
     let may_have_mixed_quote_spans =
         word_may_have_unquoted_literal_between_double_quoted_segments_spans(word, source);
-    let mut traversal_spans = collect_derived_word_traversal_spans(
+    collect_derived_word_traversal_spans(
         word,
         locator,
         shell_dialect,
         may_have_runtime_expansion_spans,
         may_have_command_substitution_spans,
         zsh_array_fanout,
+        traversal_spans,
     );
 
     let has_unquoted_visible_array_reference =
@@ -1524,7 +1527,7 @@ fn derive_word_fact_data<'a>(
 }
 
 #[derive(Default)]
-struct DerivedWordTraversalSpans {
+pub(crate) struct DerivedWordTraversalSpans {
     active_expansion_spans: Vec<Span>,
     scalar_expansion_spans: Vec<Span>,
     unquoted_scalar_expansion_spans: Vec<Span>,
@@ -1542,11 +1545,12 @@ fn collect_derived_word_traversal_spans<'a>(
     may_have_runtime_expansion_spans: bool,
     may_have_command_substitution_spans: bool,
     zsh_array_fanout: Option<ZshArrayFanoutContext<'_, '_, 'a>>,
-) -> DerivedWordTraversalSpans {
-    let mut spans = DerivedWordTraversalSpans::default();
+    spans: &mut DerivedWordTraversalSpans,
+) {
+    spans.has_unquoted_visible_array_reference = false;
     if may_have_runtime_expansion_spans || may_have_command_substitution_spans {
         let mut visitor = DerivedWordTraversalVisitor {
-            spans: &mut spans,
+            spans,
             collect_runtime_expansion_spans: may_have_runtime_expansion_spans,
             collect_command_substitution_spans: may_have_command_substitution_spans,
             zsh_array_fanout,
@@ -1591,7 +1595,6 @@ fn collect_derived_word_traversal_spans<'a>(
         spans.active_expansion_spans.dedup();
     }
 
-    spans
 }
 
 struct DerivedWordTraversalVisitor<'spans, 'borrow, 'analysis, 'model> {
@@ -1936,6 +1939,7 @@ pub(crate) struct WordFactCollector<'out, 'a, 'norm> {
     word_nodes: &'out mut Vec<WordNode<'a>>,
     word_spans: &'out mut ListArena<Span>,
     word_span_scratch: &'out mut Vec<Span>,
+    pub(crate) traversal_span_scratch: &'out mut DerivedWordTraversalSpans,
     word_node_ids_by_span: &'out mut FxHashMap<FactSpan, WordNodeId>,
     word_occurrences: &'out mut Vec<WordOccurrence>,
     pending_arithmetic_word_occurrences: &'out mut Vec<PendingArithmeticWordOccurrence>,
@@ -2148,6 +2152,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             word_nodes: outputs.word_nodes,
             word_spans: outputs.word_spans,
             word_span_scratch: outputs.word_span_scratch,
+            traversal_span_scratch: outputs.traversal_span_scratch,
             word_node_ids_by_span: outputs.word_node_ids_by_span,
             word_occurrences: outputs.word_occurrences,
             pending_arithmetic_word_occurrences: outputs.pending_arithmetic_word_occurrences,
@@ -3164,6 +3169,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             self.command_shell_behavior.shell_dialect(),
             self.word_spans,
             self.word_span_scratch,
+            self.traversal_span_scratch,
             zsh_array_fanout,
         );
         apply_zsh_array_fanout(has_unquoted_visible_array_reference, &mut analysis);
@@ -3228,13 +3234,17 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             | WordFactContext::ParameterOperand => None,
         };
         self.word_span_scratch.clear();
-        collect_split_sensitive_unquoted_command_substitution_spans(
-            word,
-            self.source,
-            &self.command_shell_behavior,
-            self.word_span_scratch,
-        );
-        word_spans::normalize_command_substitution_spans(self.word_span_scratch, self.locator);
+        if !self.word_nodes[node_id.index()]
+            .derived.unquoted_command_substitution_spans.is_empty()
+        {
+            collect_split_sensitive_unquoted_command_substitution_spans(
+                word,
+                self.source,
+                &self.command_shell_behavior,
+                self.word_span_scratch,
+            );
+            word_spans::normalize_command_substitution_spans(self.word_span_scratch, self.locator);
+        }
         let split_sensitive_unquoted_command_substitution_spans =
             self.word_spans.push_many(self.word_span_scratch.drain(..));
         let id = WordOccurrenceId::new(self.word_occurrences.len());
