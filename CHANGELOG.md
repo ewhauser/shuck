@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/ewhauser/shuck/compare/v0.2.1...v0.2.2) (2026-09-05)
+
+
+### Performance
+
+* **linter:** reduce repeated fact construction work ([#1279](https://github.com/ewhauser/shuck/issues/1279)) ([d39e459](https://github.com/ewhauser/shuck/commit/d39e45979bc8e3c49fbcb191b331d400c6867403))
+
 ## [0.2.1](https://github.com/ewhauser/shuck/compare/v0.2.0...v0.2.1) (2026-08-30)
 
 
