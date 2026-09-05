@@ -1503,14 +1503,14 @@ pub(crate) fn collect_arithmetic_update_operator_spans_in_assignment(
         source,
         spans,
     );
-    let target_is_contextual_assoc =
-        var_ref_name_has_visible_assoc_binding_at(&assignment.target, semantic, scope);
 
     match &assignment.value {
         AssignmentValue::Scalar(word) => {
             collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
         }
         AssignmentValue::Compound(array) => {
+            let target_is_contextual_assoc = array.kind == ArrayKind::Contextual
+                && var_ref_name_has_visible_assoc_binding_at(&assignment.target, semantic, scope);
             for element in &array.elements {
                 match element {
                     ArrayElem::Sequential(word) => {

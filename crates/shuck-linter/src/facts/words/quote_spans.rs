@@ -874,33 +874,19 @@ pub(crate) fn text_contains_shell_quoting_literals(
     text: &str,
     context: ShellQuotingLiteralTextContext,
 ) -> bool {
-    if text.contains(['"', '\'']) {
+    if text.contains('"') || text.contains('\'') {
         return true;
     }
 
-    let mut chars = text.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch != '\\' {
-            continue;
-        }
-
-        while chars.peek().is_some_and(|next| *next == '\\') {
-            chars.next();
-        }
-
-        if chars.peek().is_some_and(|next| {
-            matches!(next, '"' | '\'')
-                || (next.is_whitespace()
-                    && (matches!(
-                        context,
-                        ShellQuotingLiteralTextContext::LiteralBackslashNewlines
-                    ) || !matches!(next, '\n' | '\r')))
-        }) {
-            return true;
-        }
-    }
-
-    false
+    // Only the character after the last backslash in a run can match.
+    // Searching for the ASCII delimiter skips ordinary UTF-8 text in bulk.
+    text.match_indices('\\').any(|(offset, _)| {
+        text[offset + 1..].chars().next().is_some_and(|next| {
+            next.is_whitespace()
+                && (matches!(context, ShellQuotingLiteralTextContext::LiteralBackslashNewlines)
+                    || !matches!(next, '\n' | '\r'))
+        })
+    })
 }
 
 

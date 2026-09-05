@@ -221,6 +221,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let mut word_nodes = Vec::with_capacity(capacity.word_nodes);
         let mut word_spans = ListArena::with_capacity(capacity.word_nodes.saturating_mul(2));
         let mut word_span_scratch = Vec::new();
+        let mut traversal_span_scratch = DerivedWordTraversalSpans::default();
         let mut word_node_ids_by_span =
             FxHashMap::with_capacity_and_hasher(capacity.word_nodes, Default::default());
         let mut word_occurrences = Vec::with_capacity(capacity.word_occurrences);
@@ -273,7 +274,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             else {
                 continue;
             };
-            let key = FactSpan::new(command_span(visit.command));
+            let key = FactSpan::new(context.syntax_span());
             debug_assert_eq!(context.syntax_span(), command_span(visit.command));
             debug_assert_eq!(
                 context.kind(),
@@ -323,7 +324,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 &mut ifs_literal_backslash_assignment_value_spans,
             );
             let normalized = command::normalize_command(visit.command, self.source);
-            let command_start_offset = command_span(visit.command).start.offset();
+            let command_start_offset = context.syntax_span().start.offset();
             let scope = context.scope();
             let command_shell_behavior =
                 effective_command_shell_behavior(self.semantic, command_start_offset, &normalized);
@@ -350,6 +351,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                     word_nodes: &mut word_nodes,
                     word_spans: &mut word_spans,
                     word_span_scratch: &mut word_span_scratch,
+                    traversal_span_scratch: &mut traversal_span_scratch,
                     word_node_ids_by_span: &mut word_node_ids_by_span,
                     word_occurrences: &mut word_occurrences,
                     pending_arithmetic_word_occurrences: &mut pending_arithmetic_word_occurrences,
@@ -446,10 +448,11 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             let simple_test = build_simple_test_fact(visit.command, self.source);
             let conditional_expression_visits = self
                 .semantic_artifacts
-                .conditional_expression_visits(command_span(visit.command));
+                .conditional_expression_visits(context.syntax_span());
             let conditional = build_conditional_fact(conditional_expression_visits, self.source);
             let enclosing_function_scope = self.semantic.enclosing_function_scope(scope);
             let command_fact = CommandFact {
+                span: context.syntax_span(),
                 id,
                 visit,
                 nested_word_command,

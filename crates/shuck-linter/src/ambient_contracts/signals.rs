@@ -10,24 +10,28 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use super::source_scan::{code_before_shell_comment, parse_shell_name_at};
 
 pub(super) struct AmbientSignals<'a> {
-    source: SourceSignals<'a>,
+    source: &'a str,
+    source_signals: OnceLock<SourceSignals<'a>>,
     path: Option<PathSignals>,
 }
 
 impl<'a> AmbientSignals<'a> {
     pub(super) fn new(source: &'a str, path: Option<&Path>) -> Self {
         Self {
-            source: SourceSignals::new(source),
+            source,
+            source_signals: OnceLock::new(),
             path: path.map(PathSignals::new),
         }
     }
 
     pub(super) fn source(&self) -> &SourceSignals<'a> {
-        &self.source
+        self.source_signals
+            .get_or_init(|| SourceSignals::new(self.source))
     }
 
     pub(super) fn path(&self) -> Option<&PathSignals> {

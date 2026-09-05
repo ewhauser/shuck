@@ -57,6 +57,8 @@ pub struct IndexedHeredoc {
 /// logic at the call site.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegionIndex {
+    // Disjoint union for boolean quote queries; original ranges retain nesting.
+    quoted_coverage: Vec<TextRange>,
     single_quoted: Vec<TextRange>,
     double_quoted: Vec<TextRange>,
     heredocs: Vec<TextRange>,
@@ -151,9 +153,10 @@ impl RegionIndex {
     /// This includes single quotes, double quotes, and bodies of heredocs whose
     /// delimiter was quoted.
     pub fn is_quoted(&self, offset: TextSize) -> bool {
-        contains_any(&self.single_quoted, offset)
-            || contains_any(&self.double_quoted, offset)
-            || contains_any(&self.quoted_heredocs, offset)
+        let index = self
+            .quoted_coverage
+            .partition_point(|range| range.start() <= offset);
+        index > 0 && contains(self.quoted_coverage[index - 1], offset)
     }
 
     /// Return whether `offset` falls inside any heredoc body.
@@ -385,7 +388,29 @@ impl<'a> RegionCollector<'a> {
             (region.range.start().to_u32(), region.range.end().to_u32())
         });
 
+        let mut quoted_coverage = self
+            .single_quoted
+            .iter()
+            .chain(&self.double_quoted)
+            .chain(&self.quoted_heredocs)
+            .copied()
+            .collect::<Vec<_>>();
+        sort_ranges(&mut quoted_coverage);
+        let mut merged = 0usize;
+        for index in 0..quoted_coverage.len() {
+            let range = quoted_coverage[index];
+            if merged > 0 && range.start() <= quoted_coverage[merged - 1].end() {
+                let previous = &mut quoted_coverage[merged - 1];
+                *previous = TextRange::new(previous.start(), previous.end().max(range.end()));
+            } else {
+                quoted_coverage[merged] = range;
+                merged += 1;
+            }
+        }
+        quoted_coverage.truncate(merged);
+
         RegionIndex {
+            quoted_coverage,
             single_quoted: self.single_quoted,
             double_quoted: self.double_quoted,
             heredocs: self.heredocs,
@@ -1622,6 +1647,27 @@ mod tests {
     fn regions_with_source_layout_indexes(source: &str) -> RegionIndex {
         let output = Parser::new(source).parse().unwrap();
         RegionIndex::with_source_layout_indexes(source, &output.file)
+    }
+
+    #[test]
+    fn quote_coverage_matches_nested_ranges_at_every_byte() {
+        for source in [
+            "echo 'plain' \"outer $(echo 'inner') end\" tail\n",
+            "cat <<'EOF'\nquoted $text\nEOF\necho \"tail\"\n",
+            "echo \"é $(printf \"%s\" \"nested\")\" '' outside\n",
+        ] {
+            let index = regions(source);
+            for byte in 0..=source.len() {
+                let offset = TextSize::new(byte as u32);
+                let expected = index
+                    .single_quoted
+                    .iter()
+                    .chain(&index.double_quoted)
+                    .chain(&index.quoted_heredocs)
+                    .any(|range| contains(*range, offset));
+                assert_eq!(index.is_quoted(offset), expected, "{source:?} at {byte}");
+            }
+        }
     }
 
     #[test]
