@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.2](https://github.com/ewhauser/shuck/compare/v0.2.1...v0.2.2) (2026-09-09)
+
+
+### Bug Fixes
+
+* **deps:** update dependency next to v16.3.3 [security] ([#1284](https://github.com/ewhauser/shuck/issues/1284)) ([30814cd](https://github.com/ewhauser/shuck/commit/30814cdcb189e7d4b238f0c36701fbb31a78de38))
+* **server:** preserve local function definitions ([#1285](https://github.com/ewhauser/shuck/issues/1285)) ([33096c7](https://github.com/ewhauser/shuck/commit/33096c77f325c4d94667aabade70b38e83d22c9b))
+
+
+### Performance
+
+* **linter:** reduce repeated fact construction work ([#1279](https://github.com/ewhauser/shuck/issues/1279)) ([d39e459](https://github.com/ewhauser/shuck/commit/d39e45979bc8e3c49fbcb191b331d400c6867403))
+
 ## [0.2.1](https://github.com/ewhauser/shuck/compare/v0.2.0...v0.2.1) (2026-08-30)
 
 
