@@ -968,6 +968,67 @@ fn document_links_follow_sources_with_utf32_positions() {
 }
 
 #[test]
+fn local_function_definition_survives_unrelated_dynamic_command_dispatch() {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+
+    let workspace = tempfile::tempdir().expect("tempdir should be created");
+    let script_path = workspace.path().join("script.sh");
+    let source = "#!/bin/sh\n\n# shellcheck shell=bash\n# execute script with bash (shebang line is /bin/sh for portability)\n\nGIT_PROGRAM=git\n\nfunction alt() {\n    [ \"$(config --bool yadm.alt-copy)\" == \"true\" ] && echo true\n}\n\nfunction config() {\n    \"$GIT_PROGRAM\" config\n}\n";
+    std::fs::write(&script_path, source).unwrap();
+    let script_uri = Url::from_file_path(&script_path).unwrap();
+
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": replay_capabilities(),
+            "rootUri": Url::from_file_path(workspace.path()).unwrap(),
+        }),
+    );
+    let _ = recv_response(&client_connection, 1);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("initialized should send");
+    open_document(&client_connection, &script_uri, source);
+
+    send_request(
+        &client_connection,
+        2,
+        "textDocument/definition",
+        serde_json::json!({
+            "textDocument": { "uri": script_uri },
+            "position": { "line": 8, "character": 10 },
+        }),
+    );
+    let definition = recv_response(&client_connection, 2);
+    assert_eq!(definition["uri"], serde_json::json!(script_uri));
+    assert_eq!(
+        definition["range"]["start"],
+        serde_json::json!({ "line": 11, "character": 0 })
+    );
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("exit notification should send");
+    server_thread
+        .join()
+        .expect("server thread should join")
+        .expect("server should exit cleanly");
+}
+
+#[test]
 fn cross_file_definition_uses_exact_workspace_binding_and_open_buffers() {
     let (server_connection, client_connection) = Connection::memory();
     let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));

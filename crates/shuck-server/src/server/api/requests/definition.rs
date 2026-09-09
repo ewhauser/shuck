@@ -88,6 +88,12 @@ fn definition(
     let workspace_variable = variable_target(analysis.semantic(), &target);
     match target {
         EditorSymbolTarget::FunctionCall(call) => {
+            // Without a source operation, the document-local semantic answer is
+            // exact. Avoid letting unrelated dynamic command dispatch make the
+            // more conservative workspace call graph discard that answer.
+            if analysis.semantic().source_refs().is_empty() {
+                return editor_features::definition(snapshot, client, params);
+            }
             let Some(index) = workspace_function_index(&workspace) else {
                 return Ok(None);
             };
