@@ -2985,9 +2985,10 @@ fn shellcheck_source_path_comment_resolves_relative_and_script_dir_sources() {
         ],
     );
     let stdout = stdout_string(&output);
-    assert!(
-        !stdout.contains("C003"),
-        "source comments should resolve both files: {stdout}"
+    assert_eq!(
+        stdout.matches("C003").count(),
+        2,
+        "source-path comments do not mark files as explicit inputs: {stdout}"
     );
     assert!(
         !stdout.contains("C002"),

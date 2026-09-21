@@ -304,10 +304,7 @@ fn collect_source_closure_contracts_with_cache(
         // provided (silencing the untracked-source diagnostic) even when the
         // target is not part of the analyzed set. `# shellcheck source=` keeps
         // ShellCheck's not-specified-as-input semantics and is not silenced here.
-        if resolved
-            && (source_ref.has_shuck_directive()
-                || (source_ref.directive.is_none() && !source_ref.source_paths.is_empty()))
-        {
+        if resolved && source_ref.has_shuck_directive() {
             explicit = true;
         }
         let trust_provided_bindings =
