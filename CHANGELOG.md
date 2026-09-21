@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/ewhauser/shuck/compare/v0.2.2...v0.2.3) (2026-09-21)
+
+
+### Features
+
+* **semantic:** support ShellCheck source-path comments ([#1294](https://github.com/ewhauser/shuck/issues/1294)) ([5ae970a](https://github.com/ewhauser/shuck/commit/5ae970a55cf365eae32aed98c021a96cc70415f6))
+
 ## [0.2.2](https://github.com/ewhauser/shuck/compare/v0.2.1...v0.2.2) (2026-09-09)
 
 
