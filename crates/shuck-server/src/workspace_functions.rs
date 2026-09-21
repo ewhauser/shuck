@@ -1015,6 +1015,32 @@ mod tests {
         assert_eq!(resolved.path, target_path);
     }
 
+    #[test]
+    fn shellcheck_source_path_comment_links_script_dir_source() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let workspace = std::fs::canonicalize(tempdir.path()).unwrap();
+        let caller_path = workspace.join("caller.sh");
+        let target_path = workspace.join("helper.sh");
+        std::fs::write(&target_path, "helper() { :; }\n").unwrap();
+        let source = "#!/bin/sh\n# shellcheck source-path=SCRIPTDIR\n. \"$(dirname \"$0\")/helper.sh\"\nhelper\n";
+        let mut context = context_for(&workspace, 100);
+        context.open_documents = vec![WorkspaceOpenDocument {
+            uri: types::Url::from_file_path(&caller_path).unwrap(),
+            document: Arc::new(
+                TextDocument::new(source.to_owned(), 1).with_language_id("shellscript"),
+            ),
+        }];
+
+        let built = WorkspaceFunctionIndex::build(&context).unwrap();
+        let caller_facts = built
+            .graph
+            .files()
+            .find_map(|(path, facts)| (path == caller_path).then_some(facts))
+            .unwrap();
+        assert_eq!(caller_facts.source_edges.len(), 1);
+        assert_eq!(caller_facts.source_edges[0].path, target_path);
+    }
+
     #[cfg(unix)]
     #[test]
     fn open_unsaved_source_target_resolves_through_symlinked_workspace_root() {

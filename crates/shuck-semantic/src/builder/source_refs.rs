@@ -22,7 +22,23 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             return (SourceRefKind::Literal(text.as_ref().into()), None, None);
         }
 
+        if self
+            .source_paths_for_line(line)
+            .iter()
+            .any(|root| root == "SCRIPTDIR")
+            && let Some(path) = script_dir_source_tail(word.span.slice(self.source))
+        {
+            return (SourceRefKind::Literal(path.into()), None, None);
+        }
+
         (classify_dynamic_source_word(word, self.source), None, None)
+    }
+
+    pub(super) fn source_paths_for_line(&self, line: usize) -> Vec<String> {
+        self.source_path_directives
+            .range(..line)
+            .map(|(_, root)| root.clone())
+            .collect()
     }
 
     pub(super) fn source_directive_for_line(
@@ -64,4 +80,25 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             _ => None,
         }
     }
+}
+
+fn script_dir_source_tail(operand: &str) -> Option<&str> {
+    let operand = operand.strip_prefix('"')?.strip_suffix('"')?;
+    let tail = [
+        "$(dirname \"$0\")/",
+        "$(dirname \"${0}\")/",
+        "$(dirname $0)/",
+        "$(dirname ${0})/",
+    ]
+    .iter()
+    .find_map(|prefix| operand.strip_prefix(prefix))?;
+    (!tail.is_empty()
+        && !tail.bytes().any(|byte| {
+            byte.is_ascii_whitespace()
+                || matches!(
+                    byte,
+                    b'$' | b'`' | b'\\' | b'\'' | b'"' | b'*' | b'?' | b'[' | b']'
+                )
+        }))
+    .then_some(tail)
 }

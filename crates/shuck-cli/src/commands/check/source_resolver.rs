@@ -41,6 +41,10 @@ impl SourcePathResolver for NativeSourceResolver {
             &self.cwd,
         )
     }
+
+    fn source_root_base(&self) -> Option<PathBuf> {
+        Some(self.cwd.clone())
+    }
 }
 
 /// Resolves a source reference to its on-disk target, using the annotating

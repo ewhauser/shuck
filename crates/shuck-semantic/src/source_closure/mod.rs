@@ -213,10 +213,11 @@ pub(crate) fn collect_source_ref_metadata(
             facts.source_templates.get(&SpanKey::new(source_ref.span)),
         );
         let candidates = source_candidates(
-            &source_ref.kind,
+            source_ref,
             template.as_ref(),
             call_args_by_scope.get(&scope).map(Vec::as_slice),
             source_path,
+            &context,
         );
         let (resolved, mut explicit) =
             source_ref_metadata_for_candidates(source_path, candidates, &context);
@@ -281,10 +282,11 @@ fn collect_source_closure_contracts_with_cache(
             facts.source_templates.get(&SpanKey::new(source_ref.span)),
         );
         let candidates = source_candidates(
-            &source_ref.kind,
+            source_ref,
             template.as_ref(),
             call_args_by_scope.get(&scope).map(Vec::as_slice),
             source_path,
+            context,
         );
 
         let (contract, resolved, mut explicit) =
@@ -302,7 +304,10 @@ fn collect_source_closure_contracts_with_cache(
         // provided (silencing the untracked-source diagnostic) even when the
         // target is not part of the analyzed set. `# shellcheck source=` keeps
         // ShellCheck's not-specified-as-input semantics and is not silenced here.
-        if resolved && source_ref.has_shuck_directive() {
+        if resolved
+            && (source_ref.has_shuck_directive()
+                || (source_ref.directive.is_none() && !source_ref.source_paths.is_empty()))
+        {
             explicit = true;
         }
         let trust_provided_bindings =
@@ -1348,18 +1353,44 @@ fn is_current_source_part(part: &WordPart, source: &str) -> bool {
 }
 
 fn source_candidates(
-    kind: &SourceRefKind,
+    source_ref: &crate::SourceRef,
     template: Option<&SourcePathTemplate>,
     call_args: Option<&[Vec<Option<compact_str::CompactString>>]>,
     source_path: &Path,
+    context: &SourceClosureLookupContext<'_>,
 ) -> Vec<String> {
-    match kind {
+    let candidates = match &source_ref.kind {
         SourceRefKind::DirectiveDevNull => Vec::new(),
         SourceRefKind::Literal(path) | SourceRefKind::Directive(path) => vec![path.to_string()],
         SourceRefKind::Dynamic | SourceRefKind::SingleVariableStaticTail { .. } => {
             source_candidates_from_template(template, call_args, source_path)
         }
+    };
+    if source_ref.source_paths.is_empty() {
+        return candidates;
     }
+    let root_base = source_root_base(context);
+    candidates
+        .into_iter()
+        .map(|candidate| {
+            crate::resolve_candidate_targets(
+                source_path,
+                &candidate,
+                &source_ref.source_paths,
+                &root_base,
+            )
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or(candidate)
+        })
+        .collect()
+}
+
+fn source_root_base(context: &SourceClosureLookupContext<'_>) -> PathBuf {
+    context
+        .source_path_resolver
+        .and_then(SourcePathResolver::source_root_base)
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_default()
 }
 
 fn source_candidates_from_template(

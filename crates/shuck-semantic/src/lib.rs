@@ -521,6 +521,11 @@ pub trait SourcePathResolver {
     /// Returning an empty vector leaves the source unresolved. Candidates are evaluated by the
     /// semantic source-closure builder in the order returned.
     fn resolve_candidate_paths(&self, source_path: &Path, candidate: &str) -> Vec<PathBuf>;
+
+    /// Base directory for relative source search roots in script comments.
+    fn source_root_base(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 impl<F> SourcePathResolver for F

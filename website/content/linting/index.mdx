@@ -66,6 +66,17 @@ per-file-ignores = { "vendor/**" = ["ALL"] }
 
 Use [Rules](/docs/rules) to browse the rule catalog and [Configuration](/docs/configuration) for the full selection model.
 
+## Sourced files
+
+Shuck looks for a sourced file next to the script first, then in configured `[lint] source-paths` directories. A ShellCheck-style comment can add search roots for later `source` or `.` commands in the same file:
+
+```bash
+# shellcheck source-path=SCRIPTDIR
+. "$(dirname "$0")/helper.sh"
+```
+
+`SCRIPTDIR` means the directory containing the script being analyzed. Repeated `source-path=` comments add roots in order. Other relative roots are resolved from the working directory. The shown `$0` form is recognized when `SCRIPTDIR` is declared; arbitrary dynamic source paths still need an explicit `# shuck: source=helper.sh` hint.
+
 ## Fixes and ignore comments
 
 Run safe fixes with `--fix`:

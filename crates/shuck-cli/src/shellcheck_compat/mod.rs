@@ -1027,6 +1027,10 @@ impl shuck_semantic::SourcePathResolver for CompatSourceResolver {
         }
         resolved
     }
+
+    fn source_root_base(&self) -> Option<PathBuf> {
+        Some(self.cwd.clone())
+    }
 }
 
 fn map_diagnostic(
