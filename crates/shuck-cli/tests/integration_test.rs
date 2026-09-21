@@ -2962,6 +2962,41 @@ fn source_paths_config_resolves_directive_targets_against_roots() {
 }
 
 #[test]
+fn shellcheck_source_path_comment_resolves_relative_and_script_dir_sources() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join("lib")).unwrap();
+    fs::create_dir_all(tempdir.path().join("scripts")).unwrap();
+    fs::write(tempdir.path().join("lib/shared.sh"), "SHARED=ready\n").unwrap();
+    fs::write(tempdir.path().join("scripts/local.sh"), "LOCAL=ready\n").unwrap();
+    fs::write(
+        tempdir.path().join("scripts/main.sh"),
+        "#!/bin/sh\n# shellcheck source-path=lib\n. shared.sh\n# shellcheck source-path=SCRIPTDIR\n. \"$(dirname \"$0\")/local.sh\"\necho \"$SHARED $LOCAL\"\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(
+        tempdir.path(),
+        &[
+            "check",
+            "--no-cache",
+            "--output-format",
+            "concise",
+            "scripts/main.sh",
+        ],
+    );
+    let stdout = stdout_string(&output);
+    assert_eq!(
+        stdout.matches("C003").count(),
+        2,
+        "source-path comments do not mark files as explicit inputs: {stdout}"
+    );
+    assert!(
+        !stdout.contains("C002"),
+        "the script directory anchor should be known: {stdout}"
+    );
+}
+
+#[test]
 fn directive_target_next_to_script_shadows_configured_root_match() {
     // The same target name exists both next to the annotating script and
     // under a configured source root; the local match must win, and only

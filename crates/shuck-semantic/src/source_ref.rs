@@ -44,6 +44,8 @@ pub enum SourceRefDiagnosticClass {
 pub struct SourceRef {
     /// Syntactic shape of the referenced path.
     pub kind: SourceRefKind,
+    /// Search roots supplied by preceding `# shellcheck source-path=` comments.
+    pub source_paths: Vec<String>,
     /// Span of the full `source` command or relevant operand.
     pub span: Span,
     /// Span of the path-like portion being resolved.

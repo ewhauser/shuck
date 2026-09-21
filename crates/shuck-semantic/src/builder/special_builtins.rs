@@ -209,6 +209,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                             &kind,
                         ),
                         kind,
+                        source_paths: self.source_paths_for_line(command_span.line()),
                         span: source_span,
                         path_span: argument.span,
                         directive_path_span,

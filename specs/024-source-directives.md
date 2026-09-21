@@ -12,6 +12,9 @@ Implemented.
   honors nested `lint=true` directives inside it transitively.
 - `[lint] source-paths` adds project-root-relative search roots; `[lint]
   lint-sources = false` downgrades `lint=true` to symbol import only.
+- `# shellcheck source-path=ROOT` adds a search root for following source
+  commands in the script; multiple comments accumulate. `SCRIPTDIR` is the
+  script's own directory, and relative roots use the working directory.
 - Target resolution is first-match-wins: the annotating file's own directory,
   then the configured roots in order. A directive names one intended file.
 

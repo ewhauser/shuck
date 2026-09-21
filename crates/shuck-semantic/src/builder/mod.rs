@@ -105,6 +105,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'idx, 'observer> {
     command_bindings: FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
     command_references: FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
     source_directives: BTreeMap<usize, SourceDirectiveOverride>,
+    source_path_directives: BTreeMap<usize, String>,
     cleared_variables: FxHashMap<(ScopeId, Name), SmallVec<[usize; 2]>>,
     runtime: RuntimePrelude,
     completed_scopes: FxHashSet<ScopeId>,
@@ -270,6 +271,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             command_bindings: FxHashMap::default(),
             command_references: FxHashMap::default(),
             source_directives: parse_source_directives(source, indexer),
+            source_path_directives: parse_source_path_directives(source, indexer),
             cleared_variables: FxHashMap::default(),
             runtime,
             completed_scopes: FxHashSet::default(),
@@ -2067,6 +2069,27 @@ fn parse_source_directives(
         }
 
         previous_comment_line = Some(comment.line);
+    }
+    directives
+}
+
+fn parse_source_path_directives(source: &str, indexer: &Indexer) -> BTreeMap<usize, String> {
+    let mut directives = BTreeMap::new();
+    for comment in indexer.comment_index().comments() {
+        if !comment.is_own_line {
+            continue;
+        }
+        let text = comment.range.slice(source).trim_start_matches('#').trim();
+        let Some(rest) = text.strip_prefix("shellcheck ") else {
+            continue;
+        };
+        if let Some(root) = rest
+            .split_whitespace()
+            .find_map(|part| part.strip_prefix("source-path="))
+            .filter(|root| !root.is_empty())
+        {
+            directives.insert(comment.line, root.to_owned());
+        }
     }
     directives
 }

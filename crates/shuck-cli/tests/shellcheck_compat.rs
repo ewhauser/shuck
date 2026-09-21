@@ -422,6 +422,41 @@ fn compat_check_sourced_reports_resolved_source_diagnostics() {
 }
 
 #[test]
+fn compat_source_path_comment_respects_external_sources_setting() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("helper.sh"), "foo=ready\n").unwrap();
+    fs::write(
+        tempdir.path().join("main.sh"),
+        "#!/bin/sh\n# shellcheck source-path=SCRIPTDIR\n. \"$(dirname \"$0\")/helper.sh\"\nprintf '%s\\n' \"$foo\"\n",
+    )
+    .unwrap();
+
+    let without_external = run_compat(
+        &["--norc", "--include=SC1091", "-f", "json1", "main.sh"],
+        tempdir.path(),
+    );
+    assert!(has_comment(
+        &json1_comments(&without_external),
+        "main.sh",
+        1091
+    ));
+
+    let with_external = run_compat(
+        &[
+            "--norc",
+            "-x",
+            "--include=SC1091,SC2154",
+            "-f",
+            "json1",
+            "main.sh",
+        ],
+        tempdir.path(),
+    );
+    assert_eq!(with_external.status.code(), Some(0));
+    assert!(json1_comments(&with_external).is_empty());
+}
+
+#[test]
 fn compat_external_sources_controls_c001_source_closure() {
     let tempdir = tempdir().unwrap();
     fs::write(

@@ -51,7 +51,11 @@ pub fn source_ref_candidate_paths(
         | SourceRefKind::Dynamic
         | SourceRefKind::SingleVariableStaticTail { .. } => return Vec::new(),
     };
-    candidate_paths(source_path, candidate, roots, root_base)
+    let directive_roots = source_ref.source_paths.iter().cloned();
+    let roots = directive_roots
+        .chain(roots.iter().cloned())
+        .collect::<Vec<_>>();
+    candidate_paths(source_path, candidate, &roots, root_base)
 }
 
 /// Resolves a raw candidate path to the first existing on-disk file in
@@ -210,6 +214,7 @@ mod tests {
         fs::write(base.join("lib/util.sh"), "").unwrap();
         let source_ref = SourceRef {
             kind: SourceRefKind::Directive("util.sh".into()),
+            source_paths: Vec::new(),
             span: Default::default(),
             path_span: Default::default(),
             directive_path_span: None,

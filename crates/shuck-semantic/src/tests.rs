@@ -2965,6 +2965,26 @@ fn command_substitution_roots_with_static_path_tails_are_untracked_source_refs()
 }
 
 #[test]
+fn shellcheck_source_path_directive_supplies_script_directory_for_zero_anchor() {
+    let source = "#!/bin/sh\n# shellcheck source-path=SCRIPTDIR\n. \"$(dirname \"$0\")/foo.sh\"\n";
+    let model = model(source);
+    let reference = &model.source_refs()[0];
+    assert_eq!(reference.kind, SourceRefKind::Literal("foo.sh".into()));
+    assert_eq!(reference.source_paths, vec!["SCRIPTDIR"]);
+}
+
+#[test]
+fn shellcheck_source_path_directives_accumulate_before_source_commands() {
+    let source = "#!/bin/sh\n. foo.sh\n# shellcheck source-path=lib\n# shellcheck source-path=SCRIPTDIR\n. foo.sh\n";
+    let model = model(source);
+    assert!(model.source_refs()[0].source_paths.is_empty());
+    assert_eq!(
+        model.source_refs()[1].source_paths,
+        vec!["lib", "SCRIPTDIR"]
+    );
+}
+
+#[test]
 fn literal_leading_backslashes_do_not_create_source_refs() {
     for source in [
         "#!/bin/bash\n\"\\\\.\" \"$rvm_environments_path/$1\"\n",
