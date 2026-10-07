@@ -186,7 +186,7 @@ LSP-only work:
 - completion candidate lists;
 - hover presentation strings;
 - rename sets;
-- range-formatting statement expansion summaries.
+- range-formatting text edit generation.
 
 LSP-only work lives in `shuck-server` unless there is a clear semantic
 ownership reason to place a lazy query in `shuck-semantic`. Any lazy semantic

@@ -1,6 +1,6 @@
 use anyhow::Error;
 use lsp_types as types;
-use shuck_ast::{Command, CompoundCommand, Span, Stmt, StmtSeq, TextRange};
+use shuck_ast::TextRange;
 use shuck_formatter::FormattedSource;
 
 use crate::edit::RangeExt;
@@ -67,25 +67,21 @@ pub(crate) fn format_range(
     let requested = params
         .range
         .to_text_range(source, analysis.line_index(), snapshot.encoding());
-    let Some(statement_span) =
-        smallest_statement_span_containing(&analysis.parse_result().file.body, requested)
-    else {
-        return Ok(None);
-    };
-    let statement_range = statement_span.to_range();
-    let statement_source =
-        &source[usize::from(statement_range.start())..usize::from(statement_range.end())];
-    let formatted = shuck_formatter::format_source(
-        statement_source,
+    let Some(formatted_range) = shuck_formatter::format_range(
+        source,
+        requested,
         file_path.as_deref(),
         snapshot.shuck_settings().formatter(),
     )
-    .map_err(Error::new)?;
+    .map_err(Error::new)?
+    else {
+        return Ok(None);
+    };
 
     Ok(Some(format_response_for_range(
         source,
-        statement_range,
-        formatted,
+        formatted_range.range,
+        formatted_range.formatted,
         analysis.line_index(),
         snapshot.encoding(),
     )))
@@ -106,108 +102,6 @@ fn format_response_for_range(
         .into_iter()
         .collect(),
     }
-}
-
-fn smallest_statement_span_containing(body: &StmtSeq, range: TextRange) -> Option<Span> {
-    let mut best = None;
-    collect_statement_span(body, range, &mut best);
-    best
-}
-
-fn collect_statement_span(body: &StmtSeq, range: TextRange, best: &mut Option<Span>) {
-    for stmt in body.as_slice() {
-        if !span_contains_text_range(stmt.span, range) {
-            continue;
-        }
-        record_smaller_span(best, stmt.span);
-        collect_nested_statement_spans(stmt, range, best);
-    }
-}
-
-fn collect_nested_statement_spans(stmt: &Stmt, range: TextRange, best: &mut Option<Span>) {
-    match &stmt.command {
-        Command::Binary(command) => {
-            collect_nested_statement_spans(&command.left, range, best);
-            collect_nested_statement_spans(&command.right, range, best);
-        }
-        Command::Compound(command) => collect_compound_statement_spans(command, range, best),
-        Command::Function(command) => collect_nested_statement_spans(&command.body, range, best),
-        Command::AnonymousFunction(command) => {
-            collect_nested_statement_spans(&command.body, range, best);
-        }
-        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
-    }
-}
-
-fn collect_compound_statement_spans(
-    command: &CompoundCommand,
-    range: TextRange,
-    best: &mut Option<Span>,
-) {
-    match command {
-        CompoundCommand::If(command) => {
-            collect_statement_span(&command.condition, range, best);
-            collect_statement_span(&command.then_branch, range, best);
-            for (condition, body) in &command.elif_branches {
-                collect_statement_span(condition, range, best);
-                collect_statement_span(body, range, best);
-            }
-            if let Some(body) = &command.else_branch {
-                collect_statement_span(body, range, best);
-            }
-        }
-        CompoundCommand::For(command) => collect_statement_span(&command.body, range, best),
-        CompoundCommand::Repeat(command) => collect_statement_span(&command.body, range, best),
-        CompoundCommand::Foreach(command) => collect_statement_span(&command.body, range, best),
-        CompoundCommand::ArithmeticFor(command) => {
-            collect_statement_span(&command.body, range, best)
-        }
-        CompoundCommand::While(command) => {
-            collect_statement_span(&command.condition, range, best);
-            collect_statement_span(&command.body, range, best);
-        }
-        CompoundCommand::Until(command) => {
-            collect_statement_span(&command.condition, range, best);
-            collect_statement_span(&command.body, range, best);
-        }
-        CompoundCommand::Case(command) => {
-            for item in &command.cases {
-                collect_statement_span(&item.body, range, best);
-            }
-        }
-        CompoundCommand::Select(command) => collect_statement_span(&command.body, range, best),
-        CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
-            collect_statement_span(body, range, best);
-        }
-        CompoundCommand::Time(command) => {
-            if let Some(command) = &command.command {
-                collect_nested_statement_spans(command, range, best);
-            }
-        }
-        CompoundCommand::Coproc(command) => {
-            collect_nested_statement_spans(&command.body, range, best);
-        }
-        CompoundCommand::Always(command) => {
-            collect_statement_span(&command.body, range, best);
-            collect_statement_span(&command.always_body, range, best);
-        }
-        CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => {}
-    }
-}
-
-fn record_smaller_span(best: &mut Option<Span>, candidate: Span) {
-    if best.is_none_or(|current| span_width(candidate) < span_width(current)) {
-        *best = Some(candidate);
-    }
-}
-
-fn span_width(span: Span) -> usize {
-    span.end.offset().saturating_sub(span.start.offset())
-}
-
-fn span_contains_text_range(span: Span, range: TextRange) -> bool {
-    span.start.offset() <= usize::from(range.start())
-        && usize::from(range.end()) <= span.end.offset()
 }
 
 #[cfg(test)]
