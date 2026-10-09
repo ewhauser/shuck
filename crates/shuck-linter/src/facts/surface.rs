@@ -955,7 +955,14 @@ impl<'a> SurfaceFragmentSink<'a> {
                         continue;
                     }
                     let start = part.span.start.advanced_by(&literal[..offset]);
-                    let end = start.advanced_by(char.encode_utf8(&mut [0; 4]));
+                    let mut quote_buf = [0; 4];
+                    let quote = char.encode_utf8(&mut quote_buf);
+                    let end = start.advanced_by(quote);
+                    // Recovered words can carry cooked text whose offsets do not
+                    // match the source. Only publish a fact at a matching source span.
+                    if self.source.get(start.offset()..end.offset()) != Some(quote) {
+                        continue;
+                    }
                     self.facts
                         .unicode_smart_quote_spans
                         .push(Span::from_positions(start, end));
