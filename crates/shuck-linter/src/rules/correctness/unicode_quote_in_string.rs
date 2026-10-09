@@ -47,6 +47,21 @@ mod tests {
     use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
 
     #[test]
+    fn recovered_parse_only_reports_source_backed_smart_quotes() {
+        let source =
+            include_str!("../../../resources/test/fixtures/correctness/unicode_quote_recovery.sh");
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnicodeQuoteInString),
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| matches!(diagnostic.span.slice(source), "‘" | "’" | "“" | "”"))
+        );
+    }
+
+    #[test]
     fn reports_unicode_smart_quotes_in_unquoted_shell_words() {
         let source = "\
 #!/bin/sh
