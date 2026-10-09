@@ -313,6 +313,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         for (name, span) in unparsed_arithmetic_subscript_reference_names(
             subscript.syntax_source_text(),
             self.source,
+            self.shell_profile.dialect,
         ) {
             self.add_reference(&name, ReferenceKind::ArithmeticRead, span);
         }

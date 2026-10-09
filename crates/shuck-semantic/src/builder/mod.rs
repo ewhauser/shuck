@@ -1054,6 +1054,7 @@ fn conditional_binary_op_uses_arithmetic_operands(op: ConditionalBinaryOp) -> bo
 fn unparsed_arithmetic_subscript_reference_names(
     source_text: &SourceText,
     source: &str,
+    dialect: ShellDialect,
 ) -> Vec<(Name, Span)> {
     if !source_text.is_source_backed() {
         return Vec::new();
@@ -1065,7 +1066,26 @@ fn unparsed_arithmetic_subscript_reference_names(
     };
 
     let mut references = Vec::new();
-    let mut chars = leading.char_indices().peekable();
+    // In zsh, (Ie) at the start of a subscript selects matching indexes
+    // with literal matching. A colon in a nested expansion can make the
+    // arithmetic parse fail, but these flag letters are still not variables.
+    let flag_prefix_len = if dialect == ShellDialect::Zsh && leading.starts_with('(') {
+        leading
+            .find(')')
+            .filter(|&end| {
+                end > 1
+                    && leading.as_bytes()[1..end]
+                        .iter()
+                        .all(|byte| matches!(byte, b'I' | b'e'))
+            })
+            .map_or(0, |end| end + 1)
+    } else {
+        0
+    };
+    let mut chars = leading[flag_prefix_len..]
+        .char_indices()
+        .map(|(offset, ch)| (offset + flag_prefix_len, ch))
+        .peekable();
     while let Some((start, ch)) = chars.next() {
         if !is_name_start_character(ch) || text[..start].ends_with('$') {
             continue;

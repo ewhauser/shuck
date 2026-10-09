@@ -135,6 +135,19 @@ mod tests {
     use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
+    fn zsh_subscript_flags_with_nested_modifier_are_not_variables() {
+        let source = "#!/bin/zsh\ntypeset -a arr=(a/b c)\ntok=a/b\nif (( ${arr[(Ie)${tok:t}]} )); then print hit; fi\nif (( ${arr[(Ie)${tok:-x}]} )); then print hit; fi\nprint $missing\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
     fn prior_defaulting_parameter_operands_suppress_later_plain_uses() {
         let source = "\
 #!/bin/sh
