@@ -6909,6 +6909,20 @@ arr+=([docker:dind]=x [nats-streaming:nanoserver]=y)
 }
 
 #[test]
+fn zsh_subscript_flags_are_not_uninitialized_reads_when_nested_expansion_has_colon() {
+    let source = "#!/bin/zsh\ntypeset -a arr=(a/b c)\ntok=a/b\n(( ${arr[(Ie)${tok:t}]} ))\n(( ${arr[(Ie)${tok:-x}]} ))\n";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    assert_names_absent(&["Ie"], &uninitialized_names(&model));
+}
+
+#[test]
+fn bash_unparsed_subscript_parentheses_preserve_variable_reads() {
+    let source = "arr[((idx)+${value:-0})]=x\n";
+    let model = model_with_dialect(source, ShellDialect::Bash);
+    assert_names_present(&["idx"], &uninitialized_names(&model));
+}
+
+#[test]
 fn escaped_heredoc_parameter_literals_still_expand_nested_references() {
     let source = "\
 cat <<EOF
