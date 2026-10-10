@@ -126,12 +126,28 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
+      - name: "Install cargo-deny"
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=0.19.2
+          target=x86_64-unknown-linux-musl
+          archive="cargo-deny-${version}-${target}.tar.gz"
+          curl --fail --location --silent --show-error \
+            --retry 3 --retry-all-errors --retry-delay 2 --retry-max-time 180 \
+            --connect-timeout 10 --max-time 120 \
+            --output "$RUNNER_TEMP/$archive" \
+            "https://github.com/EmbarkStudios/cargo-deny/releases/download/${version}/${archive}"
+          printf '%s  %s\n' \
+            '0c722daba6e38497a008c75f9232578481f0a1ad621d99865024a68204f18cc7' \
+            "$RUNNER_TEMP/$archive" | sha256sum --check --status
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" \
+            "cargo-deny-${version}-${target}/cargo-deny"
+          install -m 0755 "$RUNNER_TEMP/cargo-deny-${version}-${target}/cargo-deny" \
+            "$RUNNER_TEMP/cargo-deny"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: "Run cargo-deny"
-        uses: EmbarkStudios/cargo-deny-action@91bf2b620e09e18d6eb78b92e7861937469acedb # v2.0.17
-        with:
-          rust-version: ${{ env.RUST_VERSION }}
-          command: "check bans licenses sources"
-          arguments: --all-features
+        run: cargo deny --log-level warn --manifest-path ./Cargo.toml --all-features check bans licenses sources
 
   cargo-audit:
     name: "cargo audit"
