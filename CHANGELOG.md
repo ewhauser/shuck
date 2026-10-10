@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.4](https://github.com/ewhauser/shuck/compare/v0.2.3...v0.2.4) (2026-10-10)
+
+
+### Bug Fixes
+
+* **deps:** update dependency next to v16.3.6 [security] ([#1305](https://github.com/ewhauser/shuck/issues/1305)) ([904974e](https://github.com/ewhauser/shuck/commit/904974ecdfa1ca6655227fa240af8bf7a672fe7f))
+* **deps:** update dependency next to v16.3.8 [security] ([#1311](https://github.com/ewhauser/shuck/issues/1311)) ([b2895e8](https://github.com/ewhauser/shuck/commit/b2895e8d8814ea77b409a5eca0686fe070e7b851))
+* **linter:** validate smart quote source spans on recovered parses ([#1310](https://github.com/ewhauser/shuck/issues/1310)) ([c3793ab](https://github.com/ewhauser/shuck/commit/c3793ab879469092b6d360c06076eaf0cf1d9ce8))
+* **semantic:** ignore zsh subscript flags in fallback references ([#1309](https://github.com/ewhauser/shuck/issues/1309)) ([4586505](https://github.com/ewhauser/shuck/commit/4586505a6a04841dd70599710e720ca81135ac0c))
+
 ## [0.2.3](https://github.com/ewhauser/shuck/compare/v0.2.2...v0.2.3) (2026-09-21)
 
 
