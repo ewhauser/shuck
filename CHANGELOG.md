@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5](https://github.com/ewhauser/shuck/compare/v0.2.4...v0.2.5) (2026-10-13)
+
+
+### Bug Fixes
+
+* **linter:** guard recovered quote span past EOF ([#1316](https://github.com/ewhauser/shuck/issues/1316)) ([3c25904](https://github.com/ewhauser/shuck/commit/3c259040310e0ffe7fcd2c27566f9bfaa2eefda1))
+
 ## [0.2.4](https://github.com/ewhauser/shuck/compare/v0.2.3...v0.2.4) (2026-10-10)
 
 
