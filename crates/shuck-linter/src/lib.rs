@@ -2773,6 +2773,28 @@ END
     }
 
     #[test]
+    fn recovered_quote_at_eof_does_not_panic() {
+        let source = "s=({}\"\"\"\"";
+        for dialect in [
+            ParseDialect::Posix,
+            ParseDialect::Bash,
+            ParseDialect::Mksh,
+            ParseDialect::Zsh,
+        ] {
+            let parse_result = Parser::with_dialect(source, dialect).parse();
+            let settings = LinterSettings::default();
+            let diagnostics =
+                AnalysisRequest::from_parse_result(&parse_result, source, &settings).lint();
+            assert!(
+                diagnostics
+                    .iter()
+                    .all(|diagnostic| diagnostic.span.end.offset() <= source.len()),
+                "diagnostic span past EOF in {dialect:?}"
+            );
+        }
+    }
+
+    #[test]
     fn recovered_lint_diagnostics_keep_valid_spans_for_fuzz_regression() {
         let source = concat!(
             "$~h) echo help; exit 0 ;;\n",

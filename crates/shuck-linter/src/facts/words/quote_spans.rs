@@ -459,7 +459,7 @@ pub(crate) fn mixed_quote_following_line_join_suffix_after_word(
         return None;
     }
 
-    let tail = &source[word.span.end.offset()..];
+    let tail = source.get(word.span.end.offset()..)?;
     let suffix = tail
         .strip_prefix("\\\r\n\"")
         .map(|_| "\\\r\n")
