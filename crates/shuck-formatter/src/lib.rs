@@ -2,8 +2,8 @@
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
 //! Shell formatting entrypoints built on top of `shuck-parser`.
 //!
-//! Most callers will use [`format_source`] for source text or [`format_file_ast`] when they
-//! already have a parsed shell AST.
+//! Most callers will use [`format_source`] for source text, [`format_file_ast`] when they
+//! already have a parsed shell AST, or [`format_range`] for range formatting.
 #![recursion_limit = "256"]
 
 //! Shell script formatter with configurable style options.
@@ -16,6 +16,7 @@ mod context;
 mod facts;
 #[allow(missing_docs)]
 mod options;
+mod range;
 #[allow(missing_docs)]
 mod raw_syntax;
 mod render_plan;
@@ -42,6 +43,8 @@ use crate::facts::FormatterFacts;
 pub use crate::options::{
     IndentStyle, LineEnding, ResolvedShellFormatOptions, ShellDialect, ShellFormatOptions,
 };
+pub use crate::range::{FormattedRange, format_range};
+pub use shuck_ast::{TextRange, TextSize};
 
 /// Result of formatting shell source.
 #[allow(missing_docs)]
