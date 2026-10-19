@@ -143,7 +143,22 @@ fn parse_and_resolve(
     })
 }
 
-fn format_file_ast_resolved(
+/// Formats source with options that were already resolved for another buffer.
+///
+/// Range formatting uses this to format a slice of a file with the dialect inferred
+/// from the whole file, since the slice usually lacks the shebang.
+pub(crate) fn format_source_resolved(
+    source: &str,
+    resolved: &ResolvedShellFormatOptions,
+) -> Result<FormattedSource> {
+    let parsed = Parser::with_dialect(source, resolved.dialect()).parse();
+    if parsed.is_err() {
+        return Err(map_parse_error(parsed.strict_error()));
+    }
+    format_file_ast_resolved(source, parsed.file, resolved)
+}
+
+pub(crate) fn format_file_ast_resolved(
     source: &str,
     file: File,
     resolved: &ResolvedShellFormatOptions,
