@@ -44,7 +44,7 @@ pub use result::{ParseDiagnostic, ParseResult, ParseStatus, SyntaxFacts, ZshCase
 pub use zsh_options::{OptionValue, ZshEmulationMode, ZshOptionState};
 
 use keywords::*;
-use limits::{MAX_OPERATOR_CHAIN_LEN, NestedLimits, ParseBudget};
+use limits::{ChainLinks, MAX_OPERATOR_CHAIN_LEN, NestedLimits, ParseBudget};
 use memchr::{memchr, memchr2, memchr3};
 pub use parser_state::Parser;
 #[cfg(feature = "benchmarking")]

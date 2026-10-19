@@ -3,13 +3,13 @@ use shuck_ast::{
     ArithmeticPostfixOp, ArithmeticUnaryOp, Name, Position, SourceText, Span, Word,
 };
 
-use std::sync::Arc;
+use std::{cell::Cell, sync::Arc};
 
 use crate::error::{Error, Result};
 
 use super::{
     Parser, ShellDialect,
-    limits::{MAX_OPERATOR_CHAIN_LEN, NestedLimits, ParseBudget},
+    limits::{ChainLinks, MAX_OPERATOR_CHAIN_LEN, NestedLimits, ParseBudget},
 };
 
 #[derive(Debug, Clone)]
@@ -109,6 +109,8 @@ struct ArithmeticParser<'a, 'r> {
     /// Reusing them keeps nested subscripts and slices from being parsed
     /// once as words and again as arithmetic at every nesting level.
     known_words: Option<KnownWordLookup<'r>>,
+    /// Last `(byte index, position)` computed by `position_at`.
+    position_cache: Cell<(usize, Position)>,
 }
 
 impl<'a, 'r> ArithmeticParser<'a, 'r> {
@@ -129,19 +131,19 @@ impl<'a, 'r> ArithmeticParser<'a, 'r> {
             max_depth: limits.max_depth,
             budget: limits.budget,
             known_words,
+            position_cache: Cell::new((0, base.start)),
         }
     }
 
-    /// Fail once a left-associative operator chain grows past
-    /// [`MAX_OPERATOR_CHAIN_LEN`] operands. These chains are parsed in a loop
-    /// but produce left-nested nodes that AST consumers walk recursively.
-    fn check_operator_chain(&self, operands: usize) -> Result<()> {
-        if operands <= MAX_OPERATOR_CHAIN_LEN {
-            return Ok(());
-        }
-        Err(self.budget.record(Error::parse(format!(
-            "arithmetic expression too long ({operands} operands, max {MAX_OPERATOR_CHAIN_LEN})"
-        ))))
+    /// Add a link to a left-associative operator chain. These chains are
+    /// parsed in a loop but produce left-nested nodes that AST consumers walk
+    /// recursively, so they share the parse-wide chain limit.
+    fn extend_operator_chain(&self, chain: &mut ChainLinks) -> Result<()> {
+        chain.extend(&self.budget).map_err(|links| {
+            self.budget.record(Error::parse(format!(
+                "arithmetic expression too long ({links} chained operators, max {MAX_OPERATOR_CHAIN_LEN})"
+            )))
+        })
     }
 
     /// Parse a sub-expression one nesting level deeper.
@@ -162,14 +164,14 @@ impl<'a, 'r> ArithmeticParser<'a, 'r> {
     }
 
     fn parse_comma(&mut self) -> Result<ArithmeticExprNode> {
+        let first = self.budget.begin_first_chain_operand();
         let mut expr = self.parse_assignment()?;
-        let mut operands = 1;
+        let mut chain = self.budget.end_first_chain_operand(first);
         loop {
             if !matches!(self.peek_token()?.kind, TokenKind::Comma) {
                 break;
             }
-            operands += 1;
-            self.check_operator_chain(operands)?;
+            self.extend_operator_chain(&mut chain)?;
             self.next_token()?;
             let right = self.parse_assignment()?;
             let span = expr.span.merge(right.span);
@@ -460,11 +462,11 @@ impl<'a, 'r> ArithmeticParser<'a, 'r> {
         subparser: fn(&mut Self) -> Result<ArithmeticExprNode>,
         op_of: fn(&TokenKind) -> Option<ArithmeticBinaryOp>,
     ) -> Result<ArithmeticExprNode> {
+        let first = self.budget.begin_first_chain_operand();
         let mut expr = subparser(self)?;
-        let mut operands = 1;
+        let mut chain = self.budget.end_first_chain_operand(first);
         while let Some(op) = op_of(&self.peek_token()?.kind) {
-            operands += 1;
-            self.check_operator_chain(operands)?;
+            self.extend_operator_chain(&mut chain)?;
             self.next_token()?;
             let right = subparser(self)?;
             let span = expr.span.merge(right.span);
@@ -1248,7 +1250,16 @@ impl<'a, 'r> ArithmeticParser<'a, 'r> {
     }
 
     fn position_at(&self, index: usize) -> Position {
-        self.base.start.advanced_by(&self.input[..index])
+        // Tokens are positioned left to right, so continue from the last
+        // computed position instead of rescanning from the expression start.
+        let (cached_index, cached_position) = self.position_cache.get();
+        let position = if cached_index <= index {
+            cached_position.advanced_by(&self.input[cached_index..index])
+        } else {
+            self.base.start.advanced_by(&self.input[..index])
+        };
+        self.position_cache.set((index, position));
+        position
     }
 
     fn safe_position_at(&self, index: usize) -> Position {

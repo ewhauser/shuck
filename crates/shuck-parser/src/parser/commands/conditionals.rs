@@ -42,16 +42,16 @@ impl<'a> Parser<'a> {
         &mut self,
         stop_at_right_paren: bool,
     ) -> Result<ConditionalExpr> {
+        let first = self.budget.begin_first_chain_operand();
         let mut expr = self.parse_conditional_and(stop_at_right_paren)?;
-        let mut operands = 1;
+        let mut chain = self.budget.end_first_chain_operand(first);
 
         loop {
             self.skip_conditional_newlines();
             if !self.at(TokenKind::Or) {
                 break;
             }
-            operands += 1;
-            self.check_operator_chain(operands, "conditional expression")?;
+            self.extend_operator_chain(&mut chain, "conditional expression")?;
 
             let op_span = self.current_span;
             self.advance();
@@ -71,16 +71,16 @@ impl<'a> Parser<'a> {
         &mut self,
         stop_at_right_paren: bool,
     ) -> Result<ConditionalExpr> {
+        let first = self.budget.begin_first_chain_operand();
         let mut expr = self.parse_conditional_term(stop_at_right_paren)?;
-        let mut operands = 1;
+        let mut chain = self.budget.end_first_chain_operand(first);
 
         loop {
             self.skip_conditional_newlines();
             if !self.at(TokenKind::And) {
                 break;
             }
-            operands += 1;
-            self.check_operator_chain(operands, "conditional expression")?;
+            self.extend_operator_chain(&mut chain, "conditional expression")?;
 
             let op_span = self.current_span;
             self.advance();

@@ -24,12 +24,14 @@ use crate::error::Error;
 /// two budget checks.
 const PARSER_STACK_BUDGET: usize = 1536 * 1024;
 
-/// Longest `&&`/`||` list, pipeline, `[[ ]]` operator chain, or arithmetic
-/// operator chain the parser accepts.
+/// Most operator-chain links (`&&`/`||`, `|`, `[[ ]]` operators, arithmetic
+/// binary operators and commas) that may be open at once across all enclosing
+/// chains.
 ///
-/// These chains are parsed iteratively, but they produce left-nested AST nodes
-/// whose depth equals the chain length, and AST consumers (including `Drop`)
-/// walk them recursively.
+/// Chains are parsed iteratively, but each link adds one level of left-nested
+/// AST, and AST consumers (including `Drop`) walk them recursively. Counting
+/// the links of every enclosing chain bounds that depth even when chains are
+/// nested inside each other's operands.
 pub(super) const MAX_OPERATOR_CHAIN_LEN: usize = 1000;
 
 /// Operation and stack accounting shared across a parse tree.
@@ -44,6 +46,11 @@ pub(crate) struct ParseBudget {
     /// Approximate stack address of the outermost parse entry, or `0` when
     /// no entry point has been recorded yet.
     stack_anchor: AtomicUsize,
+    /// Operator-chain links currently open across the parse tree.
+    chain_links: AtomicUsize,
+    /// Most links open at once since the innermost pending first operand
+    /// started; see [`ParseBudget::begin_first_chain_operand`].
+    chain_peak: AtomicUsize,
     /// First resource-limit error hit anywhere in the parse tree.
     ///
     /// Nested parsers often discard their own errors and fall back to a
@@ -59,6 +66,8 @@ impl ParseBudget {
             max_fuel,
             max_depth,
             stack_anchor: AtomicUsize::new(0),
+            chain_links: AtomicUsize::new(0),
+            chain_peak: AtomicUsize::new(0),
             limit_error: Mutex::new(None),
         })
     }
@@ -136,11 +145,86 @@ impl ParseBudget {
         }
     }
 
+    /// Start measuring how deeply chains nest inside the first operand of a
+    /// chain that may follow it.
+    ///
+    /// The first operand is parsed before its chain opens any links, so its
+    /// own chains would otherwise go uncounted even though the AST nests them
+    /// below the enclosing chain's left spine.
+    pub(super) fn begin_first_chain_operand(&self) -> FirstChainOperand {
+        let open = self.chain_links.load(Ordering::Relaxed);
+        let saved_peak = self.chain_peak.swap(open, Ordering::Relaxed);
+        FirstChainOperand { open, saved_peak }
+    }
+
+    /// Finish a first operand and start the chain that follows it, carrying
+    /// the chain depth reached inside the operand.
+    pub(super) fn end_first_chain_operand(&self, operand: FirstChainOperand) -> ChainLinks {
+        let peak = self.chain_peak.load(Ordering::Relaxed);
+        self.chain_peak
+            .store(peak.max(operand.saved_peak), Ordering::Relaxed);
+        ChainLinks {
+            inherited: peak.saturating_sub(operand.open),
+            chain: None,
+        }
+    }
+
     pub(super) fn take_limit_error(&self) -> Option<Error> {
         self.limit_error
             .lock()
             .ok()
             .and_then(|mut slot| slot.take())
+    }
+}
+
+/// Marker returned by [`ParseBudget::begin_first_chain_operand`].
+#[must_use]
+pub(super) struct FirstChainOperand {
+    open: usize,
+    saved_peak: usize,
+}
+
+/// Links of one operator chain, counted against [`MAX_OPERATOR_CHAIN_LEN`]
+/// together with every chain that encloses it and the chains nested in its
+/// first operand. Dropping it releases its links.
+pub(super) struct ChainLinks {
+    inherited: usize,
+    chain: Option<OperatorChain>,
+}
+
+struct OperatorChain {
+    budget: Arc<ParseBudget>,
+    links: usize,
+}
+
+impl ChainLinks {
+    /// Add one link, opening the chain on the first call. Fails with the total
+    /// open link count once it exceeds the limit.
+    pub(super) fn extend(&mut self, budget: &Arc<ParseBudget>) -> Result<(), usize> {
+        let added = if self.chain.is_some() {
+            1
+        } else {
+            self.inherited + 1
+        };
+        let chain = self.chain.get_or_insert_with(|| OperatorChain {
+            budget: Arc::clone(budget),
+            links: 0,
+        });
+        chain.links += added;
+        let total = chain.budget.chain_links.fetch_add(added, Ordering::Relaxed) + added;
+        chain.budget.chain_peak.fetch_max(total, Ordering::Relaxed);
+        if total > MAX_OPERATOR_CHAIN_LEN {
+            return Err(total);
+        }
+        Ok(())
+    }
+}
+
+impl Drop for OperatorChain {
+    fn drop(&mut self) {
+        self.budget
+            .chain_links
+            .fetch_sub(self.links, Ordering::Relaxed);
     }
 }
 

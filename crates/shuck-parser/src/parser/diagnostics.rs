@@ -115,15 +115,14 @@ impl<'a> Parser<'a> {
         result
     }
 
-    /// Fail once an operator chain grows past [`MAX_OPERATOR_CHAIN_LEN`]
-    /// operands; `operands` counts the operand about to be added.
-    pub(super) fn check_operator_chain(&self, operands: usize, what: &str) -> Result<()> {
-        if operands <= MAX_OPERATOR_CHAIN_LEN {
-            return Ok(());
-        }
-        Err(self.budget.record(self.error(format!(
-            "{what} too long ({operands} operands, max {MAX_OPERATOR_CHAIN_LEN})"
-        ))))
+    /// Add a link to the operator chain in `chain`, failing once the links
+    /// open across all enclosing chains exceed [`MAX_OPERATOR_CHAIN_LEN`].
+    pub(super) fn extend_operator_chain(&self, chain: &mut ChainLinks, what: &str) -> Result<()> {
+        chain.extend(&self.budget).map_err(|links| {
+            self.budget.record(self.error(format!(
+                "{what} too long ({links} chained operators, max {MAX_OPERATOR_CHAIN_LEN})"
+            )))
+        })
     }
 
     /// Limits for a parser nested one level below the current depth.

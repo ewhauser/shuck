@@ -118,13 +118,14 @@ impl<'a> Parser<'a> {
 
     pub(super) fn parse_command_list(&mut self) -> Result<Option<Vec<Stmt>>> {
         self.tick()?;
+        let first = self.budget.begin_first_chain_operand();
         let mut current = match self.parse_pipeline()? {
             Some(stmt) => stmt,
             None => return Ok(None),
         };
 
         let mut stmts = Vec::with_capacity(2);
-        let mut and_or_operands = 1;
+        let mut and_or_chain = self.budget.end_first_chain_operand(first);
 
         loop {
             let (op, terminator, allow_empty_tail) = match self.current_token_kind {
@@ -160,8 +161,7 @@ impl<'a> Parser<'a> {
             }
 
             if let Some(binary_op) = op {
-                and_or_operands += 1;
-                self.check_operator_chain(and_or_operands, "command list")?;
+                self.extend_operator_chain(&mut and_or_chain, "command list")?;
                 if let Some(right) = self.parse_pipeline()? {
                     current = Self::binary_stmt(current, binary_op, operator_span, right);
                 } else {
@@ -173,12 +173,16 @@ impl<'a> Parser<'a> {
             let Some(terminator) = terminator else {
                 unreachable!("list terminator should be present");
             };
-            if let Some(next) = self.parse_pipeline()? {
+            // Release the finished list's links before its successor starts.
+            drop(and_or_chain);
+            let first = self.budget.begin_first_chain_operand();
+            let next = self.parse_pipeline()?;
+            and_or_chain = self.budget.end_first_chain_operand(first);
+            if let Some(next) = next {
                 current.terminator = Some(terminator);
                 current.terminator_span = Some(operator_span);
                 stmts.push(current);
                 current = next;
-                and_or_operands = 1;
             } else if allow_empty_tail {
                 if self
                     .current_keyword()
@@ -223,6 +227,7 @@ impl<'a> Parser<'a> {
             self.advance();
         }
 
+        let first = self.budget.begin_first_chain_operand();
         let mut stmt = match self.parse_command()? {
             Some(cmd) => Self::lower_non_sequence_command_to_stmt(cmd),
             None => {
@@ -234,11 +239,10 @@ impl<'a> Parser<'a> {
         };
 
         let mut saw_pipe = false;
-        let mut pipeline_operands = 1;
+        let mut pipeline_chain = self.budget.end_first_chain_operand(first);
         while self.at_in_set(PIPE_OPERATOR_TOKENS) {
             saw_pipe = true;
-            pipeline_operands += 1;
-            self.check_operator_chain(pipeline_operands, "pipeline")?;
+            self.extend_operator_chain(&mut pipeline_chain, "pipeline")?;
             let op = if self.at(TokenKind::PipeBoth) {
                 BinaryOp::PipeAll
             } else {

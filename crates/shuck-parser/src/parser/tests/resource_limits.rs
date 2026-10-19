@@ -120,6 +120,21 @@ fn long_operator_chains_report_length_error() {
 }
 
 #[test]
+fn operator_chains_nested_in_operands_share_the_length_limit() {
+    let inner = format!("{}a", "a && ".repeat(600));
+    let output = parse_bash(&format!("( {inner} ) && {inner}\n"));
+    assert_limit_error(&output, "command list too long");
+
+    let inner = format!("{}1", "1+".repeat(600));
+    let output = parse_bash(&format!("echo $(( ({inner}) + {inner} ))\n"));
+    assert_limit_error(&output, "arithmetic expression too long");
+
+    let inner = format!("{}a", "a && ".repeat(400));
+    let output = parse_bash(&format!("( {inner} ) && {inner}\n"));
+    assert!(output.is_ok(), "{:?}", output.diagnostics);
+}
+
+#[test]
 fn operator_chains_under_the_limit_parse_cleanly() {
     let output = parse_bash(&format!("{}a\n", "a && ".repeat(999)));
     assert!(output.is_ok(), "{:?}", output.diagnostics);
