@@ -52,7 +52,8 @@ use crate::render_plan::{
     CompoundBodySite, DoDoneBodyLayout, ExpandedIfLayout, FunctionBodyGroupLayout,
     FunctionBodyLayout, FunctionBodyPlan, FunctionSubshellLayout, IfLayoutPlan, IfLayoutStyle,
     InlineIfLayout, can_format_multiline_subshell_inline, can_inline_group,
-    can_inline_source_line_subshell, case_can_format_inline, group_has_inline_source_shape,
+    can_inline_source_line_subshell, can_inline_stmt, case_can_format_inline,
+    group_has_inline_source_shape, if_branch_closer_shares_body_line,
 };
 use crate::render_plan::{
     case_item_body_can_share_terminator, case_item_body_terminator_was_inline_in_source,
@@ -135,6 +136,10 @@ struct ShellRenderer<'source, 'facts, S> {
     writer: ShellWriter<S>,
     pipeline_continuation_indent: usize,
     filter_next_group_body_leading_before_open: bool,
+    conditional_comments: Vec<&'source str>,
+    /// Set while rendering a pipeline that starts on its own line after `&&`
+    /// or `||`; see `format_pipeline`.
+    list_rhs_pipeline: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -224,6 +229,8 @@ where
             writer,
             pipeline_continuation_indent: 1,
             filter_next_group_body_leading_before_open: false,
+            conditional_comments: Vec::new(),
+            list_rhs_pipeline: false,
         }
     }
 

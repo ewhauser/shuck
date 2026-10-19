@@ -21,7 +21,7 @@ use crate::options::ShellFormatOptions;
 
 use super::shape::{
     can_inline_body_with_upper_bound, can_inline_else_branch_close, can_inline_if_chain,
-    then_branch_starts_with_inline_if,
+    if_branch_closer_shares_body_line, then_branch_starts_with_inline_if,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,7 +109,8 @@ fn then_fi_if_style(
             &command.then_branch,
             command.span,
             Some(fi_upper_bound),
-        );
+        )
+        && if_branch_closer_shares_body_line(context, command, 0, &command.then_branch, fi_span);
 
     if no_elifs && command.else_branch.is_none() && can_inline_then {
         return IfLayoutStyle::Inline(InlineIfLayout::Then);
