@@ -6,7 +6,7 @@ Partially Implemented
 
 ## Summary
 
-A shell script formatter built on Shuck's parser and AST. The live implementation is centered in `shuck-formatter`, which owns shell-specific formatting rules, comment handling, option resolution, and the optional simplify pass. CLI and editor callers invoke the same `format_source()` / `format_file_ast()` entry points.
+A shell script formatter built on Shuck's parser and AST. The live implementation is centered in `shuck-formatter`, which owns shell-specific formatting rules, comment handling, option resolution, and the optional simplify pass. CLI and editor callers invoke the same `format_source()`, `format_file_ast()`, and `format_range()` entry points.
 
 The formatter supports Bash, POSIX, and mksh dialects with auto-inference from shebangs and file extensions. It exposes formatting layout options through CLI flags and `[format]` config sections, while `--dialect` remains a CLI-only override. An optional simplify pass applies safe AST rewrites before formatting, and a minify mode produces compact output without comments.
 
@@ -33,7 +33,8 @@ The formatter is organized around one shell-specific formatting crate:
     v
   +----------------------------------------------+
   | shuck-formatter                               |
-  |  format_source() / format_file_ast()          |
+  |  format_source() / format_file_ast() /        |
+  |  format_range()                               |
   |                                               |
   |  +-----------------------------------------+  |
   |  | Simplify Pass (simplify.rs)             |  |
@@ -62,7 +63,7 @@ The shell-specific layer that formats parsed AST nodes using source-aware layout
 
 #### Public API
 
-Two entry points, both pure functions with no I/O:
+Three entry points, all pure functions with no I/O:
 
 ```rust
 /// Parse source and format. The primary entry point.
@@ -80,9 +81,17 @@ pub fn format_file_ast(
     path: Option<&Path>,
     options: &ShellFormatOptions,
 ) -> Result<FormattedSource>;
+
+/// Format the smallest statement covering the requested byte range.
+pub fn format_range(
+    source: &str,
+    range: TextRange,
+    path: Option<&Path>,
+    options: &ShellFormatOptions,
+) -> Result<Option<FormattedRange>>;
 ```
 
-Both return `FormattedSource`:
+`format_source()` and `format_file_ast()` return `FormattedSource`:
 
 ```rust
 pub enum FormattedSource {
@@ -92,6 +101,15 @@ pub enum FormattedSource {
 ```
 
 Returning `Unchanged` when nothing changed avoids unnecessary cache invalidation and file writes.
+
+`format_range()` returns `Option<FormattedRange>` containing the expanded statement range and the `FormattedSource`. If no complete statement covers the range, it returns `None`:
+
+```rust
+pub struct FormattedRange {
+    pub range: TextRange,
+    pub formatted: FormattedSource,
+}
+```
 
 #### Formatting Options
 
