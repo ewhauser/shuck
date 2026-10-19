@@ -91,6 +91,19 @@ Accepted values are `bash`, `posix`, `mksh`, and `zsh`.
 `--dialect` flag takes precedence over `[per-file-shell]`; unmatched files
 continue to use normal inference.
 
+POSIX shells have no `(( ... ))` arithmetic command, so in a file formatted as
+`posix` (for example a `.sh` file without a bash shebang) `((x = 1))` is read as
+two nested subshells. Because such files are often run by bash, where the same
+text is arithmetic, the formatter leaves any subshell written with an adjacent
+`((` exactly as it appears in the source rather than respelling it as `( (`.
+
+## Line endings
+
+The formatter writes `\r\n` line endings only when every line in the file
+already ends with `\r\n`. Files that mix styles are written with `\n` line
+endings outside of heredoc bodies and quoted strings, whose bytes are always
+preserved.
+
 ## Simplify and minify
 
 `--simplify` applies safe syntax simplifications before formatting:

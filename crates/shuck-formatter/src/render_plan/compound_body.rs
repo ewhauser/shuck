@@ -119,6 +119,22 @@ impl<'a> CompoundBodyPlan<'a> {
         }
     }
 
+    /// Forces a `do`/`done` body onto its own lines, e.g. when a comment sits
+    /// between the loop header and `do` and must be emitted after `; do`.
+    pub(crate) fn with_multiline_do(mut self) -> Self {
+        if let CompoundBodyLayout::DoDone(
+            DoDoneBodyLayout::Inline | DoDoneBodyLayout::LegacyInline { .. },
+        ) = self.layout
+        {
+            self.layout = CompoundBodyLayout::DoDone(DoDoneBodyLayout::Multiline { open: "; do" });
+        }
+        self
+    }
+
+    pub(crate) fn site(self) -> CompoundBodySite<'a> {
+        self.site
+    }
+
     pub(crate) fn body(self) -> &'a StmtSeq {
         self.site.body()
     }
