@@ -227,6 +227,9 @@ if [[ \"${@[_i]}\" == --scope ]]; then :; fi
 if [[ \"$@[_i]\" == --scope ]]; then :; fi
 if [[ \"${@[2,-1]}\" == \"--scope tail\" ]]; then :; fi
 if [[ \"${@[5,-1]:-fallback}\" == fallback ]]; then :; fi
+if [[ ${@: -1} == /* ]]; then :; fi
+if [[ -d ${@: -1} ]]; then :; fi
+if [[ \"${@:2:1}\" == tail ]]; then :; fi
 ";
         let diagnostics = test_snippet(
             source,

@@ -23,7 +23,6 @@ impl Violation for QuotedArraySlice {
 
 pub fn quoted_array_slice(checker: &mut Checker) {
     let facts = checker.facts();
-    let locator = checker.locator();
     let source = checker.source();
     let diagnostics = [
         ExpansionContext::AssignmentValue,
@@ -33,7 +32,7 @@ pub fn quoted_array_slice(checker: &mut Checker) {
     .flat_map(|context| facts.words().expansion_word_facts(context))
     .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
     .filter(|fact| !facts.words().is_compound_assignment_value_word(*fact))
-    .filter(|fact| fact.has_direct_all_elements_array_expansion_in_source(locator))
+    .filter(|fact| !fact.direct_all_elements_array_expansion_spans().is_empty())
     .map(|fact| {
         (
             fact.span(),
@@ -198,6 +197,60 @@ fallback=\"${@[5,-1]:-fallback}\"
         );
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_zsh_single_argument_slices_in_scalar_bindings() {
+        let source = r#"#!/bin/zsh
+ls_or_cat() {
+    local _path="${@: -1}"
+    print -r -- "$_path"
+}
+last=${@: -1}
+decorated="prefix${@: -1 }suffix"
+typeset first="${@:1:1}"
+readonly empty="${@:2:0}"
+"#;
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedArraySlice).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_zsh_slices_that_can_contain_multiple_arguments() {
+        let source = r#"#!/bin/zsh
+all="$@"
+braced="${@}"
+tail="${@: -2}"
+rest="${@:2}"
+pair="${@:1:2}"
+dynamic_offset="${@:offset}"
+dynamic_length="${@:1:count}"
+fallback="${@:-fallback}"
+"#;
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedArraySlice).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 8, "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn fixing_zsh_join_preserves_single_argument_slice_in_same_word() {
+        let source = "#!/bin/zsh\nargs=\"${@: -1}:$@\"\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedArraySlice).with_shell(ShellDialect::Zsh),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(result.fixed_source, "#!/bin/zsh\nargs=\"${@: -1}:$*\"\n");
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]

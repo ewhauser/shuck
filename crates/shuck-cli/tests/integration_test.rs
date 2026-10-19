@@ -330,6 +330,41 @@ fn check_stdin_filename_is_optional_and_controls_per_file_settings() {
 }
 
 #[test]
+fn check_c099_preserves_zsh_last_argument_slice() {
+    let source = r#"#!/bin/zsh
+ls_or_cat() {
+ local _path="${@: -1}"
+ if [[ -d "$_path" ]]; then
+  ls "$@"
+ elif [[ -f "$_path" ]]; then
+  cat "$@"
+ else
+  die "$0: $_path: not a file or directory"
+ fi
+}
+"#;
+    for fix_args in [vec![], vec!["--fix"], vec!["--unsafe-fixes"]] {
+        let mut cmd = Command::cargo_bin("shuck").unwrap();
+        cmd.args([
+            "check",
+            "--isolated",
+            "--no-cache",
+            "--stdin-filename",
+            "repro.zsh",
+            "--select",
+            "C099",
+            "-",
+        ])
+        .args(&fix_args)
+        .write_stdin(source);
+        cmd.assert()
+            .success()
+            .stdout(if fix_args.is_empty() { "" } else { source })
+            .stderr("");
+    }
+}
+
+#[test]
 fn check_stdin_loads_project_configuration() {
     let tempdir = tempdir().unwrap();
     fs::write(

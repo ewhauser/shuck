@@ -579,6 +579,9 @@ fn collect_direct_all_elements_array_expansion_spans_with_escaped_templates(
         if span_start_inside_escaped_parameter_template(part.span, escaped_templates) {
             continue;
         }
+        if part_is_single_argument_zsh_slice(&part.kind, source, shell_dialect) {
+            continue;
+        }
         match &part.kind {
             WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
@@ -617,6 +620,46 @@ fn collect_direct_all_elements_array_expansion_spans_with_escaped_templates(
             }
             _ => {}
         }
+    }
+}
+
+fn part_is_single_argument_zsh_slice(
+    part: &WordPart,
+    source: &str,
+    shell_dialect: shuck_semantic::ShellDialect,
+) -> bool {
+    if shell_dialect != shuck_semantic::ShellDialect::Zsh {
+        return false;
+    }
+
+    let (reference, offset, length) = match part {
+        WordPart::ArraySlice {
+            reference,
+            offset,
+            length,
+            ..
+        } => (reference.as_ref(), offset.as_ref(), length.as_deref()),
+        WordPart::Parameter(parameter) => match &parameter.syntax {
+            ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Slice {
+                reference,
+                offset,
+                length,
+                ..
+            }) => (reference, offset, length.as_ref()),
+            _ => return false,
+        },
+        _ => return false,
+    };
+
+    if reference.name.as_str() != "@" || reference.subscript.is_some() {
+        return false;
+    }
+
+    // A final-argument slice or a literal length of zero or one cannot join
+    // multiple arguments. Leave dynamic bounds classified conservatively.
+    match length {
+        Some(length) => matches!(length.slice(source).trim(), "0" | "1"),
+        None => offset.slice(source).trim() == "-1",
     }
 }
 
@@ -2485,6 +2528,48 @@ printf '%s\\n' \"\\$@\" \"\\\\$@\" \"\\${@:2}\" \"\\\\${@:2}\" \"\\${arr[@]}\" \
             .collect::<Vec<_>>();
 
         assert_eq!(matches, vec![false, false, false, false]);
+    }
+
+    #[test]
+    fn direct_array_expansion_spans_exclude_single_argument_zsh_slices() {
+        let source = r#"print "${@: -1}:$@" "${@:2:1}" "${@:2:0}" "${@: -2}" "${@:2:count}" "${@:2}" "${@:-fallback}""#;
+        let output = Parser::with_dialect(source, shuck_parser::parser::ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let shuck_ast::Command::Simple(command) = &output.file.body[0].command else {
+            panic!("expected simple command");
+        };
+        let line_index = LineIndex::new(source);
+        let locator = Locator::new(source, &line_index);
+
+        let spans = command
+            .args
+            .iter()
+            .flat_map(|word| {
+                super::direct_all_elements_array_expansion_part_spans(
+                    word,
+                    locator,
+                    ShellDialect::Zsh,
+                )
+            })
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            spans,
+            vec!["$@", "${@: -2}", "${@:2:count}", "${@:2}", "${@:-fallback}"]
+        );
+
+        // Keep the existing classification in other dialects unchanged.
+        assert_eq!(
+            super::direct_all_elements_array_expansion_part_spans(
+                &command.args[0],
+                locator,
+                ShellDialect::Bash,
+            )
+            .len(),
+            2
+        );
     }
 
     #[test]
