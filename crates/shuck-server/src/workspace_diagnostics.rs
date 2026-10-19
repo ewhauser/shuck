@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
-use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -17,6 +16,7 @@ use crate::session::{
     ShuckSettings, WorkspaceDiagnosticsFeatureOptions, WorkspaceDocumentSnapshotFactory,
     WorkspaceSettingsSnapshot,
 };
+use crate::workspace::read_source_bounded;
 
 const PARTIAL_RESULT_BATCH_SIZE: usize = 25;
 
@@ -471,23 +471,6 @@ pub(crate) fn workspace_diagnostics(
     Ok(types::WorkspaceDiagnosticReportResult::Report(
         types::WorkspaceDiagnosticReport { items: reports },
     ))
-}
-
-fn read_source_bounded(path: &Path, max_bytes: usize) -> std::io::Result<Option<String>> {
-    let metadata = std::fs::metadata(path)?;
-    if metadata.len() > max_bytes as u64 {
-        return Ok(None);
-    }
-    let file = std::fs::File::open(path)?;
-    let limit = u64::try_from(max_bytes)
-        .unwrap_or(u64::MAX)
-        .saturating_add(1);
-    let mut source = String::new();
-    file.take(limit).read_to_string(&mut source)?;
-    if source.len() > max_bytes {
-        return Ok(None);
-    }
-    Ok(Some(source))
 }
 
 fn empty_report() -> types::WorkspaceDiagnosticReportResult {

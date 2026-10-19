@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use lsp_types as types;
-use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use shuck_indexer::LineIndex;
 use shuck_linter::{
@@ -33,7 +32,10 @@ pub(crate) struct AssociatedDiagnosticData {
     pub(crate) title: String,
     pub(crate) code: String,
     pub(crate) edits: Vec<types::TextEdit>,
-    pub(crate) directive_edit: Option<types::TextEdit>,
+    /// One-based source line the diagnostic starts on. Suppression edits for
+    /// this line are computed on demand by code actions, because building one
+    /// re-lints the whole document.
+    pub(crate) line: usize,
     pub(crate) applicability: DiagnosticApplicability,
 }
 
@@ -58,29 +60,10 @@ pub fn generate_diagnostics(snapshot: &DocumentSnapshot) -> Vec<types::Diagnosti
 
     let source = analysis.source();
     let raw = analysis.raw_diagnostics(snapshot);
-    let directive_edits = directive_edits_by_line(
-        snapshot,
-        source,
-        analysis.line_index(),
-        analysis.path(),
-        &raw.shell_diagnostics,
-    );
     let mut diagnostics = raw
         .shell_diagnostics
         .iter()
-        .map(|diagnostic| {
-            let directive_edit = directive_edits
-                .get(&diagnostic.span.start.line())
-                .cloned()
-                .flatten();
-            to_lsp_diagnostic(
-                snapshot,
-                diagnostic,
-                source,
-                analysis.line_index(),
-                directive_edit,
-            )
-        })
+        .map(|diagnostic| to_lsp_diagnostic(snapshot, diagnostic, source, analysis.line_index()))
         .collect::<Vec<_>>();
 
     if snapshot.client_settings().show_syntax_errors()
@@ -207,16 +190,9 @@ fn to_lsp_diagnostic(
     diagnostic: &ShuckDiagnostic,
     source: &str,
     line_index: &LineIndex,
-    directive_edit: Option<types::TextEdit>,
 ) -> types::Diagnostic {
     let code = diagnostic.code().to_owned();
-    let data = associated_diagnostic_data_for_shuck(
-        snapshot,
-        diagnostic,
-        source,
-        line_index,
-        directive_edit,
-    );
+    let data = associated_diagnostic_data_for_shuck(snapshot, diagnostic, source, line_index);
 
     types::Diagnostic {
         range: crate::edit::to_lsp_range(
@@ -241,7 +217,6 @@ fn associated_diagnostic_data_for_shuck(
     diagnostic: &ShuckDiagnostic,
     source: &str,
     line_index: &LineIndex,
-    directive_edit: Option<types::TextEdit>,
 ) -> Option<serde_json::Value> {
     let edits = diagnostic
         .fix
@@ -264,7 +239,7 @@ fn associated_diagnostic_data_for_shuck(
         title,
         code: diagnostic.code().to_owned(),
         edits,
-        directive_edit,
+        line: diagnostic.span.start.line(),
         applicability,
     }) {
         Ok(data) => Some(data),
@@ -273,34 +248,6 @@ fn associated_diagnostic_data_for_shuck(
             None
         }
     }
-}
-
-fn directive_edits_by_line(
-    snapshot: &DocumentSnapshot,
-    source: &str,
-    line_index: &LineIndex,
-    path: Option<&Path>,
-    diagnostics: &[ShuckDiagnostic],
-) -> FxHashMap<usize, Option<types::TextEdit>> {
-    let mut edits = FxHashMap::default();
-
-    for line in diagnostics
-        .iter()
-        .map(|diagnostic| diagnostic.span.start.line())
-    {
-        edits.entry(line).or_insert_with(|| {
-            shuck_linter::build_ignore_edit_for_line(
-                source,
-                snapshot.shuck_settings().linter(),
-                line,
-                None,
-                path,
-            )
-            .map(|edit| to_lsp_text_edit(&edit, source, line_index, snapshot.encoding()))
-        });
-    }
-
-    edits
 }
 
 fn parse_error_to_lsp(
@@ -502,7 +449,7 @@ mod tests {
         .expect("diagnostic payload should deserialize");
         assert_eq!(data.title, "rename the unused assignment target to `_`");
         assert_eq!(data.code, "C001");
-        assert!(data.directive_edit.is_some());
+        assert_eq!(data.line, 1);
         assert_eq!(data.applicability, DiagnosticApplicability::Unsafe);
         assert_eq!(data.edits.len(), 1);
         assert_eq!(data.edits[0].new_text, "_");
@@ -565,5 +512,32 @@ mod tests {
         .expect("diagnostic payload should deserialize");
         assert_eq!(data.edits[0].range.start.line, 1);
         assert_eq!(data.edits[0].range.start.character, 0);
+    }
+
+    #[test]
+    fn diagnostics_for_many_violating_lines_lint_the_document_once() {
+        // Each line has its own diagnostic. Building suppression edits per
+        // line used to re-lint the document twice per line, which took minutes
+        // at this size; diagnostics must stay a single lint pass.
+        let source = (0..1600)
+            .map(|index| format!("echo $v{index}\n"))
+            .collect::<String>();
+        let snapshot = make_snapshot(
+            &std::env::temp_dir().join("many-lines.sh"),
+            &source,
+            "shellscript",
+            PositionEncoding::UTF16,
+            ClientOptions::default(),
+        );
+
+        let start = std::time::Instant::now();
+        let diagnostics = generate_diagnostics(&snapshot);
+        let elapsed = start.elapsed();
+
+        assert_eq!(diagnostics.len(), 1600);
+        assert!(
+            elapsed < std::time::Duration::from_secs(30),
+            "diagnostics took {elapsed:?}"
+        );
     }
 }

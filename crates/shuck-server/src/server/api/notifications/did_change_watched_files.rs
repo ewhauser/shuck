@@ -2,6 +2,7 @@ use lsp_types as types;
 use lsp_types::notification as notif;
 
 use crate::server::Result;
+use crate::server::api::diagnostics::refresh_open_document_diagnostics;
 use crate::session::{Client, Session};
 
 pub(crate) struct DidChangeWatchedFiles;
@@ -16,7 +17,9 @@ impl super::super::traits::SyncNotificationHandler for DidChangeWatchedFiles {
         client: &Client,
         params: types::DidChangeWatchedFilesParams,
     ) -> Result<()> {
-        session.reload_settings(&params.changes, client);
+        if session.reload_settings(&params.changes, client) {
+            refresh_open_document_diagnostics(session, client)?;
+        }
         Ok(())
     }
 }
@@ -188,5 +191,77 @@ mod tests {
                 .contains(shuck_linter::Rule::UndefinedVariable)
         );
         assert_eq!(after.shuck_settings().linter().rules.len(), 1);
+    }
+
+    #[test]
+    fn config_file_changes_republish_open_document_diagnostics() {
+        let workspace_root = tempfile::tempdir().expect("tempdir should be created");
+        let config_path = workspace_root.path().join(".shuck.toml");
+        std::fs::write(&config_path, "[lint]\nselect = ['C001']\n")
+            .expect("config should be written");
+        let file_path = workspace_root.path().join("script.sh");
+
+        let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
+        let (client_sender, client_receiver) = channel::unbounded();
+        let client = Client::new(main_loop_sender, client_sender);
+        let workspace_uri =
+            Url::from_file_path(workspace_root.path()).expect("workspace path should convert");
+        let workspaces = Workspaces::new(vec![Workspace::default(workspace_uri)]);
+        let global = GlobalOptions::default().into_settings(client.clone());
+        let mut session = Session::new(
+            &client_capabilities_with_dynamic_watched_files(),
+            PositionEncoding::UTF16,
+            global,
+            &workspaces,
+            &client,
+        )
+        .expect("test session should initialize");
+        session.set_project_settings_cache_enabled(true);
+        let uri = Url::from_file_path(&file_path).expect("script path should convert to a URL");
+        session.open_text_document(
+            uri.clone(),
+            TextDocument::new("foo=1\n".to_owned(), 1).with_language_id("shellscript"),
+        );
+
+        DidChangeWatchedFiles::run(
+            &mut session,
+            &client,
+            types::DidChangeWatchedFilesParams {
+                changes: vec![FileEvent {
+                    uri: Url::from_file_path(workspace_root.path().join("other.sh"))
+                        .expect("path should convert to a URL"),
+                    typ: FileChangeType::CHANGED,
+                }],
+            },
+        )
+        .expect("didChangeWatchedFiles should succeed");
+        assert!(
+            client_receiver.try_recv().is_err(),
+            "non-config file changes should not republish diagnostics"
+        );
+
+        std::fs::write(&config_path, "[lint]\nselect = ['C006']\n")
+            .expect("config should be updated");
+        DidChangeWatchedFiles::run(
+            &mut session,
+            &client,
+            types::DidChangeWatchedFilesParams {
+                changes: vec![FileEvent {
+                    uri: Url::from_file_path(&config_path)
+                        .expect("config path should convert to a URL"),
+                    typ: FileChangeType::CHANGED,
+                }],
+            },
+        )
+        .expect("didChangeWatchedFiles should succeed");
+
+        let Ok(lsp_server::Message::Notification(notification)) = client_receiver.try_recv() else {
+            panic!("config change should republish diagnostics");
+        };
+        assert_eq!(notification.method, "textDocument/publishDiagnostics");
+        let params: types::PublishDiagnosticsParams =
+            serde_json::from_value(notification.params).expect("params should deserialize");
+        assert_eq!(params.uri, uri);
+        assert!(params.diagnostics.is_empty());
     }
 }
