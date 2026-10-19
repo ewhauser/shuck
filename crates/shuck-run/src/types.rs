@@ -186,12 +186,15 @@ impl Ord for Version {
         loop {
             match (left.next(), right.next()) {
                 (Some(a), Some(b)) => {
-                    let ordering = a.cmp(b);
+                    let ordering = a.compare(b);
                     if ordering != Ordering::Equal {
                         return ordering;
                     }
                 }
+                // `5.3rc1` sorts below `5.3`, but `59c` still sorts above `59`.
+                (Some(a), None) if a.is_pre_release() => return Ordering::Less,
                 (Some(_), None) => return Ordering::Greater,
+                (None, Some(b)) if b.is_pre_release() => return Ordering::Greater,
                 (None, Some(_)) => return Ordering::Less,
                 (None, None) => return Ordering::Equal,
             }
@@ -199,10 +202,51 @@ impl Ord for Version {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum VersionToken {
     Numeric(u64),
     Text(String),
+}
+
+impl VersionToken {
+    /// Rank of a recognized pre-release marker; lower ranks are earlier releases.
+    fn pre_release_rank(&self) -> Option<u8> {
+        let Self::Text(text) = self else {
+            return None;
+        };
+        match text.as_str() {
+            "dev" => Some(0),
+            "alpha" => Some(1),
+            "beta" => Some(2),
+            "pre" => Some(3),
+            "rc" => Some(4),
+            _ => None,
+        }
+    }
+
+    fn is_pre_release(&self) -> bool {
+        self.pre_release_rank().is_some()
+    }
+
+    fn compare(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Self::Numeric(a), Self::Numeric(b)) => a.cmp(b),
+            (Self::Text(a), Self::Text(b)) => {
+                match (self.pre_release_rank(), other.pre_release_rank()) {
+                    (Some(a_rank), Some(b_rank)) => a_rank.cmp(&b_rank),
+                    (Some(_), None) => Ordering::Less,
+                    (None, Some(_)) => Ordering::Greater,
+                    (None, None) => a.cmp(b),
+                }
+            }
+            // A pre-release marker precedes any numeric continuation (`5.3rc1 < 5.3.1`);
+            // other text suffixes keep sorting after numbers (`59 < 59c`).
+            (Self::Numeric(_), Self::Text(_)) if other.is_pre_release() => Ordering::Greater,
+            (Self::Numeric(_), Self::Text(_)) => Ordering::Less,
+            (Self::Text(_), Self::Numeric(_)) if self.is_pre_release() => Ordering::Less,
+            (Self::Text(_), Self::Numeric(_)) => Ordering::Greater,
+        }
+    }
 }
 
 fn tokenize_version(raw: &str) -> Result<Vec<VersionToken>> {
@@ -344,6 +388,39 @@ pub struct RunConfig {
     pub shell_version: Option<String>,
     /// Per-shell version constraints keyed by shell name.
     pub shells: BTreeMap<String, String>,
+}
+
+impl RunConfig {
+    /// Return the `[run.shells]` constraint configured for `shell`.
+    ///
+    /// Keys may use any spelling accepted by [`Shell::from_name`] (for example `sh` for
+    /// dash). Unknown keys, or two keys that name the same shell, are rejected.
+    pub fn shell_constraint(&self, shell: Shell) -> Result<Option<&str>> {
+        self.validate()?;
+        Ok(self
+            .shells
+            .iter()
+            .find(|(key, _)| Shell::from_name(key) == Some(shell))
+            .map(|(_, value)| value.as_str()))
+    }
+
+    /// Check that every `[run.shells]` key names a supported shell exactly once.
+    pub fn validate(&self) -> Result<()> {
+        if let Some(shell) = self.shell.as_deref() {
+            parse_shell_name(shell)?;
+        }
+        let mut seen = BTreeMap::new();
+        for key in self.shells.keys() {
+            let shell = parse_shell_name(key)
+                .map_err(|err| anyhow!("invalid key `{key}` in [run.shells]: {err}"))?;
+            if let Some(previous) = seen.insert(shell, key) {
+                bail!(
+                    "[run.shells] configures {shell} twice (`{previous}` and `{key}`); keep only one"
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Concrete interpreter selected for a run.
