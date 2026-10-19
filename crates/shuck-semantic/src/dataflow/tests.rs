@@ -364,13 +364,27 @@ foo() {
     let cfg = analysis.cfg();
     let exact = analysis.exact_variable_dataflow();
     let context = model.dataflow_context(cfg);
+    let candidates =
+        dataflow::provided_binding_candidates_by_scope(model.bindings(), model.scopes().len());
     assert_eq!(
         analysis.scope_provided_bindings(ScopeId(0)),
-        dataflow::summarize_scope_provided_bindings(&context, exact, ScopeId(0)).as_slice()
+        dataflow::summarize_scope_provided_bindings(
+            &context,
+            exact,
+            ScopeId(0),
+            &candidates[ScopeId(0).index()]
+        )
+        .as_slice()
     );
     assert_eq!(
         analysis.scope_provided_bindings(foo_scope),
-        dataflow::summarize_scope_provided_bindings(&context, exact, foo_scope).as_slice()
+        dataflow::summarize_scope_provided_bindings(
+            &context,
+            exact,
+            foo_scope,
+            &candidates[foo_scope.index()]
+        )
+        .as_slice()
     );
     assert_eq!(
         analysis.definite_provider_scopes(&Name::from("outer")),

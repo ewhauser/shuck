@@ -247,30 +247,28 @@ impl SemanticModel {
         }
 
         let command_offsets = build_command_offset_lookup(&context.commands, command_query_offsets);
-        let persistent_reset_offsets_by_name: FxHashMap<Name, Vec<PersistentReset>> =
+        let persistent_resets_by_name: FxHashMap<Name, PersistentResetIndex> =
             persistent_reset_offsets_by_name
                 .into_iter()
                 .map(|(name, offsets)| {
-                    let resets = offsets
-                        .into_iter()
-                        .map(|offset| {
-                            let command_index =
-                                precomputed_command_index_for_offset(&command_offsets, offset);
-                            let command_end_offset = command_index
-                                .and_then(|index| context.commands.get(index))
-                                .map(|command| command.span.end.offset())
-                                .unwrap_or(offset);
+                    let resets = offsets.into_iter().map(|offset| {
+                        let command_index =
+                            precomputed_command_index_for_offset(&command_offsets, offset);
+                        let command_end_offset = command_index
+                            .and_then(|index| context.commands.get(index))
+                            .map(|command| command.span.end.offset())
+                            .unwrap_or(offset);
 
-                            PersistentReset {
-                                offset,
-                                command_index,
-                                command_end_offset,
-                            }
-                        })
-                        .collect();
-                    (name, resets)
+                        PersistentReset {
+                            offset,
+                            command_index,
+                            command_end_offset,
+                        }
+                    });
+                    (name, PersistentResetIndex::new(resets))
                 })
                 .collect();
+        let no_resets = PersistentResetIndex::default();
 
         let mut effects = Vec::new();
         for reference in relevant_references {
@@ -278,36 +276,34 @@ impl SemanticModel {
                 continue;
             };
 
-            let reset_offsets = persistent_reset_offsets_by_name
+            let resets = persistent_resets_by_name
                 .get(&reference.name)
-                .map(Vec::as_slice)
-                .unwrap_or(&[]);
+                .unwrap_or(&no_resets);
             let event_command_index = precomputed_command_index_for_offset(
                 &command_offsets,
                 reference.span.start.offset(),
             );
             let resolved = self.resolved_binding(reference.id);
             let reference_function_scope = self.enclosing_function_scope(reference.scope);
-            if let Some(candidate) = candidates.iter().rev().find(|candidate| {
-                reference.span.start.offset() > candidate.subshell_end
-                    && !has_intervening_persistent_reset(
-                        reset_offsets,
-                        candidate.subshell_end,
-                        reference.span.start.offset(),
-                        event_command_index,
-                    )
-                    && resolved_binding_allows_subshell_later_use(
+            if let Some(candidate) = latest_unreset_candidate(
+                candidates,
+                resets,
+                reference.span.start.offset(),
+                reference.span.start.offset(),
+                event_command_index,
+                |candidate| {
+                    resolved_binding_allows_subshell_later_use(
                         resolved,
                         candidate,
                         reference.span.start.offset(),
                         reference_function_scope,
-                    )
-                    && self.return_later_use_allows_candidate(
+                    ) && self.return_later_use_allows_candidate(
                         candidate,
                         reference.span.start.offset(),
                         context.options.require_return_use_same_execution_context,
                     )
-            }) {
+                },
+            ) {
                 effects.push(effect_for_candidate(
                     reference.name.clone(),
                     *candidate,
@@ -322,10 +318,9 @@ impl SemanticModel {
                 continue;
             };
 
-            let reset_offsets = persistent_reset_offsets_by_name
+            let resets = persistent_resets_by_name
                 .get(synthetic_read.name())
-                .map(Vec::as_slice)
-                .unwrap_or(&[]);
+                .unwrap_or(&no_resets);
             let synthetic_command_index = precomputed_command_index_for_offset(
                 &command_offsets,
                 synthetic_read.span().start.offset(),
@@ -343,17 +338,21 @@ impl SemanticModel {
                 .map(|command| command.span.end.offset())
                 .unwrap_or(synthetic_read.span().start.offset());
             let synthetic_function_scope = self.enclosing_function_scope(synthetic_read.scope());
-            if let Some(candidate) = candidates.iter().rev().find(|candidate| {
-                synthetic_read.span().start.offset() > candidate.subshell_end
-                    && !same_command_prefix_reset
-                    && candidate_allows_unresolved_later_use(candidate, synthetic_function_scope)
-                    && !has_intervening_persistent_reset(
-                        reset_offsets,
-                        candidate.subshell_end,
-                        synthetic_command_end_offset,
-                        None,
-                    )
-            }) {
+            let candidate = if same_command_prefix_reset {
+                None
+            } else {
+                latest_unreset_candidate(
+                    candidates,
+                    resets,
+                    synthetic_read.span().start.offset(),
+                    synthetic_command_end_offset,
+                    None,
+                    |candidate| {
+                        candidate_allows_unresolved_later_use(candidate, synthetic_function_scope)
+                    },
+                )
+            };
+            if let Some(candidate) = candidate {
                 effects.push(effect_for_candidate(
                     synthetic_read.name().clone(),
                     *candidate,
@@ -368,23 +367,20 @@ impl SemanticModel {
                 continue;
             };
 
-            let reset_offsets = persistent_reset_offsets_by_name
+            let resets = persistent_resets_by_name
                 .get(&read.name)
-                .map(Vec::as_slice)
-                .unwrap_or(&[]);
+                .unwrap_or(&no_resets);
             let event_command_index =
                 precomputed_command_index_for_offset(&command_offsets, read.span.start.offset());
             let read_function_scope = self.enclosing_function_scope(read.scope);
-            if let Some(candidate) = candidates.iter().rev().find(|candidate| {
-                read.span.start.offset() > candidate.subshell_end
-                    && candidate_allows_unresolved_later_use(candidate, read_function_scope)
-                    && !has_intervening_persistent_reset(
-                        reset_offsets,
-                        candidate.subshell_end,
-                        read.span.start.offset(),
-                        event_command_index,
-                    )
-            }) {
+            if let Some(candidate) = latest_unreset_candidate(
+                candidates,
+                resets,
+                read.span.start.offset(),
+                read.span.start.offset(),
+                event_command_index,
+                |candidate| candidate_allows_unresolved_later_use(candidate, read_function_scope),
+            ) {
                 effects.push(effect_for_candidate(
                     read.name.clone(),
                     *candidate,
@@ -406,21 +402,20 @@ impl SemanticModel {
                 continue;
             };
 
-            let reset_offsets = persistent_reset_offsets_by_name
+            let resets = persistent_resets_by_name
                 .get(&binding.name)
-                .map(Vec::as_slice)
-                .unwrap_or(&[]);
+                .unwrap_or(&no_resets);
             let binding_function_scope = self.enclosing_function_scope(binding.scope);
-            if let Some(candidate) = candidates.iter().rev().find(|candidate| {
-                binding.span.start.offset() > candidate.subshell_end
-                    && candidate_allows_unresolved_later_use(candidate, binding_function_scope)
-                    && !has_intervening_persistent_reset(
-                        reset_offsets,
-                        candidate.subshell_end,
-                        binding.span.start.offset(),
-                        None,
-                    )
-            }) {
+            if let Some(candidate) = latest_unreset_candidate(
+                candidates,
+                resets,
+                binding.span.start.offset(),
+                binding.span.start.offset(),
+                None,
+                |candidate| {
+                    candidate_allows_unresolved_later_use(candidate, binding_function_scope)
+                },
+            ) {
                 effects.push(effect_for_candidate(
                     binding.name.clone(),
                     *candidate,
@@ -624,24 +619,86 @@ fn binding_effectively_targets_local(semantic: &SemanticModel, binding: &Binding
         })
 }
 
-fn has_intervening_persistent_reset(
-    resets: &[PersistentReset],
-    candidate_end: usize,
+/// Finds the latest candidate whose nonpersistent scope ends before `use_offset`, has no
+/// persistent reset between its scope end and `event_offset`, and satisfies `allows`.
+///
+/// `candidates` must be sorted by `subshell_end`. Walking them from the latest scope end
+/// backwards only widens the window searched for an intervening reset, so once a reset
+/// intervenes for one candidate it intervenes for every earlier one and the search stops.
+fn latest_unreset_candidate<'a>(
+    candidates: &'a [CandidateNonpersistentAssignment],
+    resets: &PersistentResetIndex,
+    use_offset: usize,
     event_offset: usize,
     event_command_index: Option<usize>,
-) -> bool {
-    resets.iter().any(|reset| {
-        let effective_offset = if reset.offset > candidate_end {
-            reset.offset
-        } else {
-            reset.command_end_offset
-        };
+    mut allows: impl FnMut(&CandidateNonpersistentAssignment) -> bool,
+) -> Option<&'a CandidateNonpersistentAssignment> {
+    let earlier = candidates.partition_point(|candidate| candidate.subshell_end < use_offset);
+    for candidate in candidates[..earlier].iter().rev() {
+        if resets.has_intervening_reset(candidate.subshell_end, event_offset, event_command_index) {
+            return None;
+        }
+        if allows(candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
 
-        effective_offset > candidate_end
-            && effective_offset < event_offset
-            && event_command_index
-                .is_none_or(|event_index| reset.command_index != Some(event_index))
-    })
+/// Persistent resets for one name, indexed for window queries.
+///
+/// A reset intervenes between a candidate scope end `c` and an event at `e` when its
+/// effective offset falls strictly inside `(c, e)`. The effective offset is the reset's own
+/// offset when that lies after `c`, and otherwise the end of the command containing the reset.
+/// Because a reset's command always ends at or after the reset itself, that is equivalent to
+/// either the reset offset or its command end lying inside `(c, e)`, which two sorted lists
+/// answer with binary searches.
+#[derive(Debug, Clone, Default)]
+struct PersistentResetIndex {
+    by_offset: Vec<(usize, Option<usize>)>,
+    by_command_end: Vec<(usize, Option<usize>)>,
+}
+
+impl PersistentResetIndex {
+    fn new(resets: impl IntoIterator<Item = PersistentReset>) -> Self {
+        let mut by_offset = Vec::new();
+        let mut by_command_end = Vec::new();
+        for reset in resets {
+            by_offset.push((reset.offset, reset.command_index));
+            by_command_end.push((
+                reset.command_end_offset.max(reset.offset),
+                reset.command_index,
+            ));
+        }
+        by_offset.sort_unstable();
+        by_command_end.sort_unstable();
+        Self {
+            by_offset,
+            by_command_end,
+        }
+    }
+
+    fn has_intervening_reset(
+        &self,
+        candidate_end: usize,
+        event_offset: usize,
+        event_command_index: Option<usize>,
+    ) -> bool {
+        if candidate_end >= event_offset {
+            return false;
+        }
+        let window_has_reset = |sorted: &[(usize, Option<usize>)]| {
+            let start = sorted.partition_point(|(offset, _)| *offset <= candidate_end);
+            sorted[start..]
+                .iter()
+                .take_while(|(offset, _)| *offset < event_offset)
+                .any(|(_, command_index)| {
+                    event_command_index
+                        .is_none_or(|event_index| *command_index != Some(event_index))
+                })
+        };
+        window_has_reset(&self.by_offset) || window_has_reset(&self.by_command_end)
+    }
 }
 
 fn build_command_offset_lookup(

@@ -883,11 +883,18 @@ impl<'a> GraphBuilder<'a> {
         let head = self.command_block(command.span);
         self.attach_nested_regions(head, command.nested_regions, loops);
         let exit_block = self.empty_block();
-        let dispatch_count = arms.len().max(1);
-        let mut dispatch_blocks = Vec::with_capacity(dispatch_count);
-        dispatch_blocks.push(head);
-        for _ in 1..dispatch_count {
-            dispatch_blocks.push(self.empty_block());
+        // `dispatch_blocks[i]` resumes pattern matching at arm `i`. Matching starts at the head,
+        // and only a `;;&`-style terminator on arm `i - 1` can resume at arm `i`, so the other
+        // dispatch points are never created: each would be unreachable yet carry an edge to
+        // every later arm, making large `case` statements quadratic.
+        let mut dispatch_blocks = Vec::with_capacity(arms.len().max(1));
+        dispatch_blocks.push(Some(head));
+        for previous_arm in arms.iter().take(arms.len().saturating_sub(1)) {
+            let resumes_matching = matches!(
+                previous_arm.terminator,
+                CaseTerminator::Continue | CaseTerminator::ContinueMatching
+            );
+            dispatch_blocks.push(resumes_matching.then(|| self.empty_block()));
         }
         let mut arm_sequences = Vec::with_capacity(arms.len());
         for arm in arms {
@@ -901,6 +908,9 @@ impl<'a> GraphBuilder<'a> {
         }
 
         for (dispatch_index, dispatch) in dispatch_blocks.iter().copied().enumerate() {
+            let Some(dispatch) = dispatch else {
+                continue;
+            };
             let mut matched_all = false;
             for (arm_index, arm) in arms.iter().enumerate().skip(dispatch_index) {
                 let Some(arm_entry) = arm_sequences[arm_index].entry else {
@@ -942,6 +952,7 @@ impl<'a> GraphBuilder<'a> {
                     let continue_target = dispatch_blocks
                         .get(arm_index + 1)
                         .copied()
+                        .flatten()
                         .unwrap_or(exit_block);
                     for block in &arm_seq.exits {
                         self.add_edge(*block, continue_target, EdgeKind::CaseContinue);
@@ -952,6 +963,7 @@ impl<'a> GraphBuilder<'a> {
                     let continue_target = dispatch_blocks
                         .get(arm_index + 1)
                         .copied()
+                        .flatten()
                         .unwrap_or(exit_block);
                     for block in &arm_seq.exits {
                         self.add_edge(*block, continue_target, EdgeKind::CaseContinue);

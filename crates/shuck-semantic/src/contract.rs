@@ -261,6 +261,67 @@ impl FileContract {
         }
     }
 
+    /// Adds or merges each binding as [`Self::add_provided_binding`] would, indexing the
+    /// existing bindings once instead of rescanning them for every addition.
+    pub(crate) fn extend_provided_bindings(
+        &mut self,
+        bindings: impl IntoIterator<Item = ProvidedBinding>,
+    ) {
+        let mut index = FxHashMap::<(Name, ProvidedBindingKind), usize>::default();
+        for (position, existing) in self.provided_bindings.iter().enumerate() {
+            index
+                .entry((existing.name.clone(), existing.kind))
+                .or_insert(position);
+        }
+        for binding in bindings {
+            match index.entry((binding.name.clone(), binding.kind)) {
+                std::collections::hash_map::Entry::Occupied(entry) => {
+                    let existing = &mut self.provided_bindings[*entry.get()];
+                    existing.certainty = existing.certainty.merge_same_site(binding.certainty);
+                    existing.file_entry_initialization = existing
+                        .file_entry_initialization
+                        .merge_same_site(binding.file_entry_initialization);
+                }
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(self.provided_bindings.len());
+                    self.provided_bindings.push(binding);
+                }
+            }
+        }
+    }
+
+    /// Adds or merges each function as [`Self::add_provided_function`] would, indexing the
+    /// existing functions once instead of rescanning them for every addition.
+    pub(crate) fn extend_provided_functions(
+        &mut self,
+        functions: impl IntoIterator<Item = FunctionContract>,
+    ) {
+        let mut index = FxHashMap::<Name, usize>::default();
+        for (position, existing) in self.provided_functions.iter().enumerate() {
+            index.entry(existing.name.clone()).or_insert(position);
+        }
+        for function in functions {
+            match index.entry(function.name.clone()) {
+                std::collections::hash_map::Entry::Occupied(entry) => {
+                    let existing = &mut self.provided_functions[*entry.get()];
+                    for name in &function.required_reads {
+                        existing.add_required_read(name.clone());
+                    }
+                    for binding in &function.provided_bindings {
+                        existing.add_provided_binding(binding.clone());
+                    }
+                    for path in &function.origin_paths {
+                        existing.add_origin_path(path.clone());
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(self.provided_functions.len());
+                    self.provided_functions.push(function);
+                }
+            }
+        }
+    }
+
     /// Marks an exact binding name as externally consumed by this file.
     pub fn add_externally_consumed_binding_name(&mut self, name: Name) {
         if !self
