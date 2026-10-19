@@ -5,10 +5,11 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 use url::Url;
 
-use crate::download::fetch_url_to_path;
+use crate::download::{FetchBudget, fetch_url_to_path, validate_fetch_url};
 use crate::{AvailableShell, Environment, Shell, Version, VersionConstraint};
 
 const REGISTRY_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
@@ -17,6 +18,8 @@ const MAX_REGISTRY_SCHEMA_VERSION: u64 = 3;
 const ROOT_KIND: &str = "shuck.shells.index";
 const SHELL_KIND: &str = "shuck.shells.versions";
 const RELEASE_KIND: &str = "shuck.shells.release";
+/// Directory under the shells root that holds one cache subdirectory per registry URL.
+const REGISTRY_CACHE_DIR: &str = ".registry-cache";
 
 #[derive(Debug)]
 pub(crate) struct RegistryIndex {
@@ -25,7 +28,10 @@ pub(crate) struct RegistryIndex {
 
 #[derive(Debug)]
 pub(crate) struct RegistryShell {
-    versions: BTreeMap<String, CachedDocumentRef>,
+    /// Release manifest references keyed by version. Only keys that parse as a
+    /// [`Version`] are kept; a reference that failed validation keeps its error so the
+    /// failure surfaces only when that specific version is selected.
+    versions: BTreeMap<String, std::result::Result<CachedDocumentRef, String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -35,8 +41,15 @@ struct CachedDocumentRef {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub(crate) struct RegistryArtifact {
-    pub(crate) url: String,
+struct RegistryArtifact {
+    url: String,
+    sha256: String,
+}
+
+/// A platform artifact whose URL and checksum have been validated.
+#[derive(Debug, Clone)]
+pub(crate) struct ResolvedArtifact {
+    pub(crate) url: Url,
     pub(crate) sha256: String,
 }
 
@@ -84,9 +97,18 @@ impl CachedDocumentRef {
                 .context("resolve registry root index URL")?;
         }
 
+        validate_fetch_url(&remote_url, None)?;
+
+        // Each registry gets its own cache directory so switching
+        // `SHUCK_RUN_REGISTRY_URL` never serves (or mixes in) another registry's documents.
+        let cache_key = registry_cache_key(&remote_url);
         Ok(Self {
+            cache_path: environment
+                .shells_root
+                .join(REGISTRY_CACHE_DIR)
+                .join(cache_key)
+                .join("index.json"),
             remote_url,
-            cache_path: environment.shells_root.join("index.json"),
         })
     }
 
@@ -95,6 +117,7 @@ impl CachedDocumentRef {
             .remote_url
             .join(reference)
             .with_context(|| format!("resolve registry reference `{reference}`"))?;
+        validate_fetch_url(&remote_url, Some(&self.remote_url))?;
         let cache_parent = self
             .cache_path
             .parent()
@@ -148,9 +171,9 @@ pub(crate) fn select_release_for_platform(
     platform: &str,
     refresh: bool,
     verbose: bool,
-) -> Result<(Version, RegistryArtifact)> {
+) -> Result<(Version, ResolvedArtifact)> {
     let shell_entry = shell_entry(registry, shell)?;
-    let mut versions = parsed_versions(shell_entry)?;
+    let mut versions = parsed_versions(shell_entry);
     versions.sort();
 
     let mut matched_constraint = false;
@@ -159,12 +182,18 @@ pub(crate) fn select_release_for_platform(
             continue;
         }
         matched_constraint = true;
-        let manifest_ref = shell_entry.versions.get(version.as_str()).ok_or_else(|| {
-            anyhow!(
-                "missing release manifest reference for {shell} {}",
-                version.as_str()
-            )
-        })?;
+        let manifest_ref = shell_entry
+            .versions
+            .get(version.as_str())
+            .ok_or_else(|| {
+                anyhow!(
+                    "missing release manifest reference for {shell} {}",
+                    version.as_str()
+                )
+            })?
+            .as_ref()
+            .map_err(|err| anyhow!("{err}"))
+            .with_context(|| format!("resolve release manifest for {shell} {version}"))?;
         let release = load_release_document(
             manifest_ref,
             shell.as_str(),
@@ -173,7 +202,9 @@ pub(crate) fn select_release_for_platform(
             verbose,
         )?;
         if let Some(artifact) = release.platforms.get(platform) {
-            return Ok((version, artifact.clone()));
+            let artifact = resolve_artifact(manifest_ref, artifact)
+                .with_context(|| format!("invalid {platform} artifact for {shell} {version}"))?;
+            return Ok((version, artifact));
         }
     }
 
@@ -204,14 +235,19 @@ pub(crate) fn load_registry(
         let shell_document = load_document(&shell_ref, refresh, verbose, |source| {
             parse_shell_document(source, &shell)
         })?;
+        // Skip version keys we cannot order (for example `5.3-rc1`) rather than
+        // failing the whole shell; `available_shells` hides them the same way.
         let versions = shell_document
             .versions
             .into_iter()
+            .filter(|(version, _)| Version::parse(version).is_ok())
             .map(|(version, version_entry)| {
-                let manifest_ref = shell_ref.resolve_relative(&version_entry.manifest_url)?;
-                Ok((version, manifest_ref))
+                let manifest_ref = shell_ref
+                    .resolve_relative(&version_entry.manifest_url)
+                    .map_err(|err| format!("{err:#}"));
+                (version, manifest_ref)
             })
-            .collect::<Result<BTreeMap<_, _>>>()?;
+            .collect::<BTreeMap<_, _>>();
         shells.insert(shell, RegistryShell { versions });
     }
 
@@ -286,8 +322,13 @@ where
 
     let temp_file = NamedTempFile::new_in(parent)
         .with_context(|| format!("create temp registry document in {}", parent.display()))?;
-    fetch_url_to_path(document_ref.remote_url.as_str(), temp_file.path(), verbose)
-        .with_context(|| format!("fetch {}", document_ref.remote_url))?;
+    fetch_url_to_path(
+        &document_ref.remote_url,
+        temp_file.path(),
+        FetchBudget::Document,
+        verbose,
+    )
+    .with_context(|| format!("fetch {}", document_ref.remote_url))?;
     let document = read_document(temp_file.path(), parse)?;
     match temp_file.persist(&document_ref.cache_path) {
         Ok(_) => Ok(document),
@@ -405,11 +446,40 @@ fn shell_entry(registry: &RegistryIndex, shell: Shell) -> Result<&RegistryShell>
     })
 }
 
-fn parsed_versions(shell_entry: &RegistryShell) -> Result<Vec<Version>> {
+fn parsed_versions(shell_entry: &RegistryShell) -> Vec<Version> {
     shell_entry
         .versions
         .keys()
-        .map(|version| Version::parse(version))
+        .filter_map(|version| Version::parse(version).ok())
+        .collect()
+}
+
+fn resolve_artifact(
+    manifest_ref: &CachedDocumentRef,
+    artifact: &RegistryArtifact,
+) -> Result<ResolvedArtifact> {
+    let url = manifest_ref
+        .remote_url
+        .join(artifact.url.trim())
+        .with_context(|| format!("parse artifact URL `{}`", artifact.url))?;
+    validate_fetch_url(&url, Some(&manifest_ref.remote_url))?;
+
+    let sha256 = artifact.sha256.trim().to_ascii_lowercase();
+    if sha256.len() != 64 || !sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        bail!(
+            "artifact checksum `{}` is not a SHA-256 hex digest",
+            artifact.sha256
+        );
+    }
+
+    Ok(ResolvedArtifact { url, sha256 })
+}
+
+fn registry_cache_key(url: &Url) -> String {
+    let digest = Sha256::digest(url.as_str().as_bytes());
+    digest[..16]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
         .collect()
 }
 

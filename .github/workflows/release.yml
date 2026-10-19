@@ -65,7 +65,18 @@ jobs:
         # we specify bash to get pipefail; it guards against the `curl` command
         # failing. otherwise `sh` won't catch that `curl` returned non-0
         shell: bash
-        run: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.31.0/cargo-dist-installer.sh | sh"
+        env:
+          DIST_VERSION: v0.31.0
+          DIST_INSTALLER_SHA256: e79d87e418b9d2cbe992d014985457c28a5a7c553add3da4ed1047e161c928f4
+        run: |
+          installer="$(mktemp -d)/cargo-dist-installer.sh"
+          curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/${DIST_VERSION}/cargo-dist-installer.sh" --output "$installer"
+          if command -v sha256sum >/dev/null 2>&1; then
+            echo "${DIST_INSTALLER_SHA256}  ${installer}" | sha256sum --check --strict
+          else
+            echo "${DIST_INSTALLER_SHA256}  ${installer}" | shasum -a 256 --check
+          fi
+          sh "$installer"
       - name: Cache dist
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
@@ -77,8 +88,10 @@ jobs:
       # (PRs run on the *source* but secrets are usually on the *target* -- that's *good*
       # but also really annoying to build CI around when it needs secrets to work right.)
       - id: plan
+        env:
+          DIST_PLAN_ARGS: ${{ (!github.event.pull_request && format('host --steps=create --tag={0}', github.ref_name)) || 'plan' }}
         run: |
-          dist ${{ (!github.event.pull_request && format('host --steps=create --tag={0}', github.ref_name)) || 'plan' }} --output-format=json > plan-dist-manifest.json
+          dist ${DIST_PLAN_ARGS} --output-format=json > plan-dist-manifest.json
           echo "dist ran successfully"
           cat plan-dist-manifest.json
           echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
@@ -113,6 +126,10 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
+    permissions:
+      "attestations": "write"
+      "contents": "read"
+      "id-token": "write"
     steps:
       - name: enable windows longpaths
         run: |
@@ -129,7 +146,19 @@ jobs:
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
       - name: Install dist
-        run: ${{ matrix.install_dist.run }}
+        shell: bash
+        env:
+          DIST_VERSION: v0.31.0
+          DIST_INSTALLER_SHA256: e79d87e418b9d2cbe992d014985457c28a5a7c553add3da4ed1047e161c928f4
+        run: |
+          installer="$(mktemp -d)/cargo-dist-installer.sh"
+          curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/${DIST_VERSION}/cargo-dist-installer.sh" --output "$installer"
+          if command -v sha256sum >/dev/null 2>&1; then
+            echo "${DIST_INSTALLER_SHA256}  ${installer}" | sha256sum --check --strict
+          else
+            echo "${DIST_INSTALLER_SHA256}  ${installer}" | shasum -a 256 --check
+          fi
+          sh "$installer"
       # Get the dist-manifest
       - name: Fetch local artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
@@ -147,6 +176,10 @@ jobs:
           # Actually do builds and make zips and whatnot
           dist build ${NEEDS_PLAN_OUTPUTS_TAG_FLAG} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
           echo "dist ran successfully"
+      - name: Attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: "target/distrib/*${{ join(matrix.targets, ', ') }}*"
       - id: cargo-dist
         name: Post-build
         # We force bash here just because github makes it really hard to get values up

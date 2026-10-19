@@ -123,7 +123,9 @@ install-updater = false
 # Which actions to run on pull requests
 pr-run-mode = "skip"
 # Pin GitHub Actions used by the generated release workflow.
-github-action-commits = { "actions/checkout" = "de0fac2e4500dabe0009e67214ff5f5447ce83dd", "actions/upload-artifact" = "b7c566a772e6b6bfb58ed0dc250532a479d7789f", "actions/download-artifact" = "37930b1c2abaa49bbe596cd826c3c89aef350131" }
+github-action-commits = { "actions/checkout" = "de0fac2e4500dabe0009e67214ff5f5447ce83dd", "actions/upload-artifact" = "b7c566a772e6b6bfb58ed0dc250532a479d7789f", "actions/download-artifact" = "37930b1c2abaa49bbe596cd826c3c89aef350131", "actions/attest" = "1e69f48acb82d1966a394da916b4c1698aa569d6" }
+# Publish GitHub artifact attestations (build provenance) for release archives.
+github-attestations = true
 # Skip checking whether the specified configuration files are up to date
 allow-dirty = ["ci"]
 [[workspace.metadata.dist.extra-artifacts]]
