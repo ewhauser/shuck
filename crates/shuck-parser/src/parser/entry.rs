@@ -1,5 +1,14 @@
 use super::*;
 
+/// Error for inputs whose byte length cannot be represented in source positions.
+pub(super) fn oversized_input_error(len: usize) -> Option<Error> {
+    (len > MAX_SOURCE_LEN).then(|| {
+        Error::parse(format!(
+            "input too large to parse ({len} bytes, max {MAX_SOURCE_LEN})"
+        ))
+    })
+}
+
 impl<'a> Parser<'a> {
     /// Create a new bash-profile parser for the given input.
     pub fn new(input: &'a str) -> Self {
@@ -105,6 +114,8 @@ impl<'a> Parser<'a> {
             budget,
         } = limits;
         let max_depth = max_depth.min(HARD_MAX_AST_DEPTH);
+        let oversized_input = oversized_input_error(input.len());
+        let input = if oversized_input.is_some() { "" } else { input };
 
         let zsh_timeline = (shell_profile.dialect == ShellDialect::Zsh)
             .then(|| ZshOptionTimeline::build(input, &shell_profile))
@@ -154,6 +165,7 @@ impl<'a> Parser<'a> {
             current_depth: base_depth,
             budget,
             nested,
+            oversized_input,
             source_text_pattern_depth: 0,
             comments,
             aliases: HashMap::new(),

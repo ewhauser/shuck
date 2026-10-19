@@ -3,6 +3,12 @@
 //! Provides position and span types for tracking source locations through
 //! lexing, parsing, and execution.
 
+/// Largest source text, in bytes, that positions can address.
+///
+/// Lines, columns, and offsets are stored as `u32`. Parsers must reject longer
+/// inputs instead of building positions that would silently wrap.
+pub const MAX_SOURCE_LEN: usize = u32::MAX as usize;
+
 /// A position in source code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Position {

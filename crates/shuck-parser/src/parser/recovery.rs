@@ -63,6 +63,14 @@ impl<'a> Parser<'a> {
         let mut stmts = Vec::new();
         let mut diagnostics = Vec::new();
         let mut terminal_error = None;
+        if let Some(error) = self.oversized_input.take() {
+            let Error::Parse { message, .. } = error.clone();
+            diagnostics.push(ParseDiagnostic {
+                message,
+                span: file_span,
+            });
+            terminal_error = Some(error);
+        }
         let base_depth = self.current_depth;
         if !self.nested {
             self.budget.anchor_stack();

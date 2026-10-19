@@ -130,6 +130,9 @@ pub struct Parser<'a> {
     /// Whether this parser runs inside another parse. Only the outermost
     /// parser reports limit errors recorded in the shared budget.
     pub(super) nested: bool,
+    /// Error for an input too large for `u32` source positions. Such input
+    /// is replaced by empty text and reported as a fatal parse error.
+    pub(super) oversized_input: Option<crate::error::Error>,
     /// Depth of reparsing source-text operands as patterns.
     pub(super) source_text_pattern_depth: usize,
     /// Comments collected during parsing.

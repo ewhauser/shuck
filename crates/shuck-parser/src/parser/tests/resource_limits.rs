@@ -160,3 +160,12 @@ fn moderately_nested_subscripts_stay_clean() {
     let output = parse_bash(&format!("echo {}", nested("${a[", "1", "]}", 12)));
     assert!(output.is_ok(), "{:?}", output.diagnostics);
 }
+
+#[test]
+fn inputs_beyond_u32_positions_are_rejected() {
+    use crate::parser::entry::oversized_input_error;
+
+    assert!(oversized_input_error(MAX_SOURCE_LEN).is_none());
+    let error = oversized_input_error(MAX_SOURCE_LEN + 1).expect("oversized input error");
+    assert!(error.to_string().contains("input too large"));
+}
