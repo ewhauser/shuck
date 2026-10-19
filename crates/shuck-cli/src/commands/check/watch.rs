@@ -421,12 +421,32 @@ fn wait_for_watch_rerun(
     loop {
         let event = match rx.recv() {
             Ok(Ok(event)) => event,
-            Ok(Err(error)) => return Err(error.into()),
+            // Backends report errors for paths they could not resolve, for
+            // example NTFS's `$Extend\$Deleted` after a file is removed on
+            // Windows. Rerun so the result reflects the current filesystem;
+            // targets are recollected afterwards.
+            Ok(Err(_)) => {
+                drain_watch_batch_after_error(rx)?;
+                return Ok(());
+            }
             Err(error) => return Err(error.into()),
         };
 
         if drain_watch_batch(event, rx, cache_root, watch_targets)? {
             return Ok(());
+        }
+    }
+}
+
+/// Discards the rest of a queued batch once a watcher error already forces a rerun.
+fn drain_watch_batch_after_error(rx: &Receiver<notify::Result<notify::Event>>) -> Result<()> {
+    loop {
+        match rx.try_recv() {
+            Ok(_) => {}
+            Err(TryRecvError::Empty) => return Ok(()),
+            Err(TryRecvError::Disconnected) => {
+                return Err(anyhow!("watch channel disconnected"));
+            }
         }
     }
 }
@@ -444,7 +464,8 @@ pub(super) fn drain_watch_batch(
             Ok(Ok(event)) => {
                 should_rerun |= watch_event_requires_rerun(&event, cache_root, watch_targets);
             }
-            Ok(Err(error)) => return Err(error.into()),
+            // See `wait_for_watch_rerun`: watcher errors are not fatal.
+            Ok(Err(_)) => should_rerun = true,
             Err(TryRecvError::Empty) => return Ok(should_rerun),
             Err(TryRecvError::Disconnected) => {
                 return Err(anyhow!("watch channel disconnected"));
@@ -982,5 +1003,27 @@ mod tests {
 
         assert!(drain_watch_batch(first, &rx, cache_root, &watch_targets).unwrap());
         assert!(matches!(rx.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn watcher_error_events_trigger_a_rerun_instead_of_ending_watch_mode() {
+        let cache_root = Path::new("/tmp/shuck-cache");
+        let watch_targets = vec![WatchTarget::recursive(PathBuf::from("/workspace/project"))];
+        let deleted =
+            || notify::Error::path_not_found().add_path(PathBuf::from(r"C:\$Extend\$Deleted"));
+        let (tx, rx) = channel();
+
+        tx.send(Err(deleted())).unwrap();
+        tx.send(Err(deleted())).unwrap();
+        wait_for_watch_rerun(&rx, cache_root, &watch_targets).unwrap();
+        assert!(matches!(rx.try_recv(), Err(TryRecvError::Empty)));
+
+        tx.send(Err(deleted())).unwrap();
+        let unrelated = notify::Event {
+            kind: notify::EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Content)),
+            paths: vec![PathBuf::from("/elsewhere/file")],
+            attrs: EventAttributes::default(),
+        };
+        assert!(drain_watch_batch(unrelated, &rx, cache_root, &watch_targets).unwrap());
     }
 }

@@ -192,10 +192,15 @@ fn watch_survives_an_input_that_vanishes_and_reappears() {
 
     let mut ok = wait_for("watch.sh:2:1: warning[C001]", 1);
     if ok {
+        // Watch mode rebuilds its watcher right after printing a report;
+        // events queued in the old watcher can be dropped with it, so let the
+        // rebuild settle before changing the file.
+        thread::sleep(Duration::from_millis(500));
         fs::remove_file(&script).unwrap();
         ok = wait_for("watch.sh: cannot access path", 1);
     }
     if ok {
+        thread::sleep(Duration::from_millis(500));
         fs::write(&script, "#!/bin/bash\nunused=1\necho ok\n").unwrap();
         ok = wait_for("watch.sh:2:1: warning[C001]", 2);
     }
