@@ -81,7 +81,10 @@ pub(crate) fn slice_span(source: &str, span: Option<Span>) -> &str {
 }
 
 pub(crate) fn extend_heredoc_body_span(span: Span, source: &str) -> Span {
-    let mut end = span.end.offset();
+    // Recovered parses can leave heredoc spans past the end of the source;
+    // clamp instead of slicing out of bounds.
+    let start = span.start.offset();
+    let mut end = span.end.offset().max(start);
     while end < source.len() {
         let byte = source.as_bytes()[end];
         end += 1;
@@ -89,6 +92,28 @@ pub(crate) fn extend_heredoc_body_span(span: Span, source: &str) -> Span {
             break;
         }
     }
-    let end_position = span.start.advanced_by(&source[span.start.offset()..end]);
+    let Some(body) = source.get(start..end) else {
+        return span;
+    };
+    let end_position = span.start.advanced_by(body);
     Span::from_positions(span.start, end_position)
+}
+
+#[cfg(test)]
+mod tests {
+    use shuck_ast::Position;
+
+    use super::*;
+
+    #[test]
+    fn extend_heredoc_body_span_tolerates_spans_past_eof() {
+        let source = "cat <<F\nbody";
+        let at = |offset: usize| Position::new().advanced_by(&"x".repeat(offset));
+
+        let span = Span::from_positions(at(8), at(source.len() + 5));
+        assert_eq!(extend_heredoc_body_span(span, source), span);
+
+        let span = Span::from_positions(at(source.len() + 1), at(source.len() + 1));
+        assert_eq!(extend_heredoc_body_span(span, source), span);
+    }
 }

@@ -141,13 +141,26 @@ where
     F: Fn(&Stmt) -> bool + Copy,
 {
     let source = source_map.source();
-    let first = commands.first()?;
-    let open_offset = find_group_open_offset_before_stmt(
+    let (first, rest) = commands.split_first()?;
+    // Measure the first child once: it supplies both the start offset and an
+    // end offset, and measuring nested groups twice per level is exponential.
+    let first_span = stmt_group_attachment_or_verbatim_span_with_heredoc(
+        first,
         source_map,
-        stmt_group_attachment_start_offset(first, source_map),
-        open,
-    )?;
-    let sequence_end = commands
+        stmt_contains_heredoc,
+    );
+    let first_start = first_span
+        .unwrap_or_else(|| stmt_verbatim_span_with_source_map(first, source_map))
+        .start
+        .offset();
+    let open_offset = find_group_open_offset_before_stmt(source_map, first_start, open)?;
+    let first_end = stmt_group_attachment_end_offset_from_span(
+        first,
+        first_span,
+        source_map,
+        stmt_contains_heredoc,
+    );
+    let sequence_end = rest
         .iter()
         .map(|command| {
             stmt_group_attachment_end_offset_with_heredoc(
@@ -156,8 +169,7 @@ where
                 stmt_contains_heredoc,
             )
         })
-        .max()
-        .unwrap_or(0);
+        .fold(first_end, usize::max);
     let end = find_group_close_offset(source, sequence_end, close)
         .map(|offset| offset + close.len_utf8())
         .unwrap_or(sequence_end);
@@ -327,9 +339,24 @@ fn stmt_group_attachment_end_offset_with_heredoc<F>(
 where
     F: Fn(&Stmt) -> bool + Copy,
 {
-    if let Some(span) =
-        stmt_group_attachment_or_verbatim_span_with_heredoc(stmt, source_map, stmt_contains_heredoc)
-    {
+    let span = stmt_group_attachment_or_verbatim_span_with_heredoc(
+        stmt,
+        source_map,
+        stmt_contains_heredoc,
+    );
+    stmt_group_attachment_end_offset_from_span(stmt, span, source_map, stmt_contains_heredoc)
+}
+
+fn stmt_group_attachment_end_offset_from_span<F>(
+    stmt: &Stmt,
+    group_span: Option<Span>,
+    source_map: &crate::comments::SourceMap<'_>,
+    stmt_contains_heredoc: F,
+) -> usize
+where
+    F: Fn(&Stmt) -> bool + Copy,
+{
+    if let Some(span) = group_span {
         return span.end.offset();
     }
 

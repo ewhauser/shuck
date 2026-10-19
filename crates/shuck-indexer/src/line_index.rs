@@ -67,7 +67,8 @@ impl LineIndex {
         let mut raw_continuation_line_starts = Vec::new();
         let mut raw_continuation_backslashes = Vec::new();
         let mut raw_continuations = Vec::new();
-        let mut line_ending = LineEndingStyle::Lf;
+        let mut saw_crlf = false;
+        let mut saw_lf = false;
         line_starts.push(TextSize::new(0));
 
         for (index, byte) in bytes.iter().copied().enumerate() {
@@ -75,7 +76,9 @@ impl LineIndex {
                 let next_line_start = TextSize::new((index + 1) as u32);
                 line_starts.push(next_line_start);
                 if index > 0 && bytes[index - 1] == b'\r' {
-                    line_ending = LineEndingStyle::CrLf;
+                    saw_crlf = true;
+                } else {
+                    saw_lf = true;
                 }
                 let backslash_index = if index > 0 && bytes[index - 1] == b'\r' {
                     index.checked_sub(2)
@@ -106,6 +109,15 @@ impl LineIndex {
                 }
             }
         }
+
+        // Only report CRLF when the file uses it consistently. A stray `\r\n`
+        // inside an otherwise LF file (for example in a heredoc body that
+        // feeds a network protocol) is content, not the file's style.
+        let line_ending = if saw_crlf && !saw_lf {
+            LineEndingStyle::CrLf
+        } else {
+            LineEndingStyle::Lf
+        };
 
         (
             Self {
@@ -200,8 +212,9 @@ impl LineIndex {
 
     /// Return the source line-ending style observed while indexing lines.
     ///
-    /// A file with any `\r\n` line ending is treated as CRLF, matching the
-    /// formatter's existing preservation behavior.
+    /// A file is treated as CRLF only when every line ending is `\r\n`; files
+    /// that mix styles report [`LineEndingStyle::Lf`] so that formatters do not
+    /// rewrite LF lines (or carriage returns that are part of content).
     pub fn line_ending(&self) -> LineEndingStyle {
         self.line_ending
     }
@@ -275,11 +288,18 @@ mod tests {
 
     #[test]
     fn detects_crlf_line_endings_during_line_indexing() {
-        let index = LineIndex::with_raw_continuations("one \\\r\ntwo\n");
+        let index = LineIndex::with_raw_continuations("one \\\r\ntwo\r\n");
 
         assert_eq!(index.line_ending(), LineEndingStyle::CrLf);
         assert_eq!(index.raw_continuation_line_starts(), &[TextSize::new(7)]);
         assert_eq!(index.raw_continuation_backslashes(), &[TextSize::new(4)]);
+    }
+
+    #[test]
+    fn mixed_line_endings_report_lf() {
+        let index = LineIndex::new("echo a\ncat <<EOF\nGET / HTTP/1.0\r\n\r\nEOF\n");
+
+        assert_eq!(index.line_ending(), LineEndingStyle::Lf);
     }
 
     #[test]

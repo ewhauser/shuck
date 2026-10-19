@@ -13,6 +13,10 @@ pub(super) fn stmt_verbatim_span_impl(stmt: &Stmt, source_map: &SourceMap<'_>) -
     } else {
         command_verbatim_span(&stmt.command, source_map)
     };
+    stmt_verbatim_span_from_command_span(stmt, command_span, source)
+}
+
+fn stmt_verbatim_span_from_command_span(stmt: &Stmt, command_span: Span, source: &str) -> Span {
     let mut span = command_span;
     for redirect in &stmt.redirects {
         span = merge_non_empty_span(span, redirect.span);
@@ -43,18 +47,24 @@ fn command_verbatim_span(command: &Command, source_map: &SourceMap<'_>) -> Span 
 }
 
 fn function_body_verbatim_span(body: &Stmt, source_map: &SourceMap<'_>) -> Span {
-    let mut span = stmt_verbatim_span_impl(body, source_map);
-    if let Some(group_span) = command_group_attachment_span(&body.command, source_map) {
-        span = merge_non_empty_span(span, group_span);
+    let Some(group_span) = command_group_attachment_span(&body.command, source_map) else {
+        return stmt_verbatim_span_impl(body, source_map);
+    };
+    // The group span already runs from the opening to the closing delimiter,
+    // so the children need not be measured again (doing both is exponential
+    // in the nesting depth of `f() { g() { ...; }; }`). Heredoc bodies can
+    // extend past the closing delimiter, so those keep the full measurement.
+    if classify_stmt_contains_heredoc(body) {
+        return merge_non_empty_span(stmt_verbatim_span_impl(body, source_map), group_span);
     }
-    span
+    stmt_verbatim_span_from_command_span(body, group_span, source_map.source())
 }
 
 pub(crate) fn stmt_span(stmt: &Stmt) -> Span {
     merge_stmt_background_span(stmt, merge_stmt_redirect_spans(stmt, stmt.span))
 }
 
-pub(super) fn complete_stmt_span(stmt: &Stmt, span: Span) -> Span {
+pub(crate) fn complete_stmt_span(stmt: &Stmt, span: Span) -> Span {
     non_empty_or_stmt_span(
         stmt,
         merge_stmt_background_span(stmt, merge_stmt_redirect_spans(stmt, span)),

@@ -197,9 +197,15 @@ pub(super) fn stmt_seq_has_heredoc(facts: &FormatterFacts<'_>, sequence: &StmtSe
     facts.sequence_contains_heredoc(sequence)
 }
 
-pub(super) fn normalize_raw_backtick_command_substitution(raw: &str) -> Option<String> {
+pub(super) fn normalize_raw_backtick_command_substitution(
+    raw: &str,
+    in_double_quotes: bool,
+) -> Option<String> {
     let body = raw.strip_prefix('`')?.strip_suffix('`')?;
-    let body = normalize_backtick_body_escaped_dollars(body);
+    if backtick_body_has_nested_backticks(body) {
+        return Some(raw.to_string());
+    }
+    let body = unescape_backtick_body(body, in_double_quotes);
     Some(format!("$({body})"))
 }
 
@@ -256,6 +262,8 @@ pub(super) struct RawCompoundIndentShift {
 }
 
 pub(super) struct RawCompoundCommentIndent {
+    /// Rendered indent of the line that opened the compound command.
+    pub(super) open_indent: String,
     pub(super) child_indent: String,
     pub(super) close_keyword: &'static str,
     pub(super) pipeline_continuation: bool,
@@ -299,6 +307,15 @@ impl RawCompoundIndentState {
         .then_some(compound.child_indent.as_str())
     }
 
+    /// Rendered indent of the opener when `content` closes the innermost
+    /// tracked compound command.
+    pub(super) fn closing_indent(&self, content: &str) -> Option<&str> {
+        self.comments
+            .last()
+            .filter(|compound| raw_line_closes_compound(content, compound.close_keyword))
+            .map(|compound| compound.open_indent.as_str())
+    }
+
     pub(super) fn closes_last(&self, content: &str) -> bool {
         self.comments
             .last()
@@ -323,6 +340,7 @@ impl RawCompoundIndentState {
     ) {
         if let Some(close_keyword) = raw_compound_close_keyword(content) {
             self.comments.push(RawCompoundCommentIndent {
+                open_indent: rendered_indent.to_string(),
                 child_indent: source_indent_plus_one_unit(rendered_indent, options),
                 close_keyword,
                 pipeline_continuation,

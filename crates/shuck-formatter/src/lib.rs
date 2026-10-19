@@ -13,6 +13,7 @@ mod command;
 #[allow(missing_docs)]
 mod comments;
 mod context;
+mod depth;
 mod facts;
 #[allow(missing_docs)]
 mod options;
@@ -207,6 +208,12 @@ fn render_file<M: RenderMode>(
     mut file: File,
     resolved: &ResolvedShellFormatOptions,
 ) -> Result<M::Output> {
+    if depth::exceeds_statement_nesting(&file) {
+        return Err(FormatError::Internal(format!(
+            "commands are nested more than {} levels deep (for example a very long `&&` or `|` chain); leaving the file unformatted",
+            depth::MAX_STATEMENT_NESTING
+        )));
+    }
     if resolved.simplify() || resolved.minify() {
         simplify::simplify_file(&mut file, source);
     }
