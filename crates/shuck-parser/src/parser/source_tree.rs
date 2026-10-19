@@ -2,14 +2,23 @@ use super::*;
 
 impl<'a> Parser<'a> {
     pub(super) fn nested_stmt_seq_from_source(&mut self, source: &str, base: Position) -> StmtSeq {
-        let remaining_depth = self.max_depth.saturating_sub(self.current_depth);
+        // Each nested source parse is one nesting level. When the limit is hit
+        // the error is recorded in the shared budget and reported by the
+        // outermost parser.
+        let Ok(limits) = self.nested_limits() else {
+            return StmtSeq {
+                leading_comments: Vec::new(),
+                stmts: Vec::new(),
+                trailing_comments: Vec::new(),
+                span: Span::from_positions(base, base),
+            };
+        };
         let nested_profile = self
             .current_zsh_options()
             .cloned()
             .map(|options| ShellProfile::with_zsh_options(self.dialect, options))
             .unwrap_or_else(|| self.shell_profile.clone());
-        let inner_parser =
-            Parser::with_limits_and_profile(source, remaining_depth, self.fuel, nested_profile);
+        let inner_parser = Parser::with_nested_limits(source, limits, nested_profile);
         let mut output = inner_parser.parse();
         if output.is_ok() {
             Self::materialize_stmt_seq_source_backing(&mut output.file.body, source);

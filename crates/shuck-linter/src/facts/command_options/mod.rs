@@ -1020,12 +1020,11 @@ impl<'a> CommandOptionFacts<'a> {
                 .then_some(())
                 .and_then(|_| parse_expr_command(normalized.body_args(), source)),
             exit: parse_exit_command(command, source),
-            sudo_family: normalized.has_wrapper(WrapperKind::SudoFamily).then(|| {
-                let Some(invoker) = detect_sudo_family_invoker(command, normalized, source) else {
-                    unreachable!("sudo-family wrapper should preserve its invoker");
-                };
-                SudoFamilyCommandFacts { invoker }
-            }),
+            sudo_family: normalized
+                .has_wrapper(WrapperKind::SudoFamily)
+                .then(|| detect_sudo_family_invoker(command, normalized, source))
+                .flatten()
+                .map(|invoker| SudoFamilyCommandFacts { invoker }),
             nonportable_sh_builtin_option_span: first_nonportable_sh_builtin_option_span(
                 normalized, source,
             ),

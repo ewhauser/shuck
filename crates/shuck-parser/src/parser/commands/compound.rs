@@ -487,8 +487,7 @@ impl<'a> Parser<'a> {
             .cloned()
             .map(|options| ShellProfile::with_zsh_options(self.dialect, options))
             .unwrap_or_else(|| self.shell_profile.clone());
-        let mut nested =
-            Parser::with_limits_and_profile(inner, self.max_depth, self.max_fuel, nested_profile);
+        let mut nested = Parser::with_nested_limits(inner, self.nested_limits()?, nested_profile);
         nested.aliases = self.aliases.clone();
         nested.expand_aliases = self.expand_aliases;
         nested.expand_next_word = self.expand_next_word;
@@ -541,8 +540,7 @@ impl<'a> Parser<'a> {
             .cloned()
             .map(|options| ShellProfile::with_zsh_options(self.dialect, options))
             .unwrap_or_else(|| self.shell_profile.clone());
-        let mut nested =
-            Parser::with_limits_and_profile(inner, self.max_depth, self.max_fuel, nested_profile);
+        let mut nested = Parser::with_nested_limits(inner, self.nested_limits()?, nested_profile);
         nested.aliases = self.aliases.clone();
         nested.expand_aliases = self.expand_aliases;
         nested.expand_next_word = self.expand_next_word;

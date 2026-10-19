@@ -435,6 +435,27 @@ impl<'a> Parser<'a> {
             return self.parse_zsh_target_from_text(text, base, false);
         }
 
+        // Each nested `${...}` is one nesting level. Past the limit, keep the
+        // remaining text literally; the error is reported by the outermost parser.
+        let depth = self.current_depth;
+        if self.push_depth().is_err() {
+            let span = Span::from_positions(base, base.advanced_by(text));
+            let source_backed = self.source_matches(span, text);
+            return ZshExpansionTarget::Word(Box::new(self.word_with_single_part(
+                self.literal_part_from_text(text, span, source_backed),
+                span,
+            )));
+        }
+        let target = self.parse_nested_parameter_target_body(text, base);
+        self.current_depth = depth;
+        target
+    }
+
+    fn parse_nested_parameter_target_body(
+        &mut self,
+        text: &str,
+        base: Position,
+    ) -> ZshExpansionTarget {
         let raw_body_start = base.advanced_by("${");
         let raw_body = self.source_text(
             text[2..text.len() - 1].to_string(),

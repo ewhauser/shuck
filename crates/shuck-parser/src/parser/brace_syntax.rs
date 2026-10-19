@@ -658,6 +658,7 @@ impl<'a> Parser<'a> {
             text: &'a str,
             index: usize,
             position: Position,
+            depth: usize,
         }
 
         let mut work = SmallVec::<[ScanFrame<'_>; 2]>::new();
@@ -665,6 +666,7 @@ impl<'a> Parser<'a> {
             text,
             index: 0,
             position: base,
+            depth: 0,
         });
 
         while let Some(mut frame) = work.pop() {
@@ -736,7 +738,10 @@ impl<'a> Parser<'a> {
                     frame.position = brace_end;
                     frame.index += len;
 
-                    if len > 2 {
+                    // Each nesting level rescans its whole body, so stop
+                    // descending past the AST depth limit to keep deeply
+                    // nested braces from going quadratic.
+                    if len > 2 && frame.depth < HARD_MAX_AST_DEPTH {
                         let inner_start = frame.index - len + '{'.len_utf8();
                         let inner_end = frame.index - '}'.len_utf8();
                         if inner_start < inner_end {
@@ -746,6 +751,7 @@ impl<'a> Parser<'a> {
                                 text: &frame.text[inner_start..inner_end],
                                 index: 0,
                                 position: inner_base,
+                                depth: frame.depth + 1,
                             });
                             break;
                         }

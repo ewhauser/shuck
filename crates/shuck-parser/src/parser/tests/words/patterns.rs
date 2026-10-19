@@ -150,9 +150,7 @@ fn test_parse_word_with_mid_word_brace_segment_ignores_quoted_closers() {
     assert!(command.args[0].has_active_brace_expansion());
 }
 
-#[test]
-fn test_brace_syntax_handles_deeply_nested_braces_without_recursion() {
-    let depth = 8192usize;
+fn nested_brace_word_source(depth: usize) -> String {
     let mut input = String::with_capacity(depth * 3 + 2);
     for _ in 0..depth {
         input.push('{');
@@ -163,6 +161,13 @@ fn test_brace_syntax_handles_deeply_nested_braces_without_recursion() {
     for _ in 0..depth {
         input.push('}');
     }
+    input
+}
+
+#[test]
+fn test_brace_syntax_classifies_every_level_of_moderately_nested_braces() {
+    let depth = 64usize;
+    let input = nested_brace_word_source(depth);
 
     let word = Parser::parse_word_string(&input);
 
@@ -176,6 +181,22 @@ fn test_brace_syntax_handles_deeply_nested_braces_without_recursion() {
     );
     assert_eq!(brace_slices(&word, &input).last().copied(), Some("{a,b}"));
     assert!(word.has_active_brace_expansion());
+}
+
+#[test]
+fn test_brace_syntax_handles_deeply_nested_braces_without_recursion() {
+    // Each level rescans its whole body, so the scan stops descending at the
+    // AST depth limit instead of going quadratic.
+    let depth = 8192usize;
+    let input = nested_brace_word_source(depth);
+
+    let word = Parser::parse_word_string(&input);
+
+    assert_eq!(word.brace_syntax().len(), 101);
+    assert_eq!(
+        brace_slices(&word, &input).first().copied(),
+        Some(input.as_str())
+    );
 }
 
 #[test]
