@@ -59,15 +59,20 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn apply_stmt_effects(&mut self, stmt: &Stmt) {
-        match &stmt.command {
-            AstCommand::Simple(simple) => {
-                self.apply_word_command_effects(&simple.name, &simple.args)
+        // `&&`/`||` lists nest to the left, so walk them with an explicit
+        // stack, visiting operands in source order.
+        let mut pending = vec![stmt];
+        while let Some(stmt) = pending.pop() {
+            match &stmt.command {
+                AstCommand::Simple(simple) => {
+                    self.apply_word_command_effects(&simple.name, &simple.args)
+                }
+                AstCommand::Binary(binary) if matches!(binary.op, BinaryOp::And | BinaryOp::Or) => {
+                    pending.push(&binary.right);
+                    pending.push(&binary.left);
+                }
+                _ => {}
             }
-            AstCommand::Binary(binary) if matches!(binary.op, BinaryOp::And | BinaryOp::Or) => {
-                self.apply_stmt_effects(&binary.left);
-                self.apply_stmt_effects(&binary.right);
-            }
-            _ => {}
         }
     }
 
@@ -119,6 +124,7 @@ impl<'a> Parser<'a> {
         };
 
         let mut stmts = Vec::with_capacity(2);
+        let mut and_or_operands = 1;
 
         loop {
             let (op, terminator, allow_empty_tail) = match self.current_token_kind {
@@ -154,6 +160,8 @@ impl<'a> Parser<'a> {
             }
 
             if let Some(binary_op) = op {
+                and_or_operands += 1;
+                self.check_operator_chain(and_or_operands, "command list")?;
                 if let Some(right) = self.parse_pipeline()? {
                     current = Self::binary_stmt(current, binary_op, operator_span, right);
                 } else {
@@ -170,6 +178,7 @@ impl<'a> Parser<'a> {
                 current.terminator_span = Some(operator_span);
                 stmts.push(current);
                 current = next;
+                and_or_operands = 1;
             } else if allow_empty_tail {
                 if self
                     .current_keyword()
@@ -225,8 +234,11 @@ impl<'a> Parser<'a> {
         };
 
         let mut saw_pipe = false;
+        let mut pipeline_operands = 1;
         while self.at_in_set(PIPE_OPERATOR_TOKENS) {
             saw_pipe = true;
+            pipeline_operands += 1;
+            self.check_operator_chain(pipeline_operands, "pipeline")?;
             let op = if self.at(TokenKind::PipeBoth) {
                 BinaryOp::PipeAll
             } else {

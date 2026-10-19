@@ -89,27 +89,46 @@ impl<'a> Parser<'a> {
 
     /// Consume one unit of fuel, returning an error if exhausted
     pub(super) fn tick(&mut self) -> Result<()> {
-        if self.fuel == 0 {
-            let used = self.max_fuel - self.fuel;
-            return Err(Error::parse(format!(
-                "parser fuel exhausted ({} operations, max {})",
-                used, self.max_fuel
-            )));
-        }
-        self.fuel -= 1;
-        Ok(())
+        self.budget.tick()
     }
 
     /// Push nesting depth and check limit
     pub(super) fn push_depth(&mut self) -> Result<()> {
-        self.current_depth += 1;
-        if self.current_depth > self.max_depth {
-            return Err(Error::parse(format!(
-                "AST nesting too deep ({} levels, max {})",
-                self.current_depth, self.max_depth
-            )));
+        let depth = self.current_depth + 1;
+        if depth > self.max_depth {
+            return Err(self.budget.depth_error(depth, self.max_depth));
         }
+        self.budget.check_stack()?;
+        self.current_depth = depth;
         Ok(())
+    }
+
+    /// Run `parse` one nesting level deeper, restoring the depth afterwards
+    /// whether or not it succeeds.
+    pub(super) fn with_nested_depth<T>(
+        &mut self,
+        parse: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Result<T> {
+        let depth = self.current_depth;
+        let result = self.push_depth().and_then(|()| parse(self));
+        self.current_depth = depth;
+        result
+    }
+
+    /// Fail once an operator chain grows past [`MAX_OPERATOR_CHAIN_LEN`]
+    /// operands; `operands` counts the operand about to be added.
+    pub(super) fn check_operator_chain(&self, operands: usize, what: &str) -> Result<()> {
+        if operands <= MAX_OPERATOR_CHAIN_LEN {
+            return Ok(());
+        }
+        Err(self.budget.record(self.error(format!(
+            "{what} too long ({operands} operands, max {MAX_OPERATOR_CHAIN_LEN})"
+        ))))
+    }
+
+    /// Limits for a parser nested one level below the current depth.
+    pub(super) fn nested_limits(&self) -> Result<NestedLimits> {
+        NestedLimits::below(self.current_depth, self.max_depth, &self.budget)
     }
 
     /// Pop nesting depth

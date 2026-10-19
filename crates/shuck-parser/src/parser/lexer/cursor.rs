@@ -51,6 +51,7 @@ impl<'a> Lexer<'a> {
             reinject_buf: VecDeque::new(),
             reinject_resume_offset: None,
             max_subst_depth: max_depth,
+            expansion_nesting: 0,
             initial_zsh_options: shell_profile.zsh_options().cloned(),
             zsh_timeline,
             zsh_timeline_index: 0,

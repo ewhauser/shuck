@@ -99,6 +99,50 @@ impl<'a> Lexer<'a> {
         content: &mut Option<String>,
         segment_start: Position,
     ) -> bool {
+        if self.expansion_nesting >= self.max_subst_depth {
+            return self.read_balanced_flat_into(content, '[', ']').is_some();
+        }
+        self.expansion_nesting += 1;
+        let complete = self.read_legacy_arithmetic_body_into(content, segment_start);
+        self.expansion_nesting -= 1;
+        complete
+    }
+
+    /// Past the nesting limit, consume a delimited expansion body by counting
+    /// delimiters only, so pathological nesting cannot exhaust the stack.
+    /// Returns `None` when the input ends before the body closes.
+    fn read_balanced_flat_into(
+        &mut self,
+        content: &mut Option<String>,
+        open: char,
+        close: char,
+    ) -> Option<()> {
+        let mut depth = 1usize;
+        while let Some(c) = self.peek_char() {
+            Self::push_capture_char(content, c);
+            self.advance();
+            if c == '\\' {
+                if let Some(next) = self.peek_char() {
+                    Self::push_capture_char(content, next);
+                    self.advance();
+                }
+            } else if c == open {
+                depth += 1;
+            } else if c == close {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(());
+                }
+            }
+        }
+        None
+    }
+
+    fn read_legacy_arithmetic_body_into(
+        &mut self,
+        content: &mut Option<String>,
+        segment_start: Position,
+    ) -> bool {
         let mut bracket_depth = 1;
 
         while let Some(c) = self.peek_char() {
@@ -749,6 +793,24 @@ impl<'a> Lexer<'a> {
     /// In bash, quotes inside `${...}` (e.g. `${arr["key"]}`) don't terminate the
     /// outer double-quoted string. Appends chars including closing `}` to `content`.
     pub(in crate::parser) fn read_param_expansion_into(
+        &mut self,
+        content: &mut Option<String>,
+        segment_start: Position,
+        preserve_escape_width: bool,
+    ) -> bool {
+        if self.expansion_nesting >= self.max_subst_depth {
+            // The flat reader copies the body verbatim, so it stays borrowable.
+            let _ = self.read_balanced_flat_into(content, '{', '}');
+            return true;
+        }
+        self.expansion_nesting += 1;
+        let borrowable =
+            self.read_param_expansion_body_into(content, segment_start, preserve_escape_width);
+        self.expansion_nesting -= 1;
+        borrowable
+    }
+
+    fn read_param_expansion_body_into(
         &mut self,
         content: &mut Option<String>,
         segment_start: Position,

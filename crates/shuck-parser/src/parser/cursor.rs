@@ -12,7 +12,6 @@ impl<'a> Parser<'a> {
             current_span: self.current_span,
             peeked_token: self.peeked_token.clone(),
             current_depth: self.current_depth,
-            fuel: self.fuel,
             source_text_pattern_depth: self.source_text_pattern_depth,
             comments_len: self.comments.len(),
             expand_next_word: self.expand_next_word,
@@ -38,7 +37,6 @@ impl<'a> Parser<'a> {
         self.current_span = checkpoint.current_span;
         self.peeked_token = checkpoint.peeked_token;
         self.current_depth = checkpoint.current_depth;
-        self.fuel = checkpoint.fuel;
         self.source_text_pattern_depth = checkpoint.source_text_pattern_depth;
         self.comments.truncate(checkpoint.comments_len);
         self.expand_next_word = checkpoint.expand_next_word;

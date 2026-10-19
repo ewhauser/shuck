@@ -6,7 +6,7 @@ impl<'a> Parser<'a> {
         Self::with_limits_and_profile(
             input,
             DEFAULT_MAX_AST_DEPTH,
-            DEFAULT_MAX_PARSER_OPERATIONS,
+            default_parser_fuel(input),
             ShellProfile::native(ShellDialect::Bash),
         )
     }
@@ -27,7 +27,7 @@ impl<'a> Parser<'a> {
         Self::with_limits_and_profile(
             input,
             DEFAULT_MAX_AST_DEPTH,
-            DEFAULT_MAX_PARSER_OPERATIONS,
+            default_parser_fuel(input),
             shell_profile,
         )
     }
@@ -71,8 +71,40 @@ impl<'a> Parser<'a> {
         shell_profile: ShellProfile,
         benchmark_counters_enabled: bool,
     ) -> Self {
+        Self::with_nested_limits_and_benchmarking(
+            input,
+            NestedLimits::root(max_depth.min(HARD_MAX_AST_DEPTH), max_fuel),
+            false,
+            shell_profile,
+            benchmark_counters_enabled,
+        )
+    }
+
+    /// Create a parser that runs inside another parse and shares its budget.
+    pub(super) fn with_nested_limits(
+        input: &'a str,
+        limits: NestedLimits,
+        shell_profile: ShellProfile,
+    ) -> Self {
+        Self::with_nested_limits_and_benchmarking(input, limits, true, shell_profile, false)
+    }
+
+    fn with_nested_limits_and_benchmarking(
+        input: &'a str,
+        limits: NestedLimits,
+        nested: bool,
+        shell_profile: ShellProfile,
+        benchmark_counters_enabled: bool,
+    ) -> Self {
         #[cfg(not(feature = "benchmarking"))]
         let _ = benchmark_counters_enabled;
+
+        let NestedLimits {
+            base_depth,
+            max_depth,
+            budget,
+        } = limits;
+        let max_depth = max_depth.min(HARD_MAX_AST_DEPTH);
 
         let zsh_timeline = (shell_profile.dialect == ShellDialect::Zsh)
             .then(|| ZshOptionTimeline::build(input, &shell_profile))
@@ -80,7 +112,7 @@ impl<'a> Parser<'a> {
             .map(Arc::new);
         let mut lexer = Lexer::with_max_subst_depth_and_profile(
             input,
-            max_depth.min(HARD_MAX_AST_DEPTH),
+            max_depth.saturating_sub(base_depth),
             &shell_profile,
             zsh_timeline.clone(),
         );
@@ -118,10 +150,10 @@ impl<'a> Parser<'a> {
             current_keyword,
             current_span,
             peeked_token: None,
-            max_depth: max_depth.min(HARD_MAX_AST_DEPTH),
-            current_depth: 0,
-            fuel: max_fuel,
-            max_fuel,
+            max_depth,
+            current_depth: base_depth,
+            budget,
+            nested,
             source_text_pattern_depth: 0,
             comments,
             aliases: HashMap::new(),
@@ -144,7 +176,7 @@ impl<'a> Parser<'a> {
         Self::with_limits_and_profile_and_benchmarking(
             self.input,
             self.max_depth,
-            self.max_fuel,
+            self.budget.max_fuel(),
             self.shell_profile.clone(),
             true,
         )
@@ -190,19 +222,13 @@ impl<'a> Parser<'a> {
         parser.parse_assignment_from_text(raw, span, explicit_array_kind, subscript_interpretation)
     }
 
-    /// Parse a word string with caller-configured limits and shell dialect.
-    pub(super) fn parse_word_string_with_limits_and_dialect(
+    /// Parse a word string nested inside another parse.
+    pub(super) fn parse_nested_word_string(
         input: &str,
-        max_depth: usize,
-        max_fuel: usize,
+        limits: NestedLimits,
         dialect: ShellDialect,
     ) -> Word {
-        let mut parser = Parser::with_limits_and_profile(
-            input,
-            max_depth,
-            max_fuel,
-            ShellProfile::native(dialect),
-        );
+        let mut parser = Parser::with_nested_limits(input, limits, ShellProfile::native(dialect));
         let start = Position::new();
         parser.parse_word_with_context(
             input,
@@ -220,8 +246,7 @@ impl<'a> Parser<'a> {
             source,
             text,
             span,
-            DEFAULT_MAX_AST_DEPTH,
-            DEFAULT_MAX_PARSER_OPERATIONS,
+            NestedLimits::root(DEFAULT_MAX_AST_DEPTH, DEFAULT_MAX_PARSER_OPERATIONS),
             ShellProfile::native(ShellDialect::Bash),
         )
     }
@@ -230,11 +255,10 @@ impl<'a> Parser<'a> {
         source: &str,
         text: &str,
         span: Span,
-        max_depth: usize,
-        max_fuel: usize,
+        limits: NestedLimits,
         shell_profile: ShellProfile,
     ) -> Word {
-        let mut parser = Parser::with_limits_and_profile(text, max_depth, max_fuel, shell_profile);
+        let mut parser = Parser::with_nested_limits(text, limits, shell_profile);
         let source_backed = span.end.offset() <= source.len() && span.slice(source) == text;
         let start = Position::new();
         let fragment_span = Span::from_positions(start, start.advanced_by(text));

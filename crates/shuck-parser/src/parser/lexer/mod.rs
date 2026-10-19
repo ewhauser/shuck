@@ -746,6 +746,9 @@ pub struct Lexer<'a> {
     reinject_resume_offset: Option<usize>,
     /// Maximum allowed nesting depth for command substitution
     max_subst_depth: usize,
+    /// Current recursion depth of `${...}` and `$[...]` readers, bounded by
+    /// `max_subst_depth`.
+    expansion_nesting: usize,
     initial_zsh_options: Option<ZshOptionState>,
     zsh_timeline: Option<Arc<ZshOptionTimeline>>,
     zsh_timeline_index: usize,
