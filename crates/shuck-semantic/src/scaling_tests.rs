@@ -280,8 +280,10 @@ fn analyzed_path_lookup_normalizes_parent_components() {
 
 #[test]
 fn long_arithmetic_operator_chains_do_not_recurse_per_operator() {
-    // Past the ~5.4k terms that overflowed the old per-operator recursion in debug builds.
-    let terms = 6_000;
+    const SEMANTIC_STACK: usize = 384 * 1024;
+    // The parser caps operator chains at 1000 links; at that length the old per-operator
+    // recursion needed more than the small stack used below in debug builds.
+    let terms = 1_000;
     // Parsing, indexing, and dropping such a deep tree still recurse, so those run on a large
     // stack; only the semantic build runs on the small one.
     let (y_reads, z_bindings) = thread::Builder::new()
@@ -293,7 +295,7 @@ fn long_arithmetic_operator_chains_do_not_recurse_per_operator() {
             let indexer = Indexer::new(&source, &output);
             thread::scope(|scope| {
                 thread::Builder::new()
-                    .stack_size(1024 * 1024)
+                    .stack_size(SEMANTIC_STACK)
                     .spawn_scoped(scope, || {
                         let model = SemanticModel::build(&output.file, &source, &indexer);
                         let y_reads = model
