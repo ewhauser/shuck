@@ -13,7 +13,9 @@ use similar::TextDiff;
 use crate::ExitStatus;
 use crate::args::FormatCommand;
 use crate::cache::resolve_cache_root;
-use crate::commands::project_runner::{PendingProjectFile, prepare_project_runs};
+use crate::commands::project_runner::{
+    FileError, PendingProjectFile, prepare_project_runs, print_file_errors,
+};
 use crate::discover::{DiscoveryOptions, FileKind};
 use crate::format_settings::{ResolvedFormatSettings, resolve_project_format_settings};
 
@@ -31,11 +33,13 @@ pub(crate) struct FormatReport {
     changed_files: Vec<PathBuf>,
     cache_hits: usize,
     cache_misses: usize,
+    /// Files that could not be read or written; the rest of the run continues.
+    file_errors: Vec<FileError>,
 }
 
 impl FormatReport {
     fn exit_status(&self, mode: FormatMode) -> ExitStatus {
-        if !self.errors.is_empty() {
+        if !self.errors.is_empty() || !self.file_errors.is_empty() {
             return ExitStatus::Error;
         }
 
@@ -143,6 +147,8 @@ fn print_report(report: &FormatReport) -> Result<()> {
             &error.message,
         )?;
     }
+    stdout.flush()?;
+    print_file_errors(&report.file_errors)?;
     Ok(())
 }
 
@@ -164,7 +170,7 @@ fn run_format_with_cwd(
         use_config_roots: config_arguments.use_config_roots(),
         ..DiscoveryOptions::default()
     };
-    let runs = prepare_project_runs::<FormatCacheData, ResolvedFormatSettings, _>(
+    let prepared = prepare_project_runs::<FormatCacheData, ResolvedFormatSettings, _>(
         &args.files,
         cwd,
         &options,
@@ -179,9 +185,12 @@ fn run_format_with_cwd(
             )
         },
     )?;
-    let mut report = FormatReport::default();
+    let mut report = FormatReport {
+        file_errors: prepared.file_errors,
+        ..FormatReport::default()
+    };
 
-    for mut run in runs {
+    for mut run in prepared.runs {
         run.files.retain(|file| {
             file.kind == FileKind::Shell && !run.settings.is_file_excluded(&file.absolute_path)
         });
@@ -197,6 +206,7 @@ fn run_format_with_cwd(
             }
             Ok(())
         })?;
+        report.file_errors.append(&mut run.file_errors);
 
         let batch_size = pending_format_batch_size();
         let mut pending = pending.into_iter();
@@ -208,11 +218,18 @@ fn run_format_with_cwd(
 
             let results = batch
                 .into_par_iter()
-                .map(|pending| format_pending_file(pending, &run.settings, mode))
+                .map(|pending| {
+                    let display_path = pending.file.display_path.clone();
+                    format_pending_file(pending, &run.settings, mode)
+                        .map_err(|err| FileError::new(&display_path, format_args!("{err:#}")))
+                })
                 .collect::<Vec<_>>();
 
             for result in results {
-                handle_format_outcome(result?, &mut run.cache, &mut report)?;
+                match result {
+                    Ok(outcome) => handle_format_outcome(outcome, &mut run.cache, &mut report)?,
+                    Err(error) => report.file_errors.push(error),
+                }
             }
         }
 
@@ -240,7 +257,8 @@ fn format_pending_file(
     mode: FormatMode,
 ) -> Result<PendingFormatOutcome> {
     let PendingProjectFile { file, file_key } = pending;
-    let source = fs::read_to_string(&file.absolute_path)?;
+    let source = fs::read_to_string(&file.absolute_path)
+        .map_err(|err| anyhow!("cannot read file: {err}"))?;
     let options = settings.shell_format_options_for_path(&file.absolute_path)?;
 
     let mut outcome = PendingFormatOutcome {
@@ -288,7 +306,10 @@ fn format_pending_file(
             Ok(FormattedSource::Formatted(formatted)) => {
                 outcome.changed_path = Some(file.display_path.clone());
                 match mode {
-                    FormatMode::Write => fs::write(&file.absolute_path, formatted.as_bytes())?,
+                    FormatMode::Write => {
+                        crate::fs_write::write_atomic(&file.absolute_path, formatted.as_bytes())
+                            .map_err(|err| anyhow!("cannot write file: {err}"))?;
+                    }
                     FormatMode::Check => {}
                     FormatMode::Diff => {
                         outcome.diff = Some(unified_diff(&file.display_path, &source, &formatted));
