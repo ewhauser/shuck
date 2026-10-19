@@ -7,6 +7,7 @@ use lsp_types::{
 };
 
 use crate::server::{api, schedule};
+use crate::session::ClientResponseHandler;
 use crate::{Server, session::Client};
 
 pub type MainLoopSender = crossbeam::channel::Sender<Event>;
@@ -71,7 +72,7 @@ impl Server {
                                 .outgoing_mut()
                                 .complete(&response.id)
                             {
-                                handler(&client, &mut self.session, response);
+                                run_response_handler(handler, &client, &mut self.session, response);
                             } else {
                                 tracing::error!(
                                     "Received an unexpected response for request {}",
@@ -160,6 +161,25 @@ impl Server {
     }
 }
 
+/// Run the handler for a client response on the main thread, containing a
+/// panic to that one response instead of letting it end the server.
+fn run_response_handler(
+    handler: ClientResponseHandler,
+    client: &Client,
+    session: &mut crate::Session,
+    response: lsp_server::Response,
+) {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        handler(client, session, response);
+    }));
+    if let Err(error) = result {
+        tracing::error!(
+            "Client response handler panicked: {}",
+            api::panic_message(&error).unwrap_or_else(|| "unknown panic".into())
+        );
+    }
+}
+
 fn watched_files() -> Vec<FileSystemWatcher> {
     let mut watchers = vec![
         // Call-hierarchy and workspace-symbol indexes include every discovered
@@ -218,5 +238,34 @@ mod tests {
         assert!(patterns.iter().any(|pattern| pattern == "**/*"));
         assert!(patterns.iter().any(|pattern| pattern == "**/.shuck.toml"));
         assert!(patterns.iter().any(|pattern| pattern == "**/shuck.toml"));
+    }
+
+    #[test]
+    fn panicking_response_handler_is_contained() {
+        let (event_tx, _event_rx) = crossbeam::channel::unbounded();
+        let (connection_tx, _connection_rx) = crossbeam::channel::unbounded();
+        let client = Client::new(event_tx, connection_tx);
+        let workspace_url = lsp_types::Url::from_file_path(std::env::temp_dir())
+            .expect("temporary directory should convert to a file URL");
+        let workspaces = crate::Workspaces::new(vec![crate::Workspace::default(workspace_url)]);
+        let global = crate::GlobalOptions::default().into_settings(client.clone());
+        let mut session = crate::Session::new(
+            &lsp_types::ClientCapabilities::default(),
+            crate::PositionEncoding::UTF16,
+            global,
+            &workspaces,
+            &client,
+        )
+        .expect("test session should initialize");
+
+        let handler: ClientResponseHandler = Box::new(|_, _, _| panic!("handler exploded"));
+        run_response_handler(
+            handler,
+            &client,
+            &mut session,
+            lsp_server::Response::new_ok(lsp_server::RequestId::from(1), ()),
+        );
+
+        assert_eq!(session.open_document_count(), 0);
     }
 }

@@ -19,11 +19,49 @@ use crate::{PositionEncoding, TextDocument};
 #[derive(Default)]
 pub(crate) struct Index {
     documents: FxHashMap<Url, Arc<TextDocument>>,
+    live_versions: Arc<LiveDocumentVersions>,
     workspace_roots: Vec<PathBuf>,
     workspace_settings: Vec<WorkspaceSettings>,
     cache_project_settings: bool,
     project_settings_cache:
         RwLock<FxHashMap<ProjectSettingsCacheKey, Arc<ResolvedProjectSettings>>>,
+}
+
+/// Versions of the currently open documents, shared with snapshots so
+/// background work can tell whether its buffer has since changed.
+#[derive(Default, Debug)]
+pub(crate) struct LiveDocumentVersions(RwLock<FxHashMap<Url, DocumentVersion>>);
+
+impl LiveDocumentVersions {
+    /// Return the version of an open document, or `None` once it is closed.
+    pub(crate) fn get(&self, url: &Url) -> Option<DocumentVersion> {
+        self.0
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(url)
+            .copied()
+    }
+
+    fn set(&self, url: Url, version: DocumentVersion) {
+        self.0
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(url, version);
+    }
+
+    fn remove(&self, url: &Url) {
+        self.0
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(url);
+    }
+
+    fn retain(&self, keep: impl Fn(&Url) -> bool) {
+        self.0
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|url, _| keep(url));
+    }
 }
 
 #[derive(Clone)]
@@ -86,6 +124,7 @@ impl Index {
             .collect();
         Ok(Self {
             documents: FxHashMap::default(),
+            live_versions: Arc::default(),
             workspace_roots,
             workspace_settings,
             cache_project_settings: false,
@@ -163,23 +202,36 @@ impl Index {
             ));
         };
 
-        std::sync::Arc::make_mut(document).apply_changes(content_changes, new_version, encoding);
+        std::sync::Arc::make_mut(document).apply_changes(content_changes, new_version, encoding)?;
+        self.live_versions.set(url.clone(), new_version);
         Ok(())
     }
 
     pub(super) fn open_text_document(&mut self, url: Url, document: TextDocument) {
+        self.live_versions.set(url.clone(), document.version());
         self.documents.insert(url, Arc::new(document));
     }
 
     pub(super) fn close_document(&mut self, key: &DocumentKey) -> crate::Result<()> {
         let DocumentKey::Text(url) = key;
+        self.live_versions.remove(url);
         self.documents
             .remove(url)
             .map(|_| ())
             .ok_or_else(|| anyhow!("document is not open: {url}"))
     }
 
-    pub(super) fn reload_settings(&mut self, changes: &[FileEvent], _client: &Client) {
+    pub(super) fn live_versions(&self) -> &Arc<LiveDocumentVersions> {
+        &self.live_versions
+    }
+
+    pub(super) fn open_document_urls(&self) -> Vec<Url> {
+        self.documents.keys().cloned().collect()
+    }
+
+    /// Drop cached project settings affected by watched-file events and
+    /// report whether any Shuck config file changed.
+    pub(super) fn reload_settings(&mut self, changes: &[FileEvent], _client: &Client) -> bool {
         let changed_paths = changes
             .iter()
             .filter_map(|change| change.uri.to_file_path().ok())
@@ -191,7 +243,7 @@ impl Index {
             })
             .collect::<Vec<_>>();
         if changed_paths.is_empty() {
-            return;
+            return false;
         }
 
         // A global config change can affect any project without a local
@@ -203,7 +255,7 @@ impl Index {
             .any(|path| global_candidates.contains(path))
         {
             self.clear_project_settings_cache();
-            return;
+            return true;
         }
 
         let changed_roots = changed_paths
@@ -215,6 +267,7 @@ impl Index {
             .write()
             .expect("settings cache lock should not be poisoned")
             .retain(|cache_key, _| !changed_roots.contains(&cache_key.config_root));
+        true
     }
 
     pub(super) fn open_workspace_folder(
@@ -256,6 +309,8 @@ impl Index {
                 .map(|file_path| !file_path.starts_with(&path))
                 .unwrap_or(true)
         });
+        let documents = &self.documents;
+        self.live_versions.retain(|url| documents.contains_key(url));
         self.clear_project_settings_cache();
         Ok(())
     }

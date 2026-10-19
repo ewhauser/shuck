@@ -70,7 +70,8 @@ fn shell_document_snapshot_reports_native_shuck_diagnostic() {
         .clone()
         .expect("diagnostic payload should be present");
     assert_eq!(data["code"], "C001");
-    assert!(data["directive_edit"].is_object());
+    assert!(data.get("directive_edit").is_none());
+    assert_eq!(data["line"], 1);
     assert_eq!(data["applicability"], "Unsafe");
     assert_eq!(data["edits"][0]["newText"], "_");
 }

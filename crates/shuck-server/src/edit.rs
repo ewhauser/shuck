@@ -108,16 +108,30 @@ fn position_to_offset(
     position: lsp_types::Position,
     encoding: PositionEncoding,
 ) -> usize {
-    let line = usize::try_from(position.line).unwrap_or(usize::MAX) + 1;
-    let line = line.min(index.line_count());
+    let line = usize::try_from(position.line)
+        .unwrap_or(usize::MAX)
+        .saturating_add(1);
+    // A line past the last one addresses the end of the document, not the
+    // start of the last line.
+    if line > index.line_count() {
+        return text.len();
+    }
     let line_start = index
         .line_start(line)
         .map(usize::from)
         .unwrap_or(text.len());
-    let line_end = index
+    let mut line_end = index
         .line_range(line, text)
         .map(|range| usize::from(range.end()))
         .unwrap_or(text.len());
+    // Keep a CRLF terminator intact: a character past the end of the line
+    // must clamp before the `\r`, never between it and the `\n`.
+    if line_end > line_start
+        && text.as_bytes().get(line_end) == Some(&b'\n')
+        && text.as_bytes()[line_end - 1] == b'\r'
+    {
+        line_end -= 1;
+    }
     let line_text = &text[line_start..line_end];
     let target = usize::try_from(position.character).unwrap_or(usize::MAX);
 
@@ -160,6 +174,12 @@ fn position_to_offset(
     clamp_offset_to_char_boundary(line_text, relative) + line_start
 }
 
+/// Convert an LSP range to a byte range.
+///
+/// A reversed range (end before start) is invalid per the protocol; it
+/// collapses to an empty range at its start rather than being reinterpreted
+/// as the span between the two positions. Document edits reject reversed
+/// ranges before they get here.
 pub(crate) fn to_text_range(
     range: &lsp_types::Range,
     text: &str,
@@ -167,10 +187,10 @@ pub(crate) fn to_text_range(
     encoding: PositionEncoding,
 ) -> TextRange {
     let start = position_to_offset(text, index, range.start, encoding);
-    let end = position_to_offset(text, index, range.end, encoding);
+    let end = position_to_offset(text, index, range.end, encoding).max(start);
     TextRange::new(
-        shuck_ast::TextSize::new(start.min(end) as u32),
-        shuck_ast::TextSize::new(end.max(start) as u32),
+        shuck_ast::TextSize::new(start as u32),
+        shuck_ast::TextSize::new(end as u32),
     )
 }
 
@@ -314,5 +334,52 @@ mod tests {
         assert_eq!(edit.range.start, lsp_types::Position::new(1, 0));
         assert_eq!(edit.range.end, lsp_types::Position::new(1, 4));
         assert_eq!(edit.new_text, "printf");
+    }
+
+    fn text_range(source: &str, start: (u32, u32), end: (u32, u32)) -> (usize, usize) {
+        let index = shuck_indexer::LineIndex::new(source);
+        let range = to_text_range(
+            &lsp_types::Range {
+                start: lsp_types::Position::new(start.0, start.1),
+                end: lsp_types::Position::new(end.0, end.1),
+            },
+            source,
+            &index,
+            PositionEncoding::UTF16,
+        );
+        (usize::from(range.start()), usize::from(range.end()))
+    }
+
+    #[test]
+    fn character_past_crlf_line_end_clamps_before_carriage_return() {
+        let source = "echo a\r\necho b\r\n";
+
+        assert_eq!(text_range(source, (0, 99), (0, 99)), (6, 6));
+        assert_eq!(text_range(source, (1, 6), (1, 7)), (14, 14));
+    }
+
+    #[test]
+    fn lone_trailing_carriage_return_stays_addressable() {
+        let source = "echo a\r";
+
+        assert_eq!(text_range(source, (0, 7), (0, 7)), (7, 7));
+    }
+
+    #[test]
+    fn line_past_end_of_document_maps_to_document_end() {
+        let source = "echo a\necho b";
+
+        assert_eq!(
+            text_range(source, (5, 0), (9, 3)),
+            (source.len(), source.len())
+        );
+        assert_eq!(text_range(source, (1, 0), (7, 0)), (7, source.len()));
+    }
+
+    #[test]
+    fn reversed_range_collapses_to_its_start() {
+        let source = "echo a\necho b\n";
+
+        assert_eq!(text_range(source, (1, 2), (0, 1)), (9, 9));
     }
 }
