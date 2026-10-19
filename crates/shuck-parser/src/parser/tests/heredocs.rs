@@ -996,3 +996,33 @@ fn test_unterminated_command_substitution_after_heredoc_quote_stays_in_bounds() 
         }
     }
 }
+
+#[test]
+fn test_many_heredocs_on_one_line_keep_bodies_and_tail() {
+    let count = 2_000;
+    let mut input = String::from("cat");
+    for index in 0..count {
+        input.push_str(&format!(" <<E{index}"));
+    }
+    input.push_str(" | tr a b\n");
+    for index in 0..count {
+        input.push_str(&format!("body {index}\nE{index}\n"));
+    }
+    input.push_str("echo after\n");
+
+    let output = Parser::new(&input).parse().unwrap();
+    assert_eq!(output.file.body.len(), 2);
+    let AstCommand::Binary(pipeline) = &output.file.body[0].command else {
+        panic!("expected pipeline");
+    };
+    let redirects = &pipeline.left.redirects;
+    assert_eq!(redirects.len(), count);
+    for (index, redirect) in redirects.iter().enumerate() {
+        let heredoc = redirect_heredoc(redirect);
+        assert_eq!(heredoc.body.span.slice(&input), format!("body {index}\n"));
+    }
+    let AstCommand::Simple(after) = &output.file.body[1].command else {
+        panic!("expected simple command after the pipeline");
+    };
+    assert_eq!(after.name.span.slice(&input), "echo");
+}

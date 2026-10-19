@@ -50,6 +50,7 @@ impl<'a> Lexer<'a> {
             position_map: PositionMap::new(input),
             reinject_buf: VecDeque::new(),
             reinject_resume_offset: None,
+            reinject_tail_is_plain: false,
             max_subst_depth: max_depth,
             expansion_nesting: 0,
             initial_zsh_options: shell_profile.zsh_options().cloned(),

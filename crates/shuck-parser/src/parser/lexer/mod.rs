@@ -744,6 +744,10 @@ pub struct Lexer<'a> {
     reinject_buf: VecDeque<char>,
     /// Cursor byte offset to restore once a heredoc replay buffer is exhausted.
     reinject_resume_offset: Option<usize>,
+    /// Whether the replay buffer holds a command-line tail with no quotes,
+    /// backslashes, or `#`. Re-reading such a tail for another heredoc on the
+    /// same line yields the buffer unchanged, so it can be kept as is.
+    reinject_tail_is_plain: bool,
     /// Maximum allowed nesting depth for command substitution
     max_subst_depth: usize,
     /// Current recursion depth of `${...}` and `$[...]` readers, bounded by
