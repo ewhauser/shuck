@@ -154,11 +154,13 @@ impl<'a> Parser<'a> {
             }
 
             if let Some(binary_op) = op {
-                if let Some(right) = self.parse_pipeline()? {
-                    current = Self::binary_stmt(current, binary_op, operator_span, right);
-                } else {
-                    break;
-                }
+                let Some(right) = self.parse_pipeline()? else {
+                    return Err(self.error(match binary_op {
+                        BinaryOp::And => "expected command after &&",
+                        _ => "expected command after ||",
+                    }));
+                };
+                current = Self::binary_stmt(current, binary_op, operator_span, right);
                 continue;
             }
 

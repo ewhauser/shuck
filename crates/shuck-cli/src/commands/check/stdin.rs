@@ -10,7 +10,9 @@ use shuck_linter::{Applicability, LinterSettings, ShellCheckCodeMap, ShellDialec
 use shuck_parser::{Error as ParseError, parser::Parser};
 
 use super::CheckReport;
-use super::analyze::collect_lint_diagnostics;
+use super::analyze::{
+    collect_lint_diagnostics, fixes_introduce_parse_error, warn_fixes_introduce_parse_error,
+};
 use super::display::{display_lint_diagnostics_for_file, display_parse_error};
 use super::settings::resolve_project_check_settings;
 use super::source_resolver::NativeSourceResolver;
@@ -113,18 +115,26 @@ pub(super) fn check_stdin(
             .cloned()
             .collect::<Vec<_>>();
         let applied = shuck_linter::apply_fixes(&checked_source, &fixable, applicability);
-        fixes_applied = applied.fixes_applied;
-        checked_source = Arc::<str>::from(applied.code);
-        parse_result = Parser::with_dialect(&checked_source, shell.parser_dialect()).parse();
-        analysis = collect_lint_diagnostics(
-            &checked_source,
-            &parse_result,
-            &linter_settings,
-            Some(settings.zsh_plugins.as_ref()),
-            closure_resolver,
-            &shellcheck_map,
-            &file.absolute_path,
-        );
+        let fixed_parse_result =
+            Parser::with_dialect(&applied.code, shell.parser_dialect()).parse();
+        if applied.fixes_applied > 0
+            && fixes_introduce_parse_error(&parse_result, &fixed_parse_result)
+        {
+            warn_fixes_introduce_parse_error(&file.display_path, applied.fixes_applied);
+        } else {
+            fixes_applied = applied.fixes_applied;
+            checked_source = Arc::<str>::from(applied.code);
+            parse_result = fixed_parse_result;
+            analysis = collect_lint_diagnostics(
+                &checked_source,
+                &parse_result,
+                &linter_settings,
+                Some(settings.zsh_plugins.as_ref()),
+                closure_resolver,
+                &shellcheck_map,
+                &file.absolute_path,
+            );
+        }
     }
 
     let parse_failed = parse_result.is_err();

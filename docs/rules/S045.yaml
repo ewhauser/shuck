@@ -12,7 +12,7 @@ shells:
   - ksh
 description: "A dollar sign is used before a variable name inside shell arithmetic."
 rationale: "Omit the `$` prefix; variables expand implicitly in arithmetic contexts."
-safe_fix: true
+safe_fix: false
 fix_description: "Remove the redundant `$` prefix or `${...}` wrapper from arithmetic variable references."
 source:
   shell_checks_rule: rules/SH-197.yaml
