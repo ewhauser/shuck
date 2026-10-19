@@ -168,6 +168,23 @@ where
     extend_compound_close_suffix_attachment_span(span, compound_close_span, source_map)
 }
 
+/// Attachment span of a binary statement from its operands' attachment spans,
+/// matching [`stmt_attachment_span_with_heredoc_and_compound_close`] for
+/// statements that are not rendered verbatim.
+pub(crate) fn binary_stmt_attachment_span_from_operands(
+    stmt: &Stmt,
+    left: Span,
+    right: Span,
+    compound_close_span: Option<Span>,
+    source_map: &crate::comments::SourceMap<'_>,
+) -> Span {
+    extend_compound_close_suffix_attachment_span(
+        complete_stmt_span(stmt, left.merge(right)),
+        compound_close_span,
+        source_map,
+    )
+}
+
 fn extend_compound_close_suffix_attachment_span(
     span: Span,
     close_span: Option<Span>,

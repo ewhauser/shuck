@@ -7,8 +7,9 @@ impl<'a> Lexer<'a> {
         delimiter: &str,
         strip_tabs: bool,
     ) -> HeredocRead {
-        let mut content = String::with_capacity(64);
-        let mut current_line = String::with_capacity(64);
+        if self.reinject_tail_is_plain && self.reinject_buf.back() == Some(&'\n') {
+            return self.read_heredoc_keeping_plain_tail(delimiter, strip_tabs);
+        }
 
         // Save rest of current line (after the delimiter token on the command line).
         // For `cat <<EOF | sort`, this captures ` | sort` so the parser can
@@ -86,6 +87,59 @@ impl<'a> Lexer<'a> {
             previous_tail_char = Some(ch);
         }
 
+        let (content, content_span) = self.read_heredoc_body(delimiter, strip_tabs);
+
+        // Re-inject the command-line tail so subsequent same-line tokens (pipes,
+        // redirects, command words, additional heredocs) stay visible to the
+        // parser. Always replay a terminating newline so parsing stops before
+        // tokens that originally lived on later source lines, like `}` or `do`.
+        let post_heredoc_offset = self.offset;
+        self.offset = rest_of_line_start.offset();
+        self.reinject_tail_is_plain = !rest_of_line.contains(['"', '\'', '\\', '#']);
+        for ch in rest_of_line.chars() {
+            self.reinject_buf.push_back(ch);
+        }
+        self.reinject_buf.push_back('\n');
+        self.reinject_resume_offset = Some(post_heredoc_offset);
+
+        HeredocRead {
+            content,
+            content_span,
+        }
+    }
+
+    /// Read a heredoc whose command-line tail is entirely in a plain replay
+    /// buffer, as happens for the second and later heredocs on one line.
+    ///
+    /// Scanning a plain tail stops at the buffer's final newline, and the
+    /// scanned text would be replayed again unchanged, so leave the buffer in
+    /// place instead of copying it once per heredoc.
+    fn read_heredoc_keeping_plain_tail(
+        &mut self,
+        delimiter: &str,
+        strip_tabs: bool,
+    ) -> HeredocRead {
+        let rest_of_line_start = self.current_position();
+        let tail = std::mem::take(&mut self.reinject_buf);
+        // With the replay buffer set aside, continue from the source cursor.
+        self.sync_offset_to_cursor();
+
+        let (content, content_span) = self.read_heredoc_body(delimiter, strip_tabs);
+
+        let post_heredoc_offset = self.offset;
+        self.offset = rest_of_line_start.offset();
+        self.reinject_buf = tail;
+        self.reinject_resume_offset = Some(post_heredoc_offset);
+
+        HeredocRead {
+            content,
+            content_span,
+        }
+    }
+
+    fn read_heredoc_body(&mut self, delimiter: &str, strip_tabs: bool) -> (String, Span) {
+        let mut content = String::with_capacity(64);
+        let mut current_line = String::with_capacity(64);
         // If we just drained a heredoc replay buffer (for example when multiple
         // heredocs share one command line), resume tracking from the true cursor
         // position before we measure the body span.
@@ -168,22 +222,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        // Re-inject the command-line tail so subsequent same-line tokens (pipes,
-        // redirects, command words, additional heredocs) stay visible to the
-        // parser. Always replay a terminating newline so parsing stops before
-        // tokens that originally lived on later source lines, like `}` or `do`.
-        let post_heredoc_offset = self.offset;
-        self.offset = rest_of_line_start.offset();
-        for ch in rest_of_line.chars() {
-            self.reinject_buf.push_back(ch);
-        }
-        self.reinject_buf.push_back('\n');
-        self.reinject_resume_offset = Some(post_heredoc_offset);
-
-        HeredocRead {
-            content,
-            content_span: Span::from_positions(content_start, content_end),
-        }
+        (content, Span::from_positions(content_start, content_end))
     }
 
     pub(in crate::parser) fn heredoc_tail_line_join_stays_in_tail(&mut self) -> bool {

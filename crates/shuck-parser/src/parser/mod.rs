@@ -14,6 +14,7 @@ mod entry;
 mod heredocs;
 mod keywords;
 mod lexer;
+mod limits;
 mod lowering;
 mod parser_state;
 mod profile;
@@ -43,6 +44,7 @@ pub use result::{ParseDiagnostic, ParseResult, ParseStatus, SyntaxFacts, ZshCase
 pub use zsh_options::{OptionValue, ZshEmulationMode, ZshOptionState};
 
 use keywords::*;
+use limits::{ChainLinks, MAX_OPERATOR_CHAIN_LEN, NestedLimits, ParseBudget};
 use memchr::{memchr, memchr2, memchr3};
 pub use parser_state::Parser;
 #[cfg(feature = "benchmarking")]
@@ -65,8 +67,8 @@ use shuck_ast::{
     ExitCommand as AstExitCommand, File, ForCommand, ForSyntax, ForTarget, ForeachCommand,
     ForeachSyntax, FunctionDef, FunctionHeader, FunctionHeaderEntry, Heredoc, HeredocBody,
     HeredocBodyMode, HeredocBodyPart, HeredocBodyPartNode, HeredocDelimiter, IfCommand, IfSyntax,
-    LiteralText, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
-    PatternGroupKind, PatternPart, PatternPartNode, Position, PrefixMatchKind, Redirect,
+    LiteralText, MAX_SOURCE_LEN, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp,
+    Pattern, PatternGroupKind, PatternPart, PatternPartNode, Position, PrefixMatchKind, Redirect,
     RedirectKind, RedirectTarget, RepeatCommand, RepeatSyntax, ReturnCommand as AstReturnCommand,
     SelectCommand, SimpleCommand as AstSimpleCommand, SourceText, Span, Stmt, StmtSeq,
     StmtTerminator, Subscript, SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize,
@@ -97,15 +99,14 @@ impl ZshGlobParseFeatures {
 /// Default maximum AST depth (matches ExecutionLimits default)
 const DEFAULT_MAX_AST_DEPTH: usize = 100;
 
-/// Hard cap on AST depth to prevent stack overflow even if caller misconfigures limits.
-/// Protects against deeply nested input attacks where
-/// a large max_depth setting allows recursion deep enough to overflow the native stack.
-/// This cap cannot be overridden by the caller.
+/// Hard cap on AST depth that callers cannot raise.
 ///
-/// Set conservatively to avoid stack overflow on tokio's blocking threads (default 2MB
-/// stack in debug builds). Each parser recursion level uses ~4-8KB of stack in debug
-/// mode. 100 levels × ~8KB = ~800KB, well within 2MB.
-/// In release builds this could safely be higher, but we use one value for consistency.
+/// Every nesting construct counts toward this depth: compound commands, command and
+/// process substitutions (each of which runs a nested parser), parameter-expansion
+/// operands, arithmetic sub-expressions, and `[[ ]]` groups. The native stack cost of a
+/// level varies widely by construct and build profile, so this cap alone does not keep
+/// the parser within a small thread stack; the shared stack budget in `limits.rs` is the
+/// backstop for that.
 const HARD_MAX_AST_DEPTH: usize = 100;
 
 /// Auxiliary word reparsing happens while the main parser is already on the stack.
@@ -118,6 +119,14 @@ const SOURCE_TEXT_PATTERN_REPARSE_MAX_DEPTH: usize = 4;
 
 /// Default maximum parser operations (matches ExecutionLimits default)
 const DEFAULT_MAX_PARSER_OPERATIONS: usize = 100_000;
+
+/// Default operation budget for `input`.
+///
+/// Fuel is shared with every nested parser, so large scripts need more of it;
+/// real scripts use well under one operation per input byte.
+fn default_parser_fuel(input: &str) -> usize {
+    DEFAULT_MAX_PARSER_OPERATIONS.max(input.len())
+}
 
 /// Returns whether `text` parses as a nontrivial arithmetic expression.
 ///

@@ -582,4 +582,5 @@ mod commands;
 mod commands_double_right_bracket;
 mod heredocs;
 mod redirects;
+mod resource_limits;
 mod words;

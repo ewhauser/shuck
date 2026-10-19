@@ -3,6 +3,7 @@ use lsp_types::notification as notif;
 
 use crate::server::Result;
 use crate::server::api::LSPResult;
+use crate::server::api::diagnostics::refresh_open_document_diagnostics;
 use crate::session::{Client, Session};
 
 pub(crate) struct DidChangeWorkspace;
@@ -27,6 +28,8 @@ impl super::super::traits::SyncNotificationHandler for DidChangeWorkspace {
                 .open_workspace_folder(folder.uri, client)
                 .with_failure_code(lsp_server::ErrorCode::InternalError)?;
         }
-        Ok(())
+        // Workspace folders carry their own settings, so open documents may
+        // now resolve a different configuration.
+        refresh_open_document_diagnostics(session, client)
     }
 }

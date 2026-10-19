@@ -129,10 +129,16 @@ pub(super) fn normalize_rendered_leading_list_operator_continuations(
 ) -> Option<String> {
     let mut output = Vec::<String>::new();
     let mut changed = false;
+    // Only rejoin operators in shell code; text inside a multi-line quoted
+    // string (for example `sh -c '...'`) is the string's value.
+    let mut literal = LiteralLineTracker::default();
 
     for line in rendered.split('\n') {
+        let starts_in_literal = literal.in_literal();
+        literal.scan_line(line);
         let mut current = line.to_string();
-        if let Some((operator, rest)) = leading_list_operator_line_parts(line)
+        if !starts_in_literal
+            && let Some((operator, rest)) = leading_list_operator_line_parts(line)
             && let Some(previous) = output.last_mut()
             && let Some(prefix_len) = line_without_continuation_backslash(previous).map(str::len)
         {
@@ -618,9 +624,15 @@ pub(super) fn rendered_text_starts_like_assignment_with_substitution(text: &str)
 }
 
 pub(super) fn rendered_text_has_leading_list_operator_line(text: &str) -> bool {
-    text.lines().skip(1).any(|line| {
+    let mut literal = LiteralLineTracker::default();
+    text.lines().enumerate().any(|(index, line)| {
+        let starts_in_literal = literal.in_literal();
+        literal.scan_line(line);
         let trimmed = line.trim_start_matches([' ', '\t', '\r']);
-        (trimmed.starts_with('|') && !trimmed.starts_with("|)")) || trimmed.starts_with("&&")
+        index > 0
+            && !starts_in_literal
+            && ((trimmed.starts_with('|') && !trimmed.starts_with("|)"))
+                || trimmed.starts_with("&&"))
     })
 }
 
@@ -680,6 +692,16 @@ where
     }
 
     pub(super) fn write_text_preserving_current_line_indent(&mut self, text: &str) {
+        self.write_text_preserving_current_line_indent_replacing(text, "");
+    }
+
+    /// Like [`Self::write_text_preserving_current_line_indent`], but first
+    /// removes `source_indent` from the start of each indented line.
+    pub(super) fn write_text_preserving_current_line_indent_replacing(
+        &mut self,
+        text: &str,
+        source_indent: &str,
+    ) {
         if text.is_empty() {
             return;
         }
@@ -690,6 +712,7 @@ where
             self.line_indent_column()
         };
         let mut active_heredoc: Option<RenderedHeredocTail> = None;
+        let mut literal = LiteralLineTracker::default();
         let mut remaining = text;
         while !remaining.is_empty() {
             let (line, next, had_newline) = split_first_line(remaining);
@@ -708,11 +731,14 @@ where
                     active_heredoc = None;
                 }
             } else {
-                if self.line_start() && !line.is_empty() {
+                let mut line = line;
+                if self.line_start() && !line.is_empty() && !literal.in_literal() {
+                    line = line.strip_prefix(source_indent).unwrap_or(line);
                     self.write_indent_to_column(base_indent_column);
                 }
                 self.push_output_str(line);
                 self.writer.set_line_start(false);
+                literal.scan_line(line);
                 active_heredoc = rendered_heredoc_tail_start(line);
             }
 
@@ -748,8 +774,12 @@ where
         let mut next_block_line_aligns_with_command_continuation = false;
         let mut command_continuation_active = false;
         let mut pipeline_quote_state = RawLineQuoteState::default();
+        let mut literal = LiteralLineTracker::default();
         let mut remaining = text;
         while !remaining.is_empty() {
+            // A line that starts inside a quoted literal keeps its leading
+            // whitespace exactly, since it is part of the string's value.
+            let starts_in_literal = literal.in_literal();
             let line_started_as_command_continuation = command_continuation_active;
             let pipeline_indent_column = next_pipeline_indent_column;
             let closes_block_command_substitution = starts_with_block_command_substitution
@@ -758,14 +788,16 @@ where
                 && remaining.lines().next().is_some_and(|line| {
                     rendered_line_indent_column(line, self.options()) >= base_indent_column
                 });
-            let pipeline_stage_indent = self.line_start()
+            let pipeline_stage_indent = !starts_in_literal
+                && self.line_start()
                 && !remaining.starts_with('\n')
                 && pipeline_indent_column.is_some()
                 && !closes_block_command_substitution
                 && !remaining
                     .trim_start_matches([' ', '\t', '\r'])
                     .starts_with('\n');
-            let add_context_indent = self.line_start()
+            let add_context_indent = !starts_in_literal
+                && self.line_start()
                 && !remaining.starts_with('\n')
                 && !pipeline_stage_indent
                 && !close_line_has_context_indent
@@ -790,7 +822,8 @@ where
             };
             if had_newline {
                 let adjusted_block_pipeline_stage;
-                let line = if starts_with_block_command_substitution
+                let line = if !starts_in_literal
+                    && starts_with_block_command_substitution
                     && next_block_line_is_pipeline_stage
                     && next_block_line_aligns_with_command_continuation
                     && !pipeline_stage_indent
@@ -832,6 +865,7 @@ where
                     next_block_line_aligns_with_command_continuation = false;
                 }
                 self.push_output_str(line);
+                literal.scan_line(line);
                 let line_continues_command = !pipeline_quote_state.in_quote()
                     && line_without_continuation_backslash(line.trim_end_matches('\n')).is_some();
                 let continuation = command_substitution_pipeline_stage_continuation(
@@ -898,6 +932,7 @@ where
         mode: HeredocTailTextMode,
     ) {
         let mut active_heredoc: Option<RenderedHeredocTail> = None;
+        let mut literal = LiteralLineTracker::default();
         let mut rest = text;
 
         while !rest.is_empty() {
@@ -908,7 +943,14 @@ where
                 if heredoc.closes(line) {
                     active_heredoc = None;
                 }
+            } else if literal.in_literal() {
+                // The line continues a quoted string, so its leading
+                // whitespace is content and no indent may be added.
+                self.write_verbatim(line);
+                literal.scan_line(line);
+                active_heredoc = rendered_heredoc_tail_start(line);
             } else {
+                literal.scan_line(line);
                 let heredoc = rendered_heredoc_tail_start(line);
                 let normalized = heredoc
                     .is_some()
@@ -1128,8 +1170,38 @@ where
         let mut scratch = self.take_scratch_buffer();
         self.render_word_to_buffer(word, &mut scratch);
         let fragment = self.classify_rendered_word_fragment(word, &scratch);
-        self.write_rendered_fragment(fragment);
+        if let RenderedFragment::PreserveCurrentIndent(text) = &fragment
+            && let Some(source_indent) = self.process_substitution_word_source_indent(word, text)
+        {
+            self.write_text_preserving_current_line_indent_replacing(text, &source_indent);
+        } else {
+            self.write_rendered_fragment(fragment);
+        }
         self.restore_scratch_buffer(scratch);
+    }
+
+    /// A block-form process substitution is rendered with the indentation of
+    /// its source line baked into its body and closing lines. When the word is
+    /// written relative to the current output line instead, that source indent
+    /// must be swapped out, or each formatting pass would add it again.
+    fn process_substitution_word_source_indent(
+        &self,
+        word: &Word,
+        rendered: &str,
+    ) -> Option<String> {
+        if !word_contains_process_substitution(word) {
+            return None;
+        }
+        let indent = process_substitution_block_outer_indent(
+            self.source(),
+            word.span.start.offset(),
+            self.options(),
+        );
+        let last_line = rendered.rsplit('\n').next()?;
+        (!indent.is_empty()
+            && rendered.contains('\n')
+            && last_line.starts_with(&format!("{indent})")))
+        .then_some(indent)
     }
 
     pub(super) fn write_pattern(&mut self, pattern: &Pattern) {

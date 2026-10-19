@@ -12,6 +12,7 @@ use crate::commands::check_output::{
     DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind,
 };
 use crate::commands::project_runner::PendingProjectFile;
+use crate::discover::DiscoveredFile;
 
 pub(super) fn analyze_embedded_file(
     pending: PendingProjectFile,
@@ -20,29 +21,48 @@ pub(super) fn analyze_embedded_file(
     include_source: bool,
 ) -> Result<FileCheckResult> {
     let host_source = read_shared_source(&pending.file.absolute_path)?;
+    let (diagnostics, parse_failed) = analyze_embedded_source(
+        &pending.file,
+        host_source,
+        base_linter_settings,
+        shellcheck_map,
+        include_source,
+    );
+    Ok(FileCheckResult {
+        file: pending.file,
+        file_key: pending.file_key,
+        cache_data: CheckCacheData::from_displayed(&diagnostics, parse_failed, &[], &[]),
+        diagnostics,
+        dependency_paths: Vec::new(),
+        followed_paths: Vec::new(),
+        fixes_applied: 0,
+        parse_failed,
+    })
+}
+
+/// Lints the shell snippets embedded in an in-memory host document and returns
+/// the remapped diagnostics plus whether any snippet (or the host) failed to parse.
+pub(super) fn analyze_embedded_source(
+    file: &DiscoveredFile,
+    host_source: Arc<str>,
+    base_linter_settings: &LinterSettings,
+    shellcheck_map: &ShellCheckCodeMap,
+    include_source: bool,
+) -> (Vec<DisplayedDiagnostic>, bool) {
     let host_display_source = include_source.then_some(host_source.clone());
-    let extracted = match extract_all(&pending.file.absolute_path, host_source.as_ref()) {
+    let extracted = match extract_all(&file.absolute_path, host_source.as_ref()) {
         Ok(extracted) => extracted,
         Err(err) => {
             let diagnostics = vec![display_parse_error(
-                &pending.file.display_path,
-                &pending.file.relative_path,
-                &pending.file.absolute_path,
+                &file.display_path,
+                &file.relative_path,
+                &file.absolute_path,
                 1,
                 1,
                 err.to_string(),
                 host_display_source,
             )];
-            return Ok(FileCheckResult {
-                file: pending.file,
-                file_key: pending.file_key,
-                cache_data: CheckCacheData::from_displayed(&diagnostics, true, &[], &[]),
-                diagnostics,
-                dependency_paths: Vec::new(),
-                followed_paths: Vec::new(),
-                fixes_applied: 0,
-                parse_failed: true,
-            });
+            return (diagnostics, true);
         }
     };
 
@@ -72,7 +92,7 @@ pub(super) fn analyze_embedded_file(
             None,
             None,
             shellcheck_map,
-            &pending.file.absolute_path,
+            &file.absolute_path,
         )
         .diagnostics
         .into_iter()
@@ -86,7 +106,7 @@ pub(super) fn analyze_embedded_file(
                 column,
             } = parse_result.strict_error();
             displayed.push(remap_embedded_parse_error(
-                &pending,
+                file,
                 &embedded,
                 line,
                 column,
@@ -97,23 +117,14 @@ pub(super) fn analyze_embedded_file(
         }
 
         displayed.extend(remap_embedded_lint_diagnostics(
-            &pending,
+            file,
             &embedded,
             &diagnostics,
             host_display_source.clone(),
         ));
     }
 
-    Ok(FileCheckResult {
-        file: pending.file,
-        file_key: pending.file_key,
-        cache_data: CheckCacheData::from_displayed(&displayed, parse_failed, &[], &[]),
-        diagnostics: displayed,
-        dependency_paths: Vec::new(),
-        followed_paths: Vec::new(),
-        fixes_applied: 0,
-        parse_failed,
-    })
+    (displayed, parse_failed)
 }
 fn embedded_supported_dialect(embedded: &EmbeddedScript) -> bool {
     !matches!(embedded.dialect, ExtractedDialect::Unsupported)
@@ -144,7 +155,7 @@ fn embedded_rule_allowed(rule: Rule) -> bool {
 }
 
 fn remap_embedded_lint_diagnostics(
-    pending: &PendingProjectFile,
+    file: &DiscoveredFile,
     embedded: &EmbeddedScript,
     diagnostics: &[shuck_linter::Diagnostic],
     source: Option<Arc<str>>,
@@ -152,9 +163,9 @@ fn remap_embedded_lint_diagnostics(
     diagnostics
         .iter()
         .map(|diagnostic| DisplayedDiagnostic {
-            path: pending.file.display_path.clone(),
-            relative_path: pending.file.relative_path.clone(),
-            absolute_path: pending.file.absolute_path.clone(),
+            path: file.display_path.clone(),
+            relative_path: file.relative_path.clone(),
+            absolute_path: file.absolute_path.clone(),
             span: remap_embedded_span(
                 embedded,
                 diagnostic.span.start.line(),
@@ -174,7 +185,7 @@ fn remap_embedded_lint_diagnostics(
 }
 
 fn remap_embedded_parse_error(
-    pending: &PendingProjectFile,
+    file: &DiscoveredFile,
     embedded: &EmbeddedScript,
     line: usize,
     column: usize,
@@ -183,9 +194,9 @@ fn remap_embedded_parse_error(
 ) -> DisplayedDiagnostic {
     let position = remap_embedded_position(embedded, line, column);
     DisplayedDiagnostic {
-        path: pending.file.display_path.clone(),
-        relative_path: pending.file.relative_path.clone(),
-        absolute_path: pending.file.absolute_path.clone(),
+        path: file.display_path.clone(),
+        relative_path: file.relative_path.clone(),
+        absolute_path: file.absolute_path.clone(),
         span: DisplaySpan::point(position.line, position.column),
         message,
         kind: DisplayedDiagnosticKind::ParseError,
@@ -414,6 +425,44 @@ jobs:
                 .as_deref()
                 .is_some_and(|source| source.contains("on: push"))
         );
+    }
+
+    #[test]
+    fn remaps_block_scalar_runs_with_leading_blank_lines_and_folding() {
+        let tempdir = tempdir().unwrap();
+        let workflows = tempdir.path().join(".github/workflows");
+        fs::create_dir_all(&workflows).unwrap();
+        fs::write(
+            workflows.join("ci.yml"),
+            r#"on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+
+          unused=1
+      - run: >
+          echo hi;
+          other=1
+"#,
+        )
+        .unwrap();
+
+        let report = run_check_with_cwd(
+            &check_args(true),
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        let positions = report
+            .diagnostics
+            .iter()
+            .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+            .collect::<Vec<_>>();
+        assert_eq!(positions, vec![(8, 11), (11, 11)]);
     }
 
     #[test]

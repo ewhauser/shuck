@@ -45,8 +45,11 @@ impl<'a> Parser<'a> {
             None
         };
         let arithmetic_ast = if matches!(kind, SubscriptKind::Ordinary) {
+            // The word AST only lines up with the arithmetic text when it was
+            // parsed from that text rather than from the quoted raw form.
+            let reusable_word = word_ast.as_ref().filter(|_| raw.is_none());
             self.simple_subscript_arithmetic_ast(&text)
-                .or_else(|| self.maybe_parse_source_text_as_arithmetic(&text))
+                .or_else(|| self.maybe_parse_source_text_as_arithmetic(&text, reusable_word))
         } else {
             None
         };

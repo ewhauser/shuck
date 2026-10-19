@@ -1841,7 +1841,7 @@ pub(crate) fn collect_arithmetic_update_operator_spans(
                 op,
                 ArithmeticUnaryOp::PreIncrement | ArithmeticUnaryOp::PreDecrement
             ) {
-                spans.push(find_operator_span(
+                spans.extend(find_operator_span(
                     expression.span,
                     source,
                     match op {
@@ -1858,7 +1858,7 @@ pub(crate) fn collect_arithmetic_update_operator_spans(
             collect_arithmetic_update_operator_spans(Some(expr), source, spans);
         }
         ArithmeticExpr::Postfix { expr, op } => {
-            spans.push(find_operator_span(
+            spans.extend(find_operator_span(
                 expression.span,
                 source,
                 match op {
@@ -2145,26 +2145,24 @@ fn position_at_offset_on_same_line(anchor: Position, offset: usize) -> Position 
     )
 }
 
+/// Locate an update operator inside its expression's source text.
+///
+/// Returns `None` when the expression span does not cover the operator, which
+/// can happen for recovered or malformed input; callers skip the span then.
 pub(crate) fn find_operator_span(
     expression_span: Span,
     source: &str,
     operator: &str,
     first: bool,
-) -> Span {
-    let expression = expression_span.slice(source);
+) -> Option<Span> {
+    let expression = source.get(expression_span.start.offset()..expression_span.end.offset())?;
     let offset = if first {
-        let Some(offset) = expression.find(operator) else {
-            unreachable!("expected prefix update operator in arithmetic expression");
-        };
-        offset
+        expression.find(operator)?
     } else {
-        let Some(offset) = expression.rfind(operator) else {
-            unreachable!("expected postfix update operator in arithmetic expression");
-        };
-        offset
+        expression.rfind(operator)?
     };
     let start = expression_span.start.advanced_by(&expression[..offset]);
-    Span::from_positions(start, start.advanced_by(operator))
+    Some(Span::from_positions(start, start.advanced_by(operator)))
 }
 
 pub(crate) fn double_paren_grouping_anchor(span: Span, source: &str) -> Option<Span> {

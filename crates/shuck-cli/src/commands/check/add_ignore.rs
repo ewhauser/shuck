@@ -13,17 +13,21 @@ use super::settings::{ResolvedCheckSettings, resolve_project_check_settings};
 use crate::ExitStatus;
 use crate::args::CheckCommand;
 use crate::commands::check_output::DisplayedDiagnostic;
-use crate::commands::project_runner::prepare_project_runs;
+use crate::commands::project_runner::{FileError, prepare_project_runs};
 use crate::discover::{DiscoveryOptions, FileKind};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(super) struct AddIgnoreReport {
     pub(super) diagnostics: Vec<DisplayedDiagnostic>,
     pub(super) directives_added: usize,
+    pub(super) file_errors: Vec<FileError>,
 }
 
 impl AddIgnoreReport {
     pub(super) fn exit_status(&self, exit_zero: bool) -> ExitStatus {
+        if !self.file_errors.is_empty() {
+            return ExitStatus::Error;
+        }
         diagnostics_exit_status(&self.diagnostics, exit_zero)
     }
 }
@@ -35,7 +39,7 @@ pub(super) fn run_add_ignore_with_cwd(
     reason: Option<&str>,
 ) -> Result<AddIgnoreReport> {
     let include_source = matches!(args.output_format, crate::args::CheckOutputFormatArg::Full);
-    let mut runs = prepare_project_runs::<CheckCacheData, ResolvedCheckSettings, _>(
+    let prepared = prepare_project_runs::<CheckCacheData, ResolvedCheckSettings, _>(
         &args.paths,
         cwd,
         &DiscoveryOptions {
@@ -61,7 +65,11 @@ pub(super) fn run_add_ignore_with_cwd(
         },
     )?;
 
-    let mut report = AddIgnoreReport::default();
+    let mut runs = prepared.runs;
+    let mut report = AddIgnoreReport {
+        file_errors: prepared.file_errors,
+        ..AddIgnoreReport::default()
+    };
 
     for run in &mut runs {
         run.files.retain(|file| file.kind == FileKind::Shell);
@@ -88,19 +96,35 @@ pub(super) fn run_add_ignore_with_cwd(
                 } else {
                     linter_settings.clone()
                 };
-            let result = add_ignores_to_path_with_resolvers(
+            let result = match add_ignores_to_path_with_resolvers(
                 &file.absolute_path,
                 &file_linter_settings,
                 reason,
                 None,
                 Some(zsh_plugins.as_ref()),
-            )?;
+            ) {
+                Ok(result) => result,
+                Err(err) => {
+                    report
+                        .file_errors
+                        .push(FileError::read(&file.display_path, &err));
+                    continue;
+                }
+            };
             report.directives_added += result.directives_added;
             if result.parse_error.is_none() && result.diagnostics.is_empty() {
                 continue;
             }
 
-            let raw_source = read_shared_source(&file.absolute_path)?;
+            let raw_source = match read_shared_source(&file.absolute_path) {
+                Ok(source) => source,
+                Err(err) => {
+                    report
+                        .file_errors
+                        .push(FileError::read(&file.display_path, &err));
+                    continue;
+                }
+            };
             let source = include_source.then_some(raw_source.clone());
             if let Some(error) = result.parse_error {
                 report.diagnostics.push(display_parse_error(

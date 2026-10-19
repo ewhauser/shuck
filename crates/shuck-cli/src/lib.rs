@@ -16,6 +16,7 @@ mod commands;
 pub mod config_docs;
 mod discover;
 mod format_settings;
+mod fs_write;
 #[doc(hidden)]
 pub mod shellcheck_compat;
 #[doc(hidden)]

@@ -680,3 +680,201 @@ mod tests {
         ));
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LiteralFrame {
+    /// Shell code. `case_depth` counts open `case ... esac` commands so a
+    /// pattern's `)` is not mistaken for the end of `$( ... )`.
+    Code {
+        paren_depth: usize,
+        case_depth: usize,
+    },
+    Single,
+    AnsiC,
+    Double,
+}
+
+/// Tracks whether rendered shell lines start inside a quoted string literal.
+///
+/// Unlike [`QuoteState`], this follows `$( ... )` nested inside double quotes,
+/// so lines in the body of `"$( ... )"` count as code rather than string
+/// content. Whitespace at the start of a line that begins inside a literal is
+/// part of the string's value and must never be re-indented.
+#[derive(Debug, Clone)]
+pub(crate) struct LiteralLineTracker {
+    stack: Vec<LiteralFrame>,
+}
+
+impl Default for LiteralLineTracker {
+    fn default() -> Self {
+        Self {
+            stack: vec![LiteralFrame::Code {
+                paren_depth: 0,
+                case_depth: 0,
+            }],
+        }
+    }
+}
+
+impl LiteralLineTracker {
+    pub(crate) fn in_literal(&self) -> bool {
+        !matches!(self.stack.last(), Some(LiteralFrame::Code { .. }) | None)
+    }
+
+    pub(crate) fn scan_line(&mut self, line: &str) {
+        let bytes = line.as_bytes();
+        let mut index = 0;
+        while index < bytes.len() {
+            let byte = bytes[index];
+            let next = bytes.get(index + 1).copied();
+            let frame = self.stack.last_mut().expect("tracker keeps a base frame");
+            match frame {
+                LiteralFrame::Single => {
+                    if byte == b'\'' {
+                        self.stack.pop();
+                    }
+                }
+                LiteralFrame::AnsiC => match byte {
+                    b'\\' => index += 1,
+                    b'\'' => {
+                        self.stack.pop();
+                    }
+                    _ => {}
+                },
+                LiteralFrame::Double => match byte {
+                    b'\\' => index += 1,
+                    b'"' => {
+                        self.stack.pop();
+                    }
+                    b'$' if next == Some(b'(') => {
+                        self.stack.push(LiteralFrame::Code {
+                            paren_depth: 0,
+                            case_depth: 0,
+                        });
+                        index += 1;
+                    }
+                    _ => {}
+                },
+                LiteralFrame::Code {
+                    paren_depth,
+                    case_depth,
+                } => match byte {
+                    b'\\' => index += 1,
+                    b'c' if shell_keyword_at(line, index, "case") => *case_depth += 1,
+                    b'e' if *case_depth > 0 && shell_keyword_at(line, index, "esac") => {
+                        *case_depth -= 1;
+                    }
+                    b'#' if shell_comment_can_start(line, index) => break,
+                    b'\'' => self.stack.push(LiteralFrame::Single),
+                    b'"' => self.stack.push(LiteralFrame::Double),
+                    b'$' if next == Some(b'\'') => {
+                        self.stack.push(LiteralFrame::AnsiC);
+                        index += 1;
+                    }
+                    b'$' if next == Some(b'(') => {
+                        self.stack.push(LiteralFrame::Code {
+                            paren_depth: 0,
+                            case_depth: 0,
+                        });
+                        index += 1;
+                    }
+                    b'(' => *paren_depth += 1,
+                    b')' => {
+                        if *paren_depth > 0 {
+                            *paren_depth -= 1;
+                        } else if *case_depth > 0 {
+                            // A `case` pattern such as `a)`.
+                        } else if self.stack.len() > 1 {
+                            self.stack.pop();
+                        }
+                    }
+                    _ => {}
+                },
+            }
+            index += 1;
+        }
+    }
+}
+
+/// Whether `keyword` starts a shell word at `index` in `line`.
+fn shell_keyword_at(line: &str, index: usize, keyword: &str) -> bool {
+    let bytes = line.as_bytes();
+    let starts_word = index == 0
+        || matches!(
+            bytes[index - 1],
+            b' ' | b'\t' | b';' | b'(' | b'&' | b'|' | b'\n'
+        );
+    let end = index + keyword.len();
+    starts_word
+        && line.get(index..end) == Some(keyword)
+        && bytes
+            .get(end)
+            .is_none_or(|next| matches!(next, b' ' | b'\t' | b';' | b')' | b'\n' | b'\r'))
+}
+
+#[cfg(test)]
+mod literal_line_tracker_tests {
+    use super::LiteralLineTracker;
+
+    fn starts_in_literal(lines: &[&str]) -> Vec<bool> {
+        let mut tracker = LiteralLineTracker::default();
+        lines
+            .iter()
+            .map(|line| {
+                let in_literal = tracker.in_literal();
+                tracker.scan_line(line);
+                in_literal
+            })
+            .collect()
+    }
+
+    #[test]
+    fn tracks_quotes_across_lines() {
+        assert_eq!(
+            starts_in_literal(&["echo 'a \\", "    b'", "echo c"]),
+            [false, true, false]
+        );
+        assert_eq!(
+            starts_in_literal(&["echo \"a \\", "    b\"", "echo c"]),
+            [false, true, false]
+        );
+        assert_eq!(
+            starts_in_literal(&["echo \\' \"x\"", "  y"]),
+            [false, false]
+        );
+    }
+
+    #[test]
+    fn treats_command_substitution_in_double_quotes_as_code() {
+        assert_eq!(
+            starts_in_literal(&["x=\"$(", "  printf '%s' \"$y\" |", "    tr a b", ")\"", "z"]),
+            [false, false, false, false, false]
+        );
+        assert_eq!(
+            starts_in_literal(&["x=\"$(echo a)", "  b\""]),
+            [false, true]
+        );
+    }
+
+    #[test]
+    fn case_patterns_do_not_close_command_substitutions() {
+        assert_eq!(
+            starts_in_literal(&[
+                "x=\"$(",
+                "  case $k in",
+                "  a) echo a ;;",
+                "  b) echo b ;;",
+                "  esac",
+                "  echo c",
+                ")\"",
+                "y",
+            ]),
+            [false, false, false, false, false, false, false, false]
+        );
+    }
+
+    #[test]
+    fn ignores_quotes_in_comments() {
+        assert_eq!(starts_in_literal(&["echo a # it's", "b"]), [false, false]);
+    }
+}

@@ -72,6 +72,7 @@ fn shell_from_config(config: Option<&RunConfig>) -> Result<Option<Shell>> {
     let Some(config) = config else {
         return Ok(None);
     };
+    config.validate()?;
     config.shell.as_deref().map(parse_shell_name).transpose()
 }
 
@@ -83,7 +84,7 @@ fn config_version_for_shell(
         return Ok(None);
     };
 
-    if let Some(raw) = config.shells.get(shell.as_str()) {
+    if let Some(raw) = config.shell_constraint(shell)? {
         return Ok(Some(VersionConstraint::parse(raw)?));
     }
 

@@ -115,7 +115,7 @@ fn analyze_shell_file(
         let applied = shuck_linter::apply_fixes(&source, &fixable_diagnostics, applicability);
         if applied.fixes_applied > 0 {
             source = Arc::<str>::from(applied.code);
-            fs::write(&pending.file.absolute_path, &*source)?;
+            crate::fs_write::write_atomic(&pending.file.absolute_path, source.as_bytes())?;
             parse_result = Parser::with_dialect(&source, parse_dialect).parse();
             analysis = collect_lint_diagnostics(
                 &source,

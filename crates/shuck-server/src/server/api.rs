@@ -208,7 +208,10 @@ where
             .incoming()
             .cancellation_token(&id)
             .expect("request should be registered before scheduling");
-        let snapshot = R::snapshot(session, &params, cancellation_token.clone());
+        // Snapshot building runs on the main thread and may resolve settings
+        // from disk; a panic here must fail this request, not the server.
+        let snapshot = catch_panic(|| R::snapshot(session, &params, cancellation_token.clone()))
+            .unwrap_or_else(Err);
         Box::new(move |client| {
             if cancellation_token.is_cancelled() {
                 return;
@@ -253,7 +256,21 @@ where
             .incoming()
             .cancellation_token(&id)
             .expect("request should be registered before scheduling");
-        let Some(snapshot) = session.take_snapshot(R::document_url(&params).into_owned()) else {
+        // Snapshot building runs on the main thread and may resolve settings
+        // from disk; a panic here must fail this request, not the server.
+        let snapshot =
+            match catch_panic(|| session.take_snapshot(R::document_url(&params).into_owned())) {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    return Box::new(move |client| {
+                        if cancellation_token.is_cancelled() {
+                            return;
+                        }
+                        respond::<R>(&id, Err(error), client);
+                    });
+                }
+            };
+        let Some(snapshot) = snapshot else {
             tracing::debug!(
                 "Skipping {} because the document is no longer open",
                 R::METHOD
@@ -370,7 +387,17 @@ fn respond_silent_error(id: RequestId, client: &Client, error: lsp_server::Respo
     }
 }
 
-fn panic_message(error: &Box<dyn std::any::Any + Send + 'static>) -> Option<String> {
+/// Run `func`, converting a panic into an internal-error result.
+fn catch_panic<T>(func: impl FnOnce() -> T) -> Result<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(func)).map_err(|error| {
+        Error::new(
+            anyhow!(panic_message(&error).unwrap_or("request handler panicked".into())),
+            lsp_server::ErrorCode::InternalError,
+        )
+    })
+}
+
+pub(super) fn panic_message(error: &Box<dyn std::any::Any + Send + 'static>) -> Option<String> {
     error.downcast_ref::<String>().cloned().or_else(|| {
         error
             .downcast_ref::<&'static str>()
@@ -693,5 +720,75 @@ mod tests {
             .expect("cancel should succeed");
         handle.join().expect("diagnostic thread should join");
         assert!(event_rx.try_recv().is_err());
+    }
+
+    struct PanickingSnapshot;
+
+    impl RequestHandler for PanickingSnapshot {
+        type RequestType = SlowHoverRequest;
+    }
+
+    impl traits::BackgroundRequestHandler for PanickingSnapshot {
+        type Snapshot = ();
+
+        fn snapshot(
+            _session: &Session,
+            _params: &HoverParams,
+            _cancellation: crate::session::RequestCancellationToken,
+        ) -> Result<()> {
+            panic!("snapshot exploded");
+        }
+
+        fn run_with_snapshot(
+            (): (),
+            _client: &Client,
+            _params: HoverParams,
+        ) -> Result<Option<lsp_types::Hover>> {
+            Ok(None)
+        }
+    }
+
+    #[test]
+    fn panicking_snapshot_builder_fails_only_its_request() {
+        let (client, event_rx, _connection_rx) = test_client();
+        let mut session = test_session(&client);
+        let request_id: RequestId = 4.into();
+        session
+            .request_queue_mut()
+            .incoming_mut()
+            .register(request_id.clone(), PanickingSnapshot::METHOD.to_string());
+
+        let request = LspRequest {
+            id: request_id.clone(),
+            method: PanickingSnapshot::METHOD.to_string(),
+            params: serde_json::to_value(HoverParams {
+                text_document_position_params: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier {
+                        uri: Url::parse("file:///tmp/panic.sh").expect("test URI should parse"),
+                    },
+                    position: Position::new(0, 0),
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            })
+            .expect("hover params should serialize"),
+        };
+
+        let task = background_session_request_task::<PanickingSnapshot>(
+            request,
+            BackgroundSchedule::Worker,
+        )
+        .expect("request should schedule");
+        task.run_for_test(&mut session, &client);
+
+        let Event::SendResponse(response) = event_rx
+            .try_recv()
+            .expect("a panicking snapshot should still produce a response")
+        else {
+            panic!("expected queued response event");
+        };
+        assert_eq!(response.id, request_id);
+        let error = response.error.expect("response should carry an error");
+        assert_eq!(error.code, lsp_server::ErrorCode::InternalError as i32);
+        assert!(error.message.contains("snapshot exploded"));
     }
 }

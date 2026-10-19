@@ -965,3 +965,64 @@ EOF
         );
     }
 }
+
+#[test]
+fn test_unterminated_command_substitution_after_heredoc_quote_stays_in_bounds() {
+    // `"` is literal in a heredoc body, so it must not shift the nested
+    // command substitution's spans past the end of the input.
+    for (input, body_text) in [
+        ("cat <<F\n\"$(echo x", Some("echo x")),
+        ("cat <<F\n\"$(<<c", None),
+        ("cat <<E\n\"$(<<''", None),
+    ] {
+        let output = Parser::new(input).parse();
+        let heredoc = redirect_heredoc(&output.file.body[0].redirects[0]);
+        let body = heredoc
+            .body
+            .parts
+            .iter()
+            .find_map(|part| match &part.kind {
+                HeredocBodyPart::CommandSubstitution { body, .. } => Some(body),
+                _ => None,
+            })
+            .expect("expected heredoc command substitution");
+
+        assert!(body.span.end.offset() <= input.len(), "{input:?}");
+        for stmt in &body.stmts {
+            assert!(stmt.span.end.offset() <= input.len(), "{input:?}");
+        }
+        if let Some(body_text) = body_text {
+            assert_eq!(body.stmts[0].span.slice(input), body_text);
+        }
+    }
+}
+
+#[test]
+fn test_many_heredocs_on_one_line_keep_bodies_and_tail() {
+    let count = 2_000;
+    let mut input = String::from("cat");
+    for index in 0..count {
+        input.push_str(&format!(" <<E{index}"));
+    }
+    input.push_str(" | tr a b\n");
+    for index in 0..count {
+        input.push_str(&format!("body {index}\nE{index}\n"));
+    }
+    input.push_str("echo after\n");
+
+    let output = Parser::new(&input).parse().unwrap();
+    assert_eq!(output.file.body.len(), 2);
+    let AstCommand::Binary(pipeline) = &output.file.body[0].command else {
+        panic!("expected pipeline");
+    };
+    let redirects = &pipeline.left.redirects;
+    assert_eq!(redirects.len(), count);
+    for (index, redirect) in redirects.iter().enumerate() {
+        let heredoc = redirect_heredoc(redirect);
+        assert_eq!(heredoc.body.span.slice(&input), format!("body {index}\n"));
+    }
+    let AstCommand::Simple(after) = &output.file.body[1].command else {
+        panic!("expected simple command after the pipeline");
+    };
+    assert_eq!(after.name.span.slice(&input), "echo");
+}

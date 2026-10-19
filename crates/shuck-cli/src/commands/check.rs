@@ -7,6 +7,7 @@ use crate::ExitStatus;
 use crate::args::CheckCommand;
 use crate::cache::resolve_cache_root;
 use crate::commands::check_output::{DisplayedDiagnostic, DisplayedDiagnosticKind};
+use crate::commands::project_runner::FileError;
 
 mod add_ignore;
 mod analyze;
@@ -35,10 +36,15 @@ pub(crate) struct CheckReport {
     fixes_applied: usize,
     parse_failed: bool,
     dependency_paths: Vec<std::path::PathBuf>,
+    /// Files that could not be read or analyzed; the rest of the run continues.
+    file_errors: Vec<FileError>,
 }
 
 impl CheckReport {
     fn exit_status(&self, exit_zero: bool, exit_non_zero_on_fix: bool) -> ExitStatus {
+        if !self.file_errors.is_empty() {
+            return ExitStatus::Error;
+        }
         if exit_non_zero_on_fix && self.fixes_applied > 0 {
             return ExitStatus::Failure;
         }
@@ -104,6 +110,7 @@ pub(crate) fn check(
             );
         }
         print_diagnostics(&report.diagnostics, args.output_format)?;
+        crate::commands::project_runner::print_file_errors(&report.file_errors)?;
         return Ok(report.exit_status(args.exit_zero));
     }
 

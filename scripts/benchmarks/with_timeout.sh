@@ -22,9 +22,7 @@ pid=$!
 watchdog=$!
 
 status=0
-if ! wait "$pid"; then
-    status=$?
-fi
+wait "$pid" || status=$?
 
 kill "$watchdog" 2>/dev/null || true
 wait "$watchdog" 2>/dev/null || true

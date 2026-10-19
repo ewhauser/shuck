@@ -38,6 +38,13 @@ impl ResolvedClientCapabilities {
             .and_then(|workspace_edit| workspace_edit.document_changes)
             .unwrap_or_default();
 
+        let workspace_refresh = client_capabilities
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.diagnostic.as_ref())
+            .and_then(|diagnostic| diagnostic.refresh_support)
+            .unwrap_or_default();
+
         let pull_diagnostics = client_capabilities
             .text_document
             .as_ref()
@@ -65,7 +72,7 @@ impl ResolvedClientCapabilities {
                 && code_action_edit_resolution,
             apply_edit,
             document_changes,
-            workspace_refresh: false,
+            workspace_refresh,
             pull_diagnostics,
             hierarchical_document_symbols,
             folding_range_limit,

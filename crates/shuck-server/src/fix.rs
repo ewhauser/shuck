@@ -1,13 +1,22 @@
 use anyhow::{Context, anyhow};
 use lsp_server::ErrorCode;
 use lsp_types as types;
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
+use crate::edit::DocumentVersion;
 use crate::lint::{
     AssociatedDiagnosticData, associated_diagnostic_data, directive_edit_for_line,
     fix_all_document_edits, generate_diagnostics,
 };
 use crate::session::{Client, DocumentSnapshot, Session};
+
+/// Maximum number of distinct lines whose suppression edit is computed while
+/// answering one code-action request. Building a suppression edit re-lints the
+/// whole document, so a whole-file selection must not compute one per
+/// diagnostic line up front; lines past this budget are resolved lazily through
+/// `codeAction/resolve` when the client supports it.
+const MAX_EAGER_DIRECTIVE_LINES: usize = 16;
 
 pub(crate) fn code_actions(
     snapshot: DocumentSnapshot,
@@ -20,6 +29,7 @@ pub(crate) fn code_actions(
     let include_fix_all = wants_kind(only, &crate::SOURCE_FIX_ALL_SHUCK);
 
     if include_quickfix {
+        let mut directive_edits = FxHashMap::default();
         for diagnostic in diagnostics_for_range(&snapshot, &params.range) {
             let Some(data) = associated_diagnostic_data(&snapshot, &diagnostic) else {
                 continue;
@@ -31,10 +41,10 @@ pub(crate) fn code_actions(
                 ));
             }
 
-            if let Some(edit) = data.directive_edit.clone() {
-                actions.push(types::CodeActionOrCommand::CodeAction(
-                    diagnostic_directive_action(&snapshot, &diagnostic, &data, edit),
-                ));
+            if let Some(action) =
+                diagnostic_directive_action(&snapshot, &diagnostic, &data, &mut directive_edits)?
+            {
+                actions.push(types::CodeActionOrCommand::CodeAction(action));
             }
         }
     }
@@ -55,7 +65,29 @@ pub(crate) fn code_actions(
         }
     }
 
+    drop_stale_unversioned_edits(&snapshot, &mut actions);
+
     Ok((!actions.is_empty()).then_some(actions))
+}
+
+/// Drop code actions carrying concrete edits when the document changed after
+/// the snapshot was taken and the client cannot reject edits by version.
+///
+/// Clients with versioned `documentChanges` support discard mismatched edits
+/// themselves; plain `changes` maps carry no version, so applying them to newer
+/// text would corrupt the buffer. Deferred actions resolve against a fresh
+/// snapshot and are kept.
+fn drop_stale_unversioned_edits(
+    snapshot: &DocumentSnapshot,
+    actions: &mut Vec<types::CodeActionOrCommand>,
+) {
+    if snapshot.resolved_client_capabilities().document_changes || snapshot.is_current_version() {
+        return;
+    }
+    actions.retain(|action| match action {
+        types::CodeActionOrCommand::CodeAction(action) => action.edit.is_none(),
+        types::CodeActionOrCommand::Command(_) => true,
+    });
 }
 
 pub(crate) fn resolve_code_action(
@@ -85,6 +117,19 @@ pub(crate) fn resolve_code_action(
                 shuck_linter::Applicability::Safe
             },
         ),
+        ResolveCodeActionKind::Directive { line } => {
+            // The diagnostic line only identifies the target in the text the
+            // action was offered for; a newer buffer may have shifted it.
+            if resolved
+                .version
+                .is_some_and(|version| version != snapshot.query().document().version())
+            {
+                return Ok(action);
+            }
+            directive_edit_for_line(&snapshot, line)
+                .into_iter()
+                .collect()
+        }
     };
     if !edits.is_empty() {
         action.edit = Some(workspace_edit_for_document(&snapshot, edits));
@@ -195,22 +240,55 @@ fn diagnostic_fix_action(
     }
 }
 
+/// Build the "disable for this line" action, computing the suppression edit at
+/// most once per line and only for the first [`MAX_EAGER_DIRECTIVE_LINES`]
+/// lines. Later lines are deferred to `codeAction/resolve` when supported and
+/// omitted otherwise.
 fn diagnostic_directive_action(
     snapshot: &DocumentSnapshot,
     diagnostic: &types::Diagnostic,
     data: &AssociatedDiagnosticData,
-    edit: types::TextEdit,
-) -> types::CodeAction {
-    types::CodeAction {
+    directive_edits: &mut FxHashMap<usize, Option<types::TextEdit>>,
+) -> crate::server::Result<Option<types::CodeAction>> {
+    let mut action = types::CodeAction {
         title: format!("Shuck ({}): Disable for this line", data.code),
         kind: Some(types::CodeActionKind::QUICKFIX),
         diagnostics: Some(vec![diagnostic.clone()]),
-        edit: Some(workspace_edit_for_document(snapshot, vec![edit])),
+        edit: None,
         command: None,
         is_preferred: Some(false),
         disabled: None,
         data: None,
-    }
+    };
+
+    let edit = if let Some(edit) = directive_edits.get(&data.line) {
+        edit.clone()
+    } else if directive_edits.len() < MAX_EAGER_DIRECTIVE_LINES {
+        let edit = directive_edit_for_line(snapshot, data.line);
+        directive_edits.insert(data.line, edit.clone());
+        edit
+    } else if snapshot
+        .resolved_client_capabilities()
+        .code_action_deferred_edit_resolution
+    {
+        action.data = Some(
+            serde_json::to_value(ResolveCodeActionData {
+                kind: ResolveCodeActionKind::Directive { line: data.line },
+                uri: snapshot.query().file_url().clone(),
+                include_unsafe: false,
+                version: Some(snapshot.query().document().version()),
+            })
+            .map_err(anyhow::Error::new)?,
+        );
+        return Ok(Some(action));
+    } else {
+        return Ok(None);
+    };
+
+    Ok(edit.map(|edit| {
+        action.edit = Some(workspace_edit_for_document(snapshot, vec![edit]));
+        action
+    }))
 }
 
 fn fix_all_action(
@@ -236,6 +314,7 @@ fn fix_all_action(
                 kind: ResolveCodeActionKind::FixAll,
                 uri: snapshot.query().file_url().clone(),
                 include_unsafe: snapshot.client_settings().unsafe_fixes(),
+                version: None,
             })
             .map_err(anyhow::Error::new)?,
         );
@@ -403,6 +482,7 @@ fn command_args<T: for<'de> Deserialize<'de>>(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 enum ResolveCodeActionKind {
     FixAll,
+    Directive { line: usize },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -410,6 +490,10 @@ struct ResolveCodeActionData {
     kind: ResolveCodeActionKind,
     uri: lsp_types::Url,
     include_unsafe: bool,
+    /// Document version the action was computed for, when the resolved edit
+    /// is only meaningful against that exact text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    version: Option<DocumentVersion>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -884,5 +968,194 @@ mod tests {
                     .any(|action| action.kind == Some(crate::SOURCE_FIX_ALL_SHUCK))
             );
         }
+    }
+
+    fn quickfix_params(uri: &Url, range: Range) -> CodeActionParams {
+        CodeActionParams {
+            text_document: TextDocumentIdentifier { uri: uri.clone() },
+            range,
+            context: CodeActionContext {
+                diagnostics: Vec::new(),
+                only: Some(vec![types::CodeActionKind::QUICKFIX]),
+                trigger_kind: None,
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        }
+    }
+
+    fn many_assignment_lines(count: usize) -> String {
+        (0..count).map(|index| format!("foo{index}=1\n")).collect()
+    }
+
+    fn disable_actions(actions: &[types::CodeAction]) -> Vec<&types::CodeAction> {
+        actions
+            .iter()
+            .filter(|action| action.title.contains("Disable for this line"))
+            .collect()
+    }
+
+    #[test]
+    fn whole_document_code_actions_defer_directive_edits_past_the_eager_budget() {
+        let line_count = MAX_EAGER_DIRECTIVE_LINES + 4;
+        let (session, client, _client_receiver, uri) = make_session(
+            deferred_capabilities(),
+            &many_assignment_lines(line_count),
+            "shellscript",
+            "many.sh",
+        );
+        let snapshot = session
+            .take_snapshot(uri.clone())
+            .expect("test document should produce a snapshot");
+
+        let response = code_actions(
+            snapshot,
+            &client,
+            quickfix_params(
+                &uri,
+                Range::new(Position::new(0, 0), Position::new(line_count as u32, 0)),
+            ),
+        )
+        .expect("code action request should succeed")
+        .expect("violating document should produce actions");
+        let actions = extract_actions(response);
+        let disables = disable_actions(&actions);
+
+        assert_eq!(disables.len(), line_count);
+        let (eager, deferred): (Vec<&types::CodeAction>, Vec<&types::CodeAction>) = disables
+            .iter()
+            .copied()
+            .partition(|action| action.edit.is_some());
+        assert_eq!(eager.len(), MAX_EAGER_DIRECTIVE_LINES);
+        assert_eq!(deferred.len(), 4);
+        assert!(deferred.iter().all(|action| action.data.is_some()));
+
+        let resolved = resolve_code_action(&session, &client, deferred[0].clone())
+            .expect("resolve request should succeed");
+        let line = first_edit_range(&resolved).start.line;
+        assert_eq!(line as usize, MAX_EAGER_DIRECTIVE_LINES);
+    }
+
+    #[test]
+    fn deferred_directive_is_not_resolved_against_a_newer_document() {
+        let line_count = MAX_EAGER_DIRECTIVE_LINES + 1;
+        let (mut session, client, _client_receiver, uri) = make_session(
+            deferred_capabilities(),
+            &many_assignment_lines(line_count),
+            "shellscript",
+            "stale-directive.sh",
+        );
+        let snapshot = session
+            .take_snapshot(uri.clone())
+            .expect("test document should produce a snapshot");
+        let response = code_actions(
+            snapshot,
+            &client,
+            quickfix_params(
+                &uri,
+                Range::new(Position::new(0, 0), Position::new(line_count as u32, 0)),
+            ),
+        )
+        .expect("code action request should succeed")
+        .expect("violating document should produce actions");
+        let actions = extract_actions(response);
+        let deferred = disable_actions(&actions)
+            .into_iter()
+            .find(|action| action.edit.is_none())
+            .expect("one directive action should be deferred")
+            .clone();
+
+        let key = session.key_from_url(uri);
+        session
+            .update_text_document(
+                &key,
+                vec![TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: format!("\n{}", many_assignment_lines(line_count)),
+                }],
+                2,
+            )
+            .expect("text document update should succeed");
+
+        let resolved =
+            resolve_code_action(&session, &client, deferred).expect("resolve should succeed");
+        assert!(resolved.edit.is_none());
+    }
+
+    #[test]
+    fn clients_without_resolve_support_skip_directives_past_the_eager_budget() {
+        let capabilities: ClientCapabilities = serde_json::from_value(serde_json::json!({
+            "workspace": { "workspaceEdit": { "documentChanges": true } }
+        }))
+        .expect("test client capabilities should deserialize");
+        let line_count = MAX_EAGER_DIRECTIVE_LINES + 4;
+        let (session, client, _client_receiver, uri) = make_session(
+            capabilities,
+            &many_assignment_lines(line_count),
+            "shellscript",
+            "many-eager.sh",
+        );
+        let snapshot = session
+            .take_snapshot(uri.clone())
+            .expect("test document should produce a snapshot");
+
+        let response = code_actions(
+            snapshot,
+            &client,
+            quickfix_params(
+                &uri,
+                Range::new(Position::new(0, 0), Position::new(line_count as u32, 0)),
+            ),
+        )
+        .expect("code action request should succeed")
+        .expect("violating document should produce actions");
+        let actions = extract_actions(response);
+        let disables = disable_actions(&actions);
+
+        assert_eq!(disables.len(), MAX_EAGER_DIRECTIVE_LINES);
+        assert!(disables.iter().all(|action| action.edit.is_some()));
+    }
+
+    #[test]
+    fn stale_snapshot_drops_unversioned_edits() {
+        let (mut session, client, _client_receiver, uri) = make_session(
+            ClientCapabilities::default(),
+            "foo=1\n",
+            "shellscript",
+            "unversioned.sh",
+        );
+        let stale_snapshot = session
+            .take_snapshot(uri.clone())
+            .expect("test document should produce a snapshot");
+
+        let fresh = code_actions(
+            stale_snapshot.clone(),
+            &client,
+            quickfix_params(&uri, Range::new(Position::new(0, 0), Position::new(0, 3))),
+        )
+        .expect("code action request should succeed");
+        assert!(fresh.is_some_and(|actions| !actions.is_empty()));
+
+        let key = session.key_from_url(uri.clone());
+        session
+            .update_text_document(
+                &key,
+                vec![TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: "\nfoo=1\n".to_owned(),
+                }],
+                2,
+            )
+            .expect("text document update should succeed");
+
+        let stale = code_actions(
+            stale_snapshot,
+            &client,
+            quickfix_params(&uri, Range::new(Position::new(0, 0), Position::new(0, 3))),
+        )
+        .expect("code action request should succeed");
+        assert!(stale.is_none());
     }
 }

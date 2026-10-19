@@ -150,7 +150,7 @@ impl QuoteState {
                     if ch == '#' && shell_comment_can_start(line, index) {
                         break;
                     }
-                    if ch == '\'' || (ch == '"' && !self.escaped) {
+                    if !self.escaped && (ch == '\'' || ch == '"') {
                         self.quote = Some(if ch == '\'' {
                             RawQuoteKind::Single
                         } else {

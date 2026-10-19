@@ -11,6 +11,9 @@ use anyhow::{Context, Result, anyhow, bail};
 
 use crate::{ResolutionSource, ResolvedInterpreter, Shell, Version, VersionConstraint};
 
+/// Version reported for a system interpreter that has no way to print its version.
+const UNKNOWN_VERSION: &str = "unknown";
+
 pub(crate) fn resolve_system(
     shell: Shell,
     constraint: &VersionConstraint,
@@ -25,8 +28,28 @@ pub(crate) fn resolve_system_at_path(
     path: &Path,
     constraint: &VersionConstraint,
 ) -> Result<ResolvedInterpreter> {
-    let version = detect_shell_version(shell, path)
-        .with_context(|| format!("detect system {shell} version at {}", path.display()))?;
+    let version = match detect_shell_version(shell, path) {
+        Ok(version) => version,
+        // dash has no flag that reports its version, so an unconstrained request
+        // accepts it as-is instead of failing.
+        Err(_) if shell == Shell::Dash && matches!(constraint, VersionConstraint::Latest) => {
+            Version::parse(UNKNOWN_VERSION)?
+        }
+        Err(err) if shell == Shell::Dash => {
+            return Err(err).with_context(|| {
+                format!(
+                    "system dash at {} cannot report its version, so it cannot satisfy {}. Run `shuck install dash {}` to get a managed version.",
+                    path.display(),
+                    constraint.describe(),
+                    constraint.describe()
+                )
+            });
+        }
+        Err(err) => {
+            return Err(err)
+                .with_context(|| format!("detect system {shell} version at {}", path.display()));
+        }
+    };
     if !constraint.matches(&version) {
         bail!(
             "System {shell} is {}, but {} is required. Run `shuck install {shell} {}` to get a managed version.",

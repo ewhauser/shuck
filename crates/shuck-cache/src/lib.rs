@@ -21,6 +21,29 @@ pub const CACHE_DIR_NAME: &str = ".shuck_cache";
 
 const MAX_LAST_SEEN_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
+/// Upper bound on the bytes a cache file may make the decoder allocate.
+///
+/// Cache files are untrusted input: a corrupt or crafted length prefix must not
+/// be able to request an arbitrarily large allocation. Files whose contents
+/// exceed this budget are treated as cache misses.
+const MAX_CACHE_DECODE_BYTES: usize = 256 * 1024 * 1024;
+
+fn decode_config() -> impl bincode::config::Config {
+    bincode::config::standard().with_limit::<MAX_CACHE_DECODE_BYTES>()
+}
+
+/// Decodes a cache file, returning `None` when it is oversized or malformed.
+fn decode_cache_file<T: DeserializeOwned>(file: File) -> Option<T> {
+    if file
+        .metadata()
+        .is_ok_and(|metadata| metadata.len() > MAX_CACHE_DECODE_BYTES as u64)
+    {
+        return None;
+    }
+    let mut reader = BufReader::new(file);
+    bincode::serde::decode_from_std_read(&mut reader, decode_config()).ok()
+}
+
 /// Returns the legacy cache directory that lives under a project root.
 pub fn legacy_cache_dir(project_root: &Path) -> PathBuf {
     project_root.join(CACHE_DIR_NAME)
@@ -34,11 +57,8 @@ pub fn read_project_root_from_cache_file(path: &Path) -> io::Result<Option<PathB
         Err(err) => return Err(err),
     };
 
-    let mut reader = BufReader::new(file);
-    match bincode::serde::decode_from_std_read(&mut reader, bincode::config::standard()) {
-        Ok(project_root) => Ok(Some(project_root)),
-        Err(_) => Ok(None),
-    }
+    // Only the leading project root is decoded; the rest of the file is ignored.
+    Ok(decode_cache_file(file))
 }
 
 /// Trait for values that can contribute to a deterministic package cache key.
@@ -378,12 +398,9 @@ where
             Err(err) => return Err(err),
         };
 
-        let mut reader = BufReader::new(file);
-        let package: StoredPackage<T> =
-            match bincode::serde::decode_from_std_read(&mut reader, bincode::config::standard()) {
-                Ok(package) => package,
-                Err(_) => return Ok(Self::empty(path, canonical_root)),
-            };
+        let Some(package) = decode_cache_file::<StoredPackage<T>>(file) else {
+            return Ok(Self::empty(path, canonical_root));
+        };
 
         if package.project_root != canonical_root {
             return Ok(Self::empty(path, canonical_root));
@@ -733,5 +750,42 @@ mod tests {
 
         let project_root = read_project_root_from_cache_file(&cache_path).unwrap();
         assert_eq!(project_root, Some(canonical_root));
+    }
+
+    /// A varint length prefix claiming an absurdly long string, as a corrupt or
+    /// crafted cache file might contain.
+    fn huge_length_prefix() -> Vec<u8> {
+        let mut bytes = vec![0xFD];
+        bytes.extend_from_slice(&(1u64 << 62).to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn corrupt_length_prefix_is_a_cache_miss_instead_of_an_allocation() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let cache_root = tempdir.path().join("cache");
+        let canonical_root = fs::canonicalize(tempdir.path()).unwrap();
+        let settings = TestSettings {
+            strict: true,
+            label: "alpha".to_string(),
+        };
+        let cache =
+            PackageCache::<String>::open(&cache_root, canonical_root.clone(), "0.1.0", &settings)
+                .unwrap();
+        let cache_path = cache.path().to_path_buf();
+        fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+        fs::write(&cache_path, huge_length_prefix()).unwrap();
+
+        let mut reopened =
+            PackageCache::<String>::open(&cache_root, canonical_root, "0.1.0", &settings).unwrap();
+        assert!(
+            reopened
+                .get(Path::new("script.sh"), &test_file_key(1, 2))
+                .is_none()
+        );
+        assert_eq!(
+            read_project_root_from_cache_file(&cache_path).unwrap(),
+            None
+        );
     }
 }

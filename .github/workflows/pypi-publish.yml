@@ -12,14 +12,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: python publish
+  # Builds and smoke-tests the wheels without any publishing credentials. Only the
+  # finished wheels cross over to the privileged publish job.
+  build:
+    name: python build
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: release
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -40,8 +40,9 @@ jobs:
           gh release download "$RELEASE_TAG" --repo "$REPOSITORY" --dir "$RUNNER_TEMP/release-assets"
 
       - name: Build PyPI wheels
+        # Build dependencies come from the hash-pinned scripts/build-python-release.py.lock.
         run: |
-          uv run scripts/build-python-release.py build-release-wheels \
+          uv run --locked scripts/build-python-release.py build-release-wheels \
             --assets-dir "$RUNNER_TEMP/release-assets" \
             --out-dir dist
 
@@ -52,9 +53,31 @@ jobs:
 
           python3 -m venv "$RUNNER_TEMP/pypi-smoke"
           source "$RUNNER_TEMP/pypi-smoke/bin/activate"
-          python -m pip install --upgrade pip
-          python -m pip install dist/shuck_cli-*manylinux_2_28_x86_64.whl
+          python -m pip install --no-index dist/shuck_cli-*manylinux_2_28_x86_64.whl
           test "$(shuck --version)" = "shuck ${expected_version}"
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: pypi-wheels
+          path: dist/*.whl
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: python publish
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pypi-wheels
+          path: dist
 
       - name: Publish wheels to PyPI
         # PyPI Trusted Publishing must be configured for this repo/workflow/environment.
