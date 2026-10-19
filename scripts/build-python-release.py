@@ -2,9 +2,9 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
-#     "build",
-#     "setuptools>=70.1",
-#     "wheel",
+#     "build==1.6.1",
+#     "setuptools==84.0.0",
+#     "wheel==0.48.0",
 # ]
 # ///
 """Build platform-specific shuck-cli wheels from staged binaries or release assets."""
@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import shutil
 import subprocess
@@ -123,16 +124,45 @@ def find_archive_binary(extracted_root: Path, spec: TargetSpec) -> Path:
     return matches[0]
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_archive_checksum(archive_path: Path) -> None:
+    """Check `archive_path` against the `<archive>.sha256` file published beside it."""
+    checksum_path = archive_path.with_name(archive_path.name + ".sha256")
+    if not checksum_path.is_file():
+        raise SystemExit(f"missing checksum file for release archive: {checksum_path}")
+    fields = checksum_path.read_text(encoding="utf-8").split()
+    if not fields:
+        raise SystemExit(f"empty checksum file: {checksum_path}")
+    expected = fields[0].lower()
+    if len(fields) > 1 and fields[1].lstrip("*") != archive_path.name:
+        raise SystemExit(
+            f"{checksum_path} lists {fields[1].lstrip('*')}, expected {archive_path.name}"
+        )
+    actual = sha256_file(archive_path)
+    if actual != expected:
+        raise SystemExit(
+            f"checksum mismatch for {archive_path.name}: expected {expected}, got {actual}"
+        )
+
+
 def extract_archive(archive_path: Path, spec: TargetSpec, tempdir: Path) -> Path:
     extracted_root = tempdir / "extracted"
     extracted_root.mkdir(parents=True, exist_ok=True)
 
     if archive_path.suffix == ".zip":
+        # zipfile drops absolute paths and `..` components while extracting.
         with zipfile.ZipFile(archive_path) as archive:
             archive.extractall(extracted_root)
     else:
         with tarfile.open(archive_path, mode="r:*") as archive:
-            archive.extractall(extracted_root)
+            archive.extractall(extracted_root, filter="data")
 
     return find_archive_binary(extracted_root, spec)
 
@@ -177,6 +207,7 @@ def build_one_wheel(
     out_dir: Path,
     archive: str | None,
     binary: str | None,
+    require_checksum: bool = False,
 ) -> None:
     if archive is None and binary is None:
         raise SystemExit("expected either --archive or --binary")
@@ -185,6 +216,9 @@ def build_one_wheel(
         archive_path = Path(archive).resolve()
         if not archive_path.is_file():
             raise SystemExit(f"release archive not found: {archive_path}")
+        checksum_path = archive_path.with_name(archive_path.name + ".sha256")
+        if require_checksum or checksum_path.is_file():
+            verify_archive_checksum(archive_path)
         with tempfile.TemporaryDirectory(prefix="shuck-python-archive-") as tempdir:
             source_binary = extract_archive(archive_path, spec, Path(tempdir))
             build_root = prepare_build_tree(spec, source_binary)
@@ -206,9 +240,10 @@ def build_one_wheel(
 
 def build_release_wheels(assets_dir: Path, out_dir: Path) -> None:
     missing = [
-        spec.archive_name
+        name
         for spec in TARGETS.values()
-        if not (assets_dir / spec.archive_name).is_file()
+        for name in (spec.archive_name, f"{spec.archive_name}.sha256")
+        if not (assets_dir / name).is_file()
     ]
     if missing:
         joined = "\n".join(f"  - {name}" for name in missing)
@@ -221,6 +256,7 @@ def build_release_wheels(assets_dir: Path, out_dir: Path) -> None:
             out_dir,
             archive=os.fspath(assets_dir / spec.archive_name),
             binary=None,
+            require_checksum=True,
         )
 
 

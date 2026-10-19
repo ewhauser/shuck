@@ -655,29 +655,318 @@ fn install_picks_latest_version_with_current_platform_artifact() {
 fn failed_refresh_keeps_last_good_registry() {
     let tempdir = tempfile::tempdir().unwrap();
     let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
-    let good_registry_path =
+    let registry_path =
         registry_for_archive(tempdir.path(), Shell::Bash, "5.2.21", &archive, &sha256);
-    let bad_registry_path = tempdir.path().join("bad-registry.json");
-    fs::write(&bad_registry_path, "{not json").unwrap();
-
     let environment = test_environment(
         tempdir.path(),
-        Url::from_file_path(&good_registry_path)
-            .unwrap()
-            .to_string(),
+        Url::from_file_path(&registry_path).unwrap().to_string(),
     );
     let loaded = load_registry(&environment, false, false).unwrap();
     assert!(loaded.shells.contains_key("bash"));
 
-    let failing_environment = test_environment(
-        tempdir.path(),
-        Url::from_file_path(&bad_registry_path).unwrap().to_string(),
-    );
-    let refresh_err = load_registry(&failing_environment, true, false).unwrap_err();
+    fs::write(&registry_path, "{not json").unwrap();
+    let refresh_err = load_registry(&environment, true, false).unwrap_err();
     assert!(format!("{refresh_err:#}").contains("parse"));
 
-    let recovered = load_registry(&failing_environment, false, false).unwrap();
+    let recovered = load_registry(&environment, false, false).unwrap();
     assert!(recovered.shells.contains_key("bash"));
+}
+
+#[test]
+fn registry_cache_is_keyed_by_registry_url() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let platform = current_platform().unwrap();
+    let (archive_a, sha_a) = make_shell_archive(tempdir.path(), Shell::Bash, "5.1.16");
+    let (archive_b, sha_b) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
+    let registry_a = write_registry_site(
+        &tempdir.path().join("a"),
+        &[registry_entry(
+            Shell::Bash,
+            "5.1.16",
+            &platform,
+            &archive_a,
+            &sha_a,
+        )],
+    );
+    let registry_b = write_registry_site(
+        &tempdir.path().join("b"),
+        &[registry_entry(
+            Shell::Bash,
+            "5.2.21",
+            &platform,
+            &archive_b,
+            &sha_b,
+        )],
+    );
+
+    let environment_a = test_environment(
+        tempdir.path(),
+        Url::from_file_path(&registry_a).unwrap().to_string(),
+    );
+    let environment_b = test_environment(
+        tempdir.path(),
+        Url::from_file_path(&registry_b).unwrap().to_string(),
+    );
+
+    let from_a = available_shells(&load_registry(&environment_a, false, false).unwrap(), None);
+    assert_eq!(from_a[0].versions[0].as_str(), "5.1.16");
+    // A fresh cache for registry A must not be served when registry B is selected.
+    let from_b = available_shells(&load_registry(&environment_b, false, false).unwrap(), None);
+    assert_eq!(from_b[0].versions.len(), 1);
+    assert_eq!(from_b[0].versions[0].as_str(), "5.2.21");
+}
+
+#[test]
+fn installed_versions_resolve_without_the_registry() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
+    let registry_path =
+        registry_for_archive(tempdir.path(), Shell::Bash, "5.2.21", &archive, &sha256);
+    let environment = test_environment(
+        tempdir.path(),
+        Url::from_file_path(&registry_path).unwrap().to_string(),
+    );
+    install_with_environment(
+        &environment,
+        Shell::Bash,
+        &VersionConstraint::parse("5.2.21").unwrap(),
+        false,
+        false,
+    )
+    .unwrap();
+
+    // Point at a registry that does not exist (no cache for it either).
+    let offline = test_environment(
+        tempdir.path(),
+        Url::from_file_path(tempdir.path().join("missing/index.json"))
+            .unwrap()
+            .to_string(),
+    );
+    for constraint in ["5.2.21", "5.2", "latest", ">=5"] {
+        let resolved = install_with_environment(
+            &offline,
+            Shell::Bash,
+            &VersionConstraint::parse(constraint).unwrap(),
+            false,
+            false,
+        )
+        .unwrap_or_else(|err| panic!("{constraint}: {err:#}"));
+        assert_eq!(resolved.version.as_str(), "5.2.21");
+        assert_eq!(resolved.source, ResolutionSource::Managed);
+    }
+
+    // Constraints the installed version cannot satisfy still report the registry error.
+    assert!(
+        install_with_environment(
+            &offline,
+            Shell::Bash,
+            &VersionConstraint::parse("5.1").unwrap(),
+            false,
+            false,
+        )
+        .is_err()
+    );
+    // An explicit refresh never silently falls back.
+    assert!(
+        install_with_environment(
+            &offline,
+            Shell::Bash,
+            &VersionConstraint::parse("5.2.21").unwrap(),
+            false,
+            true,
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn unparseable_version_keys_are_skipped() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
+    let registry_path =
+        registry_for_archive(tempdir.path(), Shell::Bash, "5.2.21", &archive, &sha256);
+    let shell_index_path = tempdir.path().join("registry/shells/bash/index.json");
+    let mut shell_index: Value =
+        serde_json::from_str(&fs::read_to_string(&shell_index_path).unwrap()).unwrap();
+    shell_index["versions"]["5.3-rc1"] = json!({ "manifest_url": "5.3-rc1.json" });
+    shell_index["versions"]["9.9.9"] = json!({ "manifest_url": "../../../escape.json" });
+    fs::write(&shell_index_path, shell_index.to_string()).unwrap();
+    let environment = test_environment(
+        tempdir.path(),
+        Url::from_file_path(registry_path).unwrap().to_string(),
+    );
+
+    let registry = load_registry(&environment, false, false).unwrap();
+    let available = available_shells(&registry, Some(Shell::Bash));
+    assert_eq!(
+        available[0]
+            .versions
+            .iter()
+            .map(Version::as_str)
+            .collect::<Vec<_>>(),
+        ["9.9.9", "5.2.21"]
+    );
+
+    let resolved = install_with_environment(
+        &environment,
+        Shell::Bash,
+        &VersionConstraint::parse("5.2").unwrap(),
+        false,
+        false,
+    )
+    .unwrap();
+    assert_eq!(resolved.version.as_str(), "5.2.21");
+
+    // The broken entry only fails when it is the one being selected.
+    let err = install_with_environment(
+        &environment,
+        Shell::Bash,
+        &VersionConstraint::parse("9.9.9").unwrap(),
+        false,
+        false,
+    )
+    .unwrap_err();
+    assert!(format!("{err:#}").contains("escapes the local cache root"));
+}
+
+#[test]
+fn artifact_urls_resolve_relative_to_manifest_and_are_validated() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
+    let platform = current_platform().unwrap();
+    let mut entry = registry_entry(Shell::Bash, "5.2.21", &platform, &archive, &sha256);
+    // Manifest lives at registry/shells/bash/5.2.21.json; the archive is in the tempdir root.
+    entry.url = String::from("../../../bash-5.2.21.tar.gz");
+    let registry_path = write_registry_site(tempdir.path(), &[entry.clone()]);
+    let environment = test_environment(
+        tempdir.path(),
+        Url::from_file_path(&registry_path).unwrap().to_string(),
+    );
+    let resolved = install_with_environment(
+        &environment,
+        Shell::Bash,
+        &VersionConstraint::parse("5.2.21").unwrap(),
+        false,
+        false,
+    )
+    .unwrap();
+    assert_eq!(resolved.version.as_str(), "5.2.21");
+
+    for (url, sha, expected) in [
+        (
+            "http://example.com/bash.tar.gz",
+            sha256.as_str(),
+            "unsupported URL scheme",
+        ),
+        (entry.url.as_str(), "abc123", "not a SHA-256 hex digest"),
+    ] {
+        let site = tempdir.path().join(format!("site-{expected}"));
+        let mut bad = entry.clone();
+        bad.url = url.to_owned();
+        bad.sha256 = sha.to_owned();
+        let registry_path = write_registry_site(&site, &[bad]);
+        let environment = test_environment(
+            &site,
+            Url::from_file_path(&registry_path).unwrap().to_string(),
+        );
+        let err = install_with_environment(
+            &environment,
+            Shell::Bash,
+            &VersionConstraint::parse("5.2.21").unwrap(),
+            false,
+            false,
+        )
+        .unwrap_err();
+        assert!(format!("{err:#}").contains(expected), "{err:#}");
+    }
+}
+
+#[test]
+fn pre_release_versions_sort_before_their_release() {
+    let parse = |raw: &str| Version::parse(raw).unwrap();
+    assert!(parse("5.3rc1") < parse("5.3"));
+    assert!(parse("5.3rc1") < parse("5.3rc2"));
+    assert!(parse("5.3beta2") < parse("5.3rc1"));
+    assert!(parse("5.3alpha") < parse("5.3beta"));
+    assert!(parse("5.3rc1") < parse("5.3.1"));
+    assert!(parse("5.2.21") < parse("5.3rc1"));
+    // Non pre-release letter suffixes (mksh style) still sort after the bare number.
+    assert!(parse("59") < parse("59b"));
+    assert!(parse("59b") < parse("59c"));
+    assert!(parse("59c") < parse("60"));
+
+    let mut versions = ["5.3", "5.3rc1", "5.2.21", "5.3.1"]
+        .into_iter()
+        .map(parse)
+        .collect::<Vec<_>>();
+    versions.sort();
+    assert_eq!(
+        versions.iter().map(Version::as_str).collect::<Vec<_>>(),
+        ["5.2.21", "5.3rc1", "5.3", "5.3.1"]
+    );
+}
+
+#[test]
+fn run_shells_config_accepts_aliases_and_rejects_unknown_keys() {
+    let config = RunConfig {
+        shell: None,
+        shell_version: None,
+        shells: BTreeMap::from([
+            (String::from("sh"), String::from("0.5.12")),
+            (String::from("ksh"), String::from("59c")),
+        ]),
+    };
+    assert_eq!(
+        config.shell_constraint(Shell::Dash).unwrap(),
+        Some("0.5.12")
+    );
+    assert_eq!(config.shell_constraint(Shell::Mksh).unwrap(), Some("59c"));
+    assert_eq!(config.shell_constraint(Shell::Bash).unwrap(), None);
+
+    let unknown = RunConfig {
+        shells: BTreeMap::from([(String::from("fish"), String::from("3"))]),
+        ..RunConfig::default()
+    };
+    let err = unknown.shell_constraint(Shell::Bash).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("invalid key `fish` in [run.shells]")
+    );
+
+    let duplicate = RunConfig {
+        shells: BTreeMap::from([
+            (String::from("dash"), String::from("0.5.12")),
+            (String::from("sh"), String::from("0.5.11")),
+        ]),
+        ..RunConfig::default()
+    };
+    let err = duplicate.validate().unwrap_err();
+    assert!(err.to_string().contains("configures dash twice"));
+}
+
+#[test]
+fn system_dash_without_version_flag_resolves_for_latest_only() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let path_dir = tempdir.path().join("bin");
+    fs::create_dir_all(&path_dir).unwrap();
+    let shell_path = path_dir.join("dash");
+    write_executable_fixture(
+        &shell_path,
+        "#!/bin/sh\nprintf 'dash: 0: Illegal option -%s\\n' \"$1\" >&2\nexit 2\n",
+    );
+
+    let resolved =
+        resolve_system_at_path(Shell::Dash, &shell_path, &VersionConstraint::Latest).unwrap();
+    assert_eq!(resolved.version.as_str(), "unknown");
+    assert_eq!(resolved.source, ResolutionSource::System);
+
+    let err = resolve_system_at_path(
+        Shell::Dash,
+        &shell_path,
+        &VersionConstraint::parse("0.5.12").unwrap(),
+    )
+    .unwrap_err();
+    assert!(format!("{err:#}").contains("cannot report its version"));
 }
 
 #[test]

@@ -26,6 +26,9 @@ fuzz_target!(|data: &[u8]| -> Corpus {
                 .copied()
                 .map(u32::from)
                 .filter(|_| chunk.first().copied().unwrap_or_default() & 1 == 0);
+            let reversed = range.is_some_and(|range| {
+                (range.start.line, range.start.character) > (range.end.line, range.end.character)
+            });
             let state = shuck_server::fuzzing::apply_text_document_changes(
                 &source,
                 version,
@@ -38,6 +41,13 @@ fuzz_target!(|data: &[u8]| -> Corpus {
                 encoding,
             );
 
+            if reversed {
+                // Reversed ranges are invalid and rejected without touching
+                // the document.
+                assert_eq!(state.version, version);
+                assert_eq!(state.contents, source);
+                continue;
+            }
             assert_eq!(state.version, version + 1);
             source = state.contents;
             version += 1;

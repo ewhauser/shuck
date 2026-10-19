@@ -56,7 +56,9 @@ pub fn apply_text_document_changes(
 ) -> TextDocumentState {
     let mut document =
         TextDocument::new(source.to_owned(), version).with_language_id("shellscript");
-    document.apply_changes(changes, new_version, encoding);
+    // Rejected updates leave the document unchanged, which is the state the
+    // server would keep serving.
+    let _ = document.apply_changes(changes, new_version, encoding);
     TextDocumentState {
         contents: document.contents().to_owned(),
         version: document.version(),
@@ -242,7 +244,7 @@ pub fn exercise_request_surface(
         snapshot,
         &client,
         types::DocumentRangeFormattingParams {
-            text_document: text_document_identifier(uri),
+            text_document: text_document_identifier(uri.clone()),
             range: input.range,
             options: types::FormattingOptions {
                 tab_size: 4,
@@ -254,7 +256,147 @@ pub fn exercise_request_surface(
     );
     let _ = record_server_result(&mut outputs, "textDocument/rangeFormatting", format_range)?;
 
+    exercise_settings_changes(&mut session, &client, &uri, &mut outputs)?;
+    // Ranges from the enlarged buffer do not refer to the fuzz input, which
+    // callers validate `outputs` against, so these results are only checked
+    // for panics and running time.
+    exercise_large_document(&mut session, &client, input.source, &uri, &mut Vec::new())?;
+
     Ok(outputs)
+}
+
+/// Copies of the fuzz input concatenated into the large-document pass, capped
+/// so one iteration stays cheap while still exercising many diagnostic lines.
+const LARGE_DOCUMENT_COPIES: usize = 8;
+const LARGE_DOCUMENT_MAX_BYTES: usize = 64 * 1024;
+
+/// Re-run diagnostics and whole-document code actions after the settings
+/// change paths that invalidate cached analysis: a client configuration push
+/// and a watched config-file event.
+fn exercise_settings_changes(
+    session: &mut Session,
+    client: &Client,
+    uri: &types::Url,
+    outputs: &mut Vec<serde_json::Value>,
+) -> anyhow::Result<()> {
+    session.update_configuration(
+        ClientOptions {
+            show_syntax_errors: Some(true),
+            unsafe_fixes: Some(true),
+            fix_all: Some(true),
+            ..ClientOptions::default()
+        },
+        None,
+    );
+    exercise_whole_document_actions(session, client, uri, "settingsChange", outputs)?;
+
+    let config_uri = uri
+        .to_file_path()
+        .ok()
+        .and_then(|path| path.parent().map(|parent| parent.join(".shuck.toml")))
+        .and_then(|path| types::Url::from_file_path(path).ok());
+    if let Some(config_uri) = config_uri {
+        session.reload_settings(
+            &[types::FileEvent {
+                uri: config_uri,
+                typ: types::FileChangeType::CHANGED,
+            }],
+            client,
+        );
+        exercise_whole_document_actions(session, client, uri, "watchedConfigChange", outputs)?;
+    }
+    Ok(())
+}
+
+/// Replace the document with several copies of the input and request
+/// diagnostics plus code actions over the whole buffer, so per-line work that
+/// scales with the document shows up as fuzzer timeouts.
+fn exercise_large_document(
+    session: &mut Session,
+    client: &Client,
+    source: &str,
+    uri: &types::Url,
+    outputs: &mut Vec<serde_json::Value>,
+) -> anyhow::Result<()> {
+    if source.is_empty() {
+        return Ok(());
+    }
+    let copies = (LARGE_DOCUMENT_MAX_BYTES / source.len()).clamp(1, LARGE_DOCUMENT_COPIES);
+    let mut large = String::with_capacity(source.len().saturating_add(1) * copies);
+    for _ in 0..copies {
+        large.push_str(source);
+        if !source.ends_with('\n') {
+            large.push('\n');
+        }
+    }
+    let key = session.key_from_url(uri.clone());
+    session.update_text_document(
+        &key,
+        vec![types::TextDocumentContentChangeEvent {
+            range: None,
+            range_length: None,
+            text: large,
+        }],
+        2,
+    )?;
+    exercise_whole_document_actions(session, client, uri, "largeDocument", outputs)
+}
+
+fn exercise_whole_document_actions(
+    session: &Session,
+    client: &Client,
+    uri: &types::Url,
+    label: &str,
+    outputs: &mut Vec<serde_json::Value>,
+) -> anyhow::Result<()> {
+    let Some(snapshot) = session.take_snapshot(uri.clone()) else {
+        return Ok(());
+    };
+    let diagnostics = crate::lint::generate_diagnostics(&snapshot);
+    record_value(outputs, &format!("{label}/diagnostic"), &diagnostics)?;
+
+    let end = crate::edit::to_lsp_range(
+        shuck_ast::TextRange::new(
+            shuck_ast::TextSize::new(0),
+            shuck_ast::TextSize::new(
+                u32::try_from(snapshot.query().document().contents().len()).unwrap_or(u32::MAX),
+            ),
+        ),
+        snapshot.query().document().contents(),
+        snapshot.query().document().index(),
+        snapshot.encoding(),
+    )
+    .end;
+    let code_actions = crate::fix::code_actions(
+        snapshot,
+        client,
+        types::CodeActionParams {
+            text_document: text_document_identifier(uri.clone()),
+            range: types::Range::new(types::Position::new(0, 0), end),
+            context: types::CodeActionContext {
+                diagnostics,
+                only: None,
+                trigger_kind: None,
+            },
+            work_done_progress_params: types::WorkDoneProgressParams::default(),
+            partial_result_params: types::PartialResultParams::default(),
+        },
+    );
+    if let Some(Some(actions)) =
+        record_server_result(outputs, &format!("{label}/codeAction"), code_actions)?
+    {
+        // Resolve the last few actions: past the eager budget these are the
+        // deferred suppression edits.
+        for action in actions.into_iter().rev().take(4) {
+            let types::CodeActionOrCommand::CodeAction(action) = action else {
+                continue;
+            };
+            let resolved = crate::fix::resolve_code_action(session, client, action);
+            let _ =
+                record_server_result(outputs, &format!("{label}/codeAction/resolve"), resolved)?;
+        }
+    }
+    Ok(())
 }
 
 fn build_session(
@@ -343,4 +485,53 @@ where
         "result": serde_json::to_value(value)?,
     }));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_surface_covers_settings_changes_and_large_documents() {
+        let source = (0..40)
+            .map(|index| format!("foo{index}=$bar{index}\n"))
+            .collect::<String>();
+        let capabilities: types::ClientCapabilities = serde_json::from_value(json!({
+            "textDocument": {
+                "codeAction": {
+                    "dataSupport": true,
+                    "resolveSupport": { "properties": ["edit"] }
+                }
+            },
+            "workspace": { "workspaceEdit": { "documentChanges": true } }
+        }))
+        .expect("capabilities should deserialize");
+
+        let outputs = exercise_request_surface(RequestSurfaceInput {
+            source: &source,
+            language_id: "shellscript",
+            file_name: "surface.sh",
+            encoding: PositionEncoding::UTF16,
+            capabilities,
+            client_options: ClientOptions::default(),
+            position: types::Position::new(0, 1),
+            range: types::Range::new(types::Position::new(0, 0), types::Position::new(1, 0)),
+            new_name: "renamed",
+            workspace_query: "foo",
+        })
+        .expect("request surface harness should run");
+
+        let methods = outputs
+            .iter()
+            .filter_map(|output| output["method"].as_str())
+            .collect::<Vec<_>>();
+        for expected in [
+            "settingsChange/diagnostic",
+            "settingsChange/codeAction",
+            "settingsChange/codeAction/resolve",
+            "watchedConfigChange/diagnostic",
+        ] {
+            assert!(methods.contains(&expected), "missing {expected}");
+        }
+    }
 }

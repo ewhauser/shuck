@@ -3,6 +3,8 @@
 
 This keeps the crates.io publish workflow and the local bootstrap scripts aligned
 with the current Cargo workspace metadata.
+
+With `--with-versions`, each line is `<name><TAB><version>`.
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ def is_publishable(package: dict) -> bool:
 
 
 def main() -> int:
+    with_versions = "--with-versions" in sys.argv[1:]
     metadata = load_workspace_metadata()
     workspace_member_ids = set(metadata["workspace_members"])
     workspace_packages = [
@@ -69,8 +72,12 @@ def main() -> int:
             print(f"error: {error}", file=sys.stderr)
         return 1
 
+    versions = {package["name"]: package["version"] for package in publishable_packages}
     for crate_name in TopologicalSorter(graph).static_order():
-        print(crate_name)
+        if with_versions:
+            print(f"{crate_name}\t{versions[crate_name]}")
+        else:
+            print(crate_name)
 
     return 0
 
