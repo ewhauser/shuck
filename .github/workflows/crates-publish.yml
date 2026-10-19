@@ -52,10 +52,25 @@ jobs:
           if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$DRY_RUN_INPUT" = "true" ]; then
             echo "flag=--dry-run" >> "$GITHUB_OUTPUT"
             echo "Dry-run mode: skipping upload (new unpublished internal deps may still fail registry validation)"
-          else
-            echo "flag=" >> "$GITHUB_OUTPUT"
-            echo "Publish mode: uploads enabled"
+            exit 0
           fi
+
+          # Real uploads only ever come from a release tag that matches the
+          # workspace version, never from a branch picked in the dispatch UI.
+          case "$GITHUB_REF" in
+            refs/tags/v[0-9]*) ;;
+            *)
+              echo "::error::Publishing requires a v* tag ref, got ${GITHUB_REF}. Dispatch from a release tag or enable dry_run."
+              exit 1
+              ;;
+          esac
+          workspace_version="$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name == "shuck-cli") | .version')"
+          if [ "$GITHUB_REF_NAME" != "v${workspace_version}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match workspace version v${workspace_version}."
+            exit 1
+          fi
+          echo "flag=" >> "$GITHUB_OUTPUT"
+          echo "Publish mode: uploads enabled"
 
       - name: Authenticate to crates.io (trusted publishing)
         uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
@@ -69,7 +84,7 @@ jobs:
           set -euo pipefail
 
           crates_file="$(mktemp)"
-          python3 scripts/workspace-publish-crates.py > "${crates_file}"
+          python3 scripts/workspace-publish-crates.py --with-versions > "${crates_file}"
           mapfile -t crates < "${crates_file}"
           rm -f "${crates_file}"
           if [ "${#crates[@]}" -eq 0 ]; then
@@ -77,8 +92,29 @@ jobs:
             exit 1
           fi
 
-          for crate in "${crates[@]}"; do
-            echo "::group::Publishing ${crate}"
+          for entry in "${crates[@]}"; do
+            crate="${entry%%$'\t'*}"
+            version="${entry#*$'\t'}"
+
+            # Skip versions that are already on crates.io so a rerun resumes after
+            # a partial publish instead of failing on the first uploaded crate.
+            status="$(curl -q --proto '=https' --tlsv1.2 -sS -o /dev/null -w '%{http_code}' \
+              --retry 3 --retry-all-errors \
+              -A "shuck-release (https://github.com/ewhauser/shuck)" \
+              "https://crates.io/api/v1/crates/${crate}/${version}")"
+            case "${status}" in
+              200)
+                echo "Skipping ${crate} ${version}: already published"
+                continue
+                ;;
+              404) ;;
+              *)
+                echo "Unexpected HTTP ${status} while checking ${crate} ${version} on crates.io" >&2
+                exit 1
+                ;;
+            esac
+
+            echo "::group::Publishing ${crate} ${version}"
             cargo publish -p "${crate}" --locked ${PUBLISH_FLAG}
             echo "::endgroup::"
             if [ -z "${PUBLISH_FLAG}" ]; then

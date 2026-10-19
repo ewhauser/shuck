@@ -1025,7 +1025,7 @@ fn source_mapping_for_scalar(source: &str, start_offset: usize, scalar: &str) ->
         return mapping;
     }
 
-    if let Some(mapping) = folded_block_source_mapping(source, start_offset, scalar) {
+    if let Some(mapping) = block_scalar_source_mapping(source, start_offset, scalar) {
         return mapping;
     }
 
@@ -1243,11 +1243,10 @@ fn plain_scalar_source_mapping(
     start_offset: usize,
     scalar: &str,
 ) -> Option<SourceMapping> {
-    let host_offset = adjust_offset_to_scalar_content(source, start_offset, scalar);
-    let content_line_start = line_start_offset(source, host_offset);
-    if previous_line_text(source, content_line_start).is_some_and(header_line_is_block_scalar) {
+    if block_scalar_header(source, start_offset).is_some() {
         return None;
     }
+    let host_offset = adjust_offset_to_scalar_content(source, start_offset, scalar);
 
     let (host_start_line, host_start_column) = line_column_for_offset(source, host_offset);
     let mut host_line_starts = vec![HostLineStart {
@@ -1460,128 +1459,260 @@ fn consume_quoted_fold(
     Some(())
 }
 
-fn folded_block_source_mapping(
+/// The header of a YAML block scalar (`|` or `>`) and where its content lines begin.
+struct BlockScalarHeader {
+    folded: bool,
+    /// Byte offset of the first host line after the header line.
+    content_start: usize,
+}
+
+/// One host line inside a block scalar body.
+struct BlockScalarHostLine<'a> {
+    /// 1-based host line number.
+    line: usize,
+    /// Text after the scalar's content indentation, without the line ending.
+    content: &'a str,
+    is_blank: bool,
+}
+
+/// Finds the block scalar header for a scalar whose YAML marker is at `start_offset`.
+///
+/// The YAML parser marks a block scalar at its first non-blank content line, so leading blank
+/// lines sit between the header and the marker. Anchored scalars are marked at the indicator.
+fn block_scalar_header(source: &str, start_offset: usize) -> Option<BlockScalarHeader> {
+    let start_offset = start_offset.min(source.len());
+    let marker_line_start = line_start_offset(source, start_offset);
+    let header_start = if source[start_offset..].starts_with(['|', '>'])
+        && block_indicator(
+            &source[start_offset..line_end_offset(source, start_offset)],
+            true,
+        )
+        .is_some()
+    {
+        marker_line_start
+    } else {
+        if !source[marker_line_start..start_offset]
+            .chars()
+            .all(|ch| ch == ' ')
+        {
+            return None;
+        }
+        let mut candidate = marker_line_start;
+        loop {
+            if candidate == 0 {
+                return None;
+            }
+            let previous_start = line_start_offset(source, candidate - 1);
+            let previous = &source[previous_start..candidate - 1];
+            candidate = previous_start;
+            if !previous.trim().is_empty() {
+                break;
+            }
+        }
+        candidate
+    };
+
+    let header_end = line_end_offset(source, header_start);
+    let indicator = block_indicator(&source[header_start..header_end], false)?;
+    Some(BlockScalarHeader {
+        folded: indicator == '>',
+        content_start: (header_end + 1).min(source.len()),
+    })
+}
+
+/// Returns the block scalar indicator (`|` or `>`) ending a YAML line, ignoring comments.
+///
+/// With `alone`, the indicator must be the only token on the line.
+fn block_indicator(line: &str, alone: bool) -> Option<char> {
+    let mut tokens = line
+        .trim_end_matches('\r')
+        .split([' ', '\t'])
+        .filter(|token| !token.is_empty())
+        .take_while(|token| !token.starts_with('#'));
+    let last = if alone {
+        let first = tokens.next()?;
+        tokens.next().is_none().then_some(first)?
+    } else {
+        tokens.last()?
+    };
+    let mut chars = last.chars();
+    let indicator = chars.next().filter(|ch| matches!(ch, '|' | '>'))?;
+    let modifiers = chars.as_str();
+    let valid = modifiers.len() <= 2
+        && modifiers
+            .chars()
+            .filter(|ch| matches!(ch, '+' | '-'))
+            .count()
+            <= 1
+        && modifiers
+            .chars()
+            .filter(|ch| matches!(ch, '1'..='9'))
+            .count()
+            <= 1
+        && modifiers
+            .chars()
+            .all(|ch| matches!(ch, '+' | '-' | '1'..='9'));
+    valid.then_some(indicator)
+}
+
+fn block_scalar_source_mapping(
     source: &str,
     start_offset: usize,
     scalar: &str,
 ) -> Option<SourceMapping> {
-    let host_offset = adjust_offset_to_scalar_content(source, start_offset, scalar);
-    let (host_start_line, host_start_column) = line_column_for_offset(source, host_offset);
-    let content_line_start = line_start_offset(source, host_offset);
-    let header_line = previous_line_text(source, content_line_start)?;
-    if !header_line_is_folded_block(header_line) {
+    if scalar.trim().is_empty() {
         return None;
     }
+    let header = block_scalar_header(source, start_offset)?;
+    let (first_line, _) = line_column_for_offset(source, header.content_start);
 
-    let content_indent = host_start_column.saturating_sub(1);
-    let expected_line_count = decoded_line_count(scalar);
-    let mut host_line_starts = vec![HostLineStart {
-        line: host_start_line,
-        column: host_start_column,
-    }];
-    let mut current_line_start = content_line_start;
-    let mut current_line_number = host_start_line;
-    let mut previous_nonblank = classify_block_scalar_line(
-        source,
-        current_line_start,
-        current_line_number,
-        content_indent,
-    )?;
-    let mut pending_blank_lines = Vec::new();
-
-    while let Some(next_line_start) = next_line_start_offset(source, current_line_start) {
-        current_line_number += 1;
-        let next_line = classify_block_scalar_line(
-            source,
-            next_line_start,
-            current_line_number,
-            content_indent,
-        )?;
-        if next_line.ends_block {
+    // Auto-detected content indentation: the first non-blank line's leading spaces.
+    let mut content_indent = None;
+    let mut line_start = header.content_start;
+    while line_start < source.len() {
+        let line = &source[line_start..line_end_offset(source, line_start)];
+        if !line.trim().is_empty() {
+            content_indent = Some(line.chars().take_while(|&ch| ch == ' ').count());
             break;
         }
-        current_line_start = next_line_start;
+        line_start = line_end_offset(source, line_start) + 1;
+    }
+    let content_indent = content_indent?;
+    let column = content_indent + 1;
 
-        if next_line.is_blank {
-            pending_blank_lines.push(next_line.line);
-            continue;
-        }
-
-        if !pending_blank_lines.is_empty() {
-            for blank_line in pending_blank_lines
-                .iter()
-                .copied()
-                .take(pending_blank_lines.len().saturating_sub(1))
-            {
-                host_line_starts.push(HostLineStart {
-                    line: blank_line,
-                    column: host_start_column,
-                });
-            }
-            host_line_starts.push(HostLineStart {
-                line: next_line.line,
-                column: host_start_column,
-            });
-            pending_blank_lines.clear();
-        } else if previous_nonblank.is_more_indented || next_line.is_more_indented {
-            host_line_starts.push(HostLineStart {
-                line: next_line.line,
-                column: host_start_column,
-            });
-        }
-
-        previous_nonblank = next_line;
-
-        if host_line_starts.len() >= expected_line_count {
+    let mut lines = Vec::new();
+    let mut line_start = header.content_start;
+    let mut line_number = first_line;
+    while line_start < source.len() {
+        let line_end = line_end_offset(source, line_start);
+        let line = source[line_start..line_end].trim_end_matches('\r');
+        let is_blank = line.trim().is_empty();
+        let indent = line.chars().take_while(|&ch| ch == ' ').count();
+        if !is_blank && indent < content_indent {
             break;
         }
+        lines.push(BlockScalarHostLine {
+            line: line_number,
+            content: line.get(content_indent..).unwrap_or_default(),
+            is_blank,
+        });
+        line_start = line_end + 1;
+        line_number += 1;
     }
 
-    while host_line_starts.len() < expected_line_count {
-        let previous = host_line_starts.last().copied().unwrap_or(HostLineStart {
-            line: host_start_line,
-            column: host_start_column,
-        });
-        host_line_starts.push(HostLineStart {
-            line: previous.line + 1,
-            column: host_start_column,
-        });
-    }
+    let first_content_line =
+        &source[header.content_start..line_end_offset(source, header.content_start)];
+    let host_offset = header.content_start + content_indent.min(first_content_line.len());
 
+    let folded = header
+        .folded
+        .then(|| folded_block_mapping(&lines, scalar, column))
+        .flatten();
+    let (host_line_starts, host_column_mappings) = folded.unwrap_or_else(|| {
+        // Literal blocks keep every host line as one decoded line.
+        let line_starts = (0..decoded_line_count(scalar))
+            .map(|index| HostLineStart {
+                line: first_line + index,
+                column,
+            })
+            .collect();
+        (line_starts, Vec::new())
+    });
     Some(SourceMapping {
         host_offset,
         host_line_starts,
-        host_column_mappings: Vec::new(),
+        host_column_mappings,
     })
 }
 
-#[derive(Clone, Copy)]
-struct BlockScalarLine {
-    line: usize,
-    is_blank: bool,
-    is_more_indented: bool,
-    ends_block: bool,
-}
+/// Maps a folded (`>`) block scalar by walking its host lines alongside the decoded text.
+///
+/// Lines joined by folding get a column mapping at the joining space so positions on the
+/// continuation land on the host line they came from.
+fn folded_block_mapping(
+    lines: &[BlockScalarHostLine<'_>],
+    scalar: &str,
+    column: usize,
+) -> Option<(Vec<HostLineStart>, Vec<HostColumnMapping>)> {
+    let mut line_starts = Vec::new();
+    let mut column_mappings = Vec::new();
+    let mut decoded_offset = 0usize;
+    let mut decoded_line = 1usize;
+    let mut decoded_column = 1usize;
+    let mut blank_lines = Vec::new();
+    let mut last_text_line = None;
 
-fn classify_block_scalar_line(
-    source: &str,
-    line_start: usize,
-    line_number: usize,
-    content_indent: usize,
-) -> Option<BlockScalarLine> {
-    let line_end = source[line_start..]
-        .find('\n')
-        .map(|relative| line_start + relative)
-        .unwrap_or(source.len());
-    let line = source.get(line_start..line_end)?.trim_end_matches('\r');
-    let indent = line.chars().take_while(|&ch| ch == ' ').count();
-    let is_blank = line.trim().is_empty();
-    Some(BlockScalarLine {
-        line: line_number,
-        is_blank,
-        is_more_indented: !is_blank && indent > content_indent,
-        ends_block: !is_blank && indent < content_indent,
-    })
+    for host_line in lines {
+        if host_line.is_blank {
+            blank_lines.push(host_line.line);
+            continue;
+        }
+
+        let newlines = scalar[decoded_offset..]
+            .chars()
+            .take_while(|&ch| ch == '\n')
+            .count();
+        decoded_offset += newlines;
+        let starts_decoded_line = last_text_line.is_none() || newlines > 0;
+        if starts_decoded_line {
+            // Empty decoded lines between text map onto the blank host lines that produced them.
+            let empty_lines = if last_text_line.is_none() {
+                newlines
+            } else {
+                newlines - 1
+            };
+            let skipped = blank_lines.len().saturating_sub(empty_lines);
+            for index in 0..empty_lines {
+                let line = blank_lines
+                    .get(skipped + index)
+                    .copied()
+                    .unwrap_or(host_line.line);
+                line_starts.push(HostLineStart { line, column });
+            }
+            line_starts.push(HostLineStart {
+                line: host_line.line,
+                column,
+            });
+            decoded_line += newlines;
+            decoded_column = 1;
+        } else {
+            // Folded into the previous line with a single space.
+            if !scalar[decoded_offset..].starts_with(' ') {
+                return None;
+            }
+            decoded_offset += 1;
+            decoded_column += 1;
+            column_mappings.push(HostColumnMapping {
+                line: decoded_line,
+                column: decoded_column,
+                host_line: host_line.line,
+                host_column: column,
+            });
+        }
+
+        if !scalar[decoded_offset..].starts_with(host_line.content) {
+            return None;
+        }
+        decoded_offset += host_line.content.len();
+        decoded_column += host_line.content.chars().count();
+        blank_lines.clear();
+        last_text_line = Some(host_line.line);
+    }
+
+    // Chomping keeps zero or more trailing line breaks after the final text line.
+    let mut next_line = last_text_line? + 1;
+    for ch in scalar[decoded_offset..].chars() {
+        if ch != '\n' {
+            return None;
+        }
+        line_starts.push(HostLineStart {
+            line: next_line,
+            column,
+        });
+        next_line += 1;
+    }
+
+    (line_starts.len() == decoded_line_count(scalar)).then_some((line_starts, column_mappings))
 }
 
 fn line_start_offset(source: &str, offset: usize) -> usize {
@@ -1591,38 +1722,12 @@ fn line_start_offset(source: &str, offset: usize) -> usize {
         .unwrap_or(0)
 }
 
-fn previous_line_text(source: &str, line_start: usize) -> Option<&str> {
-    if line_start == 0 {
-        return None;
-    }
-
-    let previous_line_end = line_start - 1;
-    let previous_line_start = source[..previous_line_end]
-        .rfind('\n')
-        .map(|index| index + 1)
-        .unwrap_or(0);
-    source
-        .get(previous_line_start..previous_line_end)
-        .map(|line| line.trim_end_matches('\r'))
-}
-
-fn next_line_start_offset(source: &str, line_start: usize) -> Option<usize> {
-    source[line_start..]
+/// Returns the offset of the line ending (or end of source) for the line containing `offset`.
+fn line_end_offset(source: &str, offset: usize) -> usize {
+    source[offset..]
         .find('\n')
-        .map(|relative| line_start + relative + 1)
-        .filter(|offset| *offset <= source.len())
-}
-
-fn header_line_is_folded_block(line: &str) -> bool {
-    line.rsplit_once(':')
-        .map(|(_, value)| value.trim_start().starts_with('>'))
-        .unwrap_or(false)
-}
-
-fn header_line_is_block_scalar(line: &str) -> bool {
-    line.rsplit_once(':')
-        .and_then(|(_, value)| value.trim_start().chars().next())
-        .is_some_and(|indicator| matches!(indicator, '>' | '|'))
+        .map(|relative| offset + relative)
+        .unwrap_or(source.len())
 }
 
 struct ParsedYamlEscape {
@@ -2155,7 +2260,7 @@ jobs:
             scripts[0].host_line_starts,
             vec![
                 HostLineStart { line: 4, column: 3 },
-                HostLineStart { line: 5, column: 1 },
+                HostLineStart { line: 5, column: 3 },
             ]
         );
     }
@@ -2571,6 +2676,167 @@ jobs:
                     column: 11,
                 },
             ]
+        );
+    }
+
+    fn line_starts(lines: &[(usize, usize)]) -> Vec<HostLineStart> {
+        lines
+            .iter()
+            .map(|&(line, column)| HostLineStart { line, column })
+            .collect()
+    }
+
+    #[test]
+    fn maps_literal_block_runs_with_leading_blank_lines() {
+        let source = r#"on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+
+          echo hi
+          rm -rf $FOO/
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "\necho hi\nrm -rf $FOO/\n");
+        assert_eq!(
+            scripts[0].host_line_starts,
+            line_starts(&[(7, 11), (8, 11), (9, 11), (10, 11)])
+        );
+    }
+
+    #[test]
+    fn maps_stripped_literal_block_runs_with_several_leading_blank_lines() {
+        let source = "on: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: |-  # comment\n\n   \n          echo hi\n          rm -rf $FOO/\n";
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "\n\necho hi\nrm -rf $FOO/");
+        assert_eq!(
+            scripts[0].host_line_starts,
+            line_starts(&[(7, 11), (8, 11), (9, 11), (10, 11)])
+        );
+    }
+
+    #[test]
+    fn maps_composite_action_block_runs_with_leading_blank_lines() {
+        let source = r#"name: x
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+
+        echo hi
+        rm -rf $FOO/
+"#;
+
+        let scripts = extract_all(Path::new("action.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(
+            scripts[0].host_line_starts[0],
+            HostLineStart { line: 7, column: 9 }
+        );
+        assert_eq!(
+            scripts[0].host_line_starts[2],
+            HostLineStart { line: 9, column: 9 }
+        );
+    }
+
+    #[test]
+    fn maps_folded_block_continuations_to_their_host_lines() {
+        let source = r#"on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: >
+          echo hi;
+          rm -rf $FOO/
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "echo hi; rm -rf $FOO/\n");
+        assert_eq!(
+            scripts[0].host_line_starts,
+            line_starts(&[(7, 11), (9, 11)])
+        );
+        assert_eq!(
+            scripts[0].host_column_mappings,
+            vec![HostColumnMapping {
+                line: 1,
+                column: 10,
+                host_line: 8,
+                host_column: 11,
+            }]
+        );
+    }
+
+    #[test]
+    fn maps_folded_block_runs_with_leading_blank_lines() {
+        let source = r#"on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: >
+
+          echo hi;
+          rm -rf $FOO/
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "\necho hi; rm -rf $FOO/\n");
+        assert_eq!(
+            scripts[0].host_line_starts,
+            line_starts(&[(7, 11), (8, 11), (10, 11)])
+        );
+        assert_eq!(
+            scripts[0].host_column_mappings,
+            vec![HostColumnMapping {
+                line: 2,
+                column: 10,
+                host_line: 9,
+                host_column: 11,
+            }]
+        );
+    }
+
+    #[test]
+    fn maps_anchored_folded_block_runs_with_leading_blank_lines() {
+        let source = r#"
+on: push
+x-run: &shared_run >
+
+  echo hi;
+  echo bye
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: *shared_run
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "\necho hi; echo bye\n");
+        assert_eq!(
+            scripts[0].host_line_starts,
+            line_starts(&[(4, 3), (5, 3), (7, 3)])
+        );
+        assert_eq!(
+            scripts[0].host_column_mappings,
+            vec![HostColumnMapping {
+                line: 2,
+                column: 10,
+                host_line: 6,
+                host_column: 3,
+            }]
         );
     }
 
