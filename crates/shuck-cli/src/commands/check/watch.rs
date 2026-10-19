@@ -176,8 +176,20 @@ pub(super) fn collect_watch_targets(
         } else {
             normalize_path(&cwd.join(&input))
         };
-        let metadata = fs::metadata(&resolved_input)?;
-        let canonical_input = fs::canonicalize(&resolved_input).map_err(anyhow::Error::from)?;
+        let (metadata, canonical_input) = match fs::metadata(&resolved_input)
+            .and_then(|metadata| Ok((metadata, fs::canonicalize(&resolved_input)?)))
+        {
+            Ok(resolved) => resolved,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                // A vanished input must not stop the watcher: keep watching for
+                // it so it is picked up again if it reappears.
+                if let Some(target) = missing_input_watch_target(&resolved_input)? {
+                    targets.push(target);
+                }
+                continue;
+            }
+            Err(err) => return Err(err.into()),
+        };
 
         let mut target = if metadata.is_dir() {
             WatchTarget::recursive(resolved_input.clone())
@@ -242,6 +254,23 @@ pub(super) fn collect_watch_targets(
     }
 
     Ok(deduped)
+}
+
+/// Watches the parent directory of a missing input, matching the input through
+/// both its spelled and canonical paths since watcher events report the latter.
+fn missing_input_watch_target(resolved_input: &Path) -> Result<Option<WatchTarget>> {
+    let (Some(parent), Some(file_name)) = (resolved_input.parent(), resolved_input.file_name())
+    else {
+        return dependency_watch_target(resolved_input);
+    };
+    let Ok(canonical_parent) = fs::canonicalize(parent) else {
+        return dependency_watch_target(resolved_input);
+    };
+    let mut target = WatchTarget::file(resolved_input.to_path_buf());
+    target.add_match_path(resolved_input.to_path_buf());
+    target.add_match_path(canonical_parent.join(file_name));
+    target.add_watch_path(canonical_parent);
+    Ok(Some(target))
 }
 
 fn dependency_watch_target(dependency_path: &Path) -> Result<Option<WatchTarget>> {

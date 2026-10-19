@@ -14,7 +14,7 @@ use super::settings::{ResolvedCheckSettings, resolve_project_check_settings};
 use super::source_resolver::NativeSourceResolver;
 use crate::args::{CheckCommand, FileSelectionArgs, RuleSelectionArgs};
 use crate::commands::project_runner::{
-    PendingProjectFile, ProjectRunRequest, prepare_project_runs_with_cache_key,
+    FileError, PendingProjectFile, ProjectRunRequest, prepare_project_runs_with_cache_key,
 };
 use crate::discover::{DiscoveredFile, DiscoveryOptions, FileKind};
 
@@ -26,7 +26,7 @@ pub(super) fn run_check_with_cwd(
 ) -> Result<CheckReport> {
     let include_source = matches!(args.output_format, crate::args::CheckOutputFormatArg::Full);
     let fix_applicability = requested_fix_applicability(args);
-    let mut runs = prepare_project_runs_with_cache_key::<
+    let prepared = prepare_project_runs_with_cache_key::<
         CheckCacheData,
         ResolvedCheckSettings,
         CheckCacheSettings,
@@ -60,9 +60,13 @@ pub(super) fn run_check_with_cwd(
         },
         |_, files, settings| Ok(CheckCacheSettings::new(settings, files)),
     )?;
+    let mut runs = prepared.runs;
     let shellcheck_map = ShellCheckCodeMap::default();
 
-    let mut report = CheckReport::default();
+    let mut report = CheckReport {
+        file_errors: prepared.file_errors,
+        ..CheckReport::default()
+    };
 
     for run in &mut runs {
         if !run.settings.embedded_enabled {
@@ -124,9 +128,12 @@ pub(super) fn run_check_with_cwd(
                 for followed in &cached.followed_paths {
                     follow_worklist.push((followed.clone(), file.clone()));
                 }
+                // A file that vanished or became unreadable after its metadata
+                // was read still reports its cached diagnostics, just without
+                // a source excerpt.
                 let source = (include_source && !cached.diagnostics.is_empty())
-                    .then(|| read_shared_source(&file.absolute_path))
-                    .transpose()?;
+                    .then(|| read_shared_source(&file.absolute_path).ok())
+                    .flatten();
                 push_cached_diagnostics(
                     &mut report,
                     &file.display_path,
@@ -139,9 +146,12 @@ pub(super) fn run_check_with_cwd(
             },
         )?;
 
+        report.file_errors.append(&mut run.file_errors);
+
         let results = pending
             .into_par_iter()
             .map(|pending| {
+                let display_path = pending.file.display_path.clone();
                 analyze_file(
                     pending,
                     &linter_settings,
@@ -155,11 +165,18 @@ pub(super) fn run_check_with_cwd(
                     fix_applicability,
                     &project_settings.fixable_rules,
                 )
+                .map_err(|err| FileError::read(&display_path, &err))
             })
             .collect::<Vec<_>>();
 
         for result in results {
-            let result = result?;
+            let result = match result {
+                Ok(result) => result,
+                Err(error) => {
+                    report.file_errors.push(error);
+                    continue;
+                }
+            };
             report.fixes_applied += result.fixes_applied;
             report.parse_failed |= result.parse_failed;
             report.diagnostics.extend(result.diagnostics);
@@ -185,7 +202,8 @@ pub(super) fn run_check_with_cwd(
             &linted,
             &project_settings,
             &source_resolver,
-        )?;
+            &mut report.file_errors,
+        );
         let followed_settings = project_settings
             .linter_settings
             .clone()
@@ -200,7 +218,8 @@ pub(super) fn run_check_with_cwd(
             if !linted.insert(file.absolute_path.clone()) {
                 continue;
             }
-            let Some(followed_result) = analyze_followed_file(
+            let display_path = file.display_path.clone();
+            let followed_result = match analyze_followed_file(
                 file,
                 &followed_settings,
                 &project_settings,
@@ -208,9 +227,15 @@ pub(super) fn run_check_with_cwd(
                 &source_resolver,
                 &shellcheck_map,
                 include_source,
-            )?
-            else {
-                continue;
+            ) {
+                Ok(Some(result)) => result,
+                Ok(None) => continue,
+                Err(err) => {
+                    report
+                        .file_errors
+                        .push(FileError::read(&display_path, &err));
+                    continue;
+                }
             };
             report.parse_failed |= followed_result.parse_failed;
             report.diagnostics.extend(followed_result.diagnostics);
@@ -236,33 +261,51 @@ pub(super) fn run_check_with_cwd(
 }
 
 /// Expands an initial set of `lint=true` edges into the complete cycle-safe
-/// closure, preserving the project-root context of the referring file.
+/// closure, preserving the project-root context of the referring file. Targets
+/// outside that project root are dropped.
 fn discover_followed_file_closure(
     mut worklist: Vec<(PathBuf, DiscoveredFile)>,
     already_linted: &HashSet<PathBuf>,
     project_settings: &ResolvedCheckSettings,
     source_resolver: &NativeSourceResolver,
-) -> Result<Vec<DiscoveredFile>> {
+    file_errors: &mut Vec<FileError>,
+) -> Vec<DiscoveredFile> {
     let mut seen = HashSet::new();
     let mut files = Vec::new();
     while let Some((path, referrer)) = worklist.pop() {
         let Ok(canonical) = crate::discover::normalize_path(&path).canonicalize() else {
             continue;
         };
+        // Directive targets are only linted inside the referring file's project
+        // root. A `lint=true` hint must not make shuck read and print arbitrary
+        // files elsewhere on the system (for example under `--isolated`, where
+        // the root is the input's own directory); such targets still resolve
+        // for symbol import, they are just not linted as extra inputs.
+        if !canonical.starts_with(&referrer.project_root.canonical_root) {
+            continue;
+        }
         if already_linted.contains(&canonical) || !seen.insert(canonical.clone()) {
             continue;
         }
         let file = followed_discovered_file(&canonical, &referrer);
-        for followed in discover_followed_paths(
+        match discover_followed_paths(
             &canonical,
             &project_settings.per_file_shell,
             source_resolver,
-        )? {
-            worklist.push((followed, file.clone()));
+        ) {
+            Ok(followed) => {
+                for followed in followed {
+                    worklist.push((followed, file.clone()));
+                }
+            }
+            Err(err) => {
+                file_errors.push(FileError::read(&file.display_path, &err));
+                continue;
+            }
         }
         files.push(file);
     }
-    Ok(files)
+    files
 }
 
 fn followed_discovered_file(canonical: &Path, referrer: &DiscoveredFile) -> DiscoveredFile {

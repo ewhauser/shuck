@@ -18,7 +18,9 @@ pub(super) fn print_report(
     report: &CheckReport,
     output_format: crate::args::CheckOutputFormatArg,
 ) -> Result<()> {
-    print_diagnostics(&report.diagnostics, output_format)
+    print_diagnostics(&report.diagnostics, output_format)?;
+    crate::commands::project_runner::print_file_errors(&report.file_errors)?;
+    Ok(())
 }
 
 pub(super) fn print_diagnostics(
@@ -257,6 +259,7 @@ mod tests {
             fixes_applied: 0,
             parse_failed: false,
             dependency_paths: Vec::new(),
+            file_errors: Vec::new(),
         };
 
         let mut output = Vec::new();
@@ -289,6 +292,7 @@ mod tests {
             fixes_applied: 0,
             parse_failed: false,
             dependency_paths: Vec::new(),
+            file_errors: Vec::new(),
         };
 
         let mut output = Vec::new();
