@@ -578,8 +578,91 @@ where
             self.source_map(),
             self.facts().compound_close_span_for_span(command.span),
         );
+        let header_end = match command.syntax {
+            ForSyntax::InDoDone { in_span, .. }
+            | ForSyntax::InDirect { in_span }
+            | ForSyntax::InBrace { in_span, .. } => command
+                .words
+                .as_deref()
+                .and_then(<[Word]>::last)
+                .map(|word| word.span.end.offset())
+                .or_else(|| in_span.map(|span| span.end.offset())),
+            ForSyntax::ParenDoDone { .. }
+            | ForSyntax::ParenDirect { .. }
+            | ForSyntax::ParenBrace { .. } => None,
+        }
+        .or_else(|| {
+            command
+                .targets
+                .last()
+                .map(|target| target.word.span.end.offset())
+        });
         let plan = CompoundBodyPlan::loop_body(site, "; ", self.render_context());
-        self.format_compound_body_plan(plan)
+        self.format_loop_body_plan_after_header(plan, header_end)
+    }
+
+    /// The comment ending a loop header line whose `do` keyword follows on a
+    /// later line, such as `for x in a b # note`. Own-line comments before
+    /// `do` already attach to the body as leading comments.
+    fn loop_header_comment(
+        &self,
+        header_end: usize,
+        site: CompoundBodySite<'_>,
+    ) -> Option<SourceComment<'source>> {
+        let open_start = site.open_keyword_start(self.source())?;
+        let (_, line_end) = self.source_map().line_bounds_for_offset(header_end)?;
+        if open_start <= line_end {
+            return None;
+        }
+        let comment = self
+            .source_map()
+            .first_source_comment_between(header_end, line_end)?;
+        let between = self
+            .source()
+            .get(header_end..comment.span().start.offset())?;
+        between
+            .chars()
+            .all(|ch| matches!(ch, ' ' | '\t' | ';'))
+            .then_some(comment)
+    }
+
+    fn format_loop_body_plan_after_header(
+        &mut self,
+        plan: CompoundBodyPlan<'_>,
+        header_end: Option<usize>,
+    ) -> Result<()> {
+        let comment =
+            header_end.and_then(|header_end| self.loop_header_comment(header_end, plan.site()));
+        let Some(comment) = comment else {
+            return self.format_compound_body_plan(plan);
+        };
+        if !matches!(plan.layout(), CompoundBodyLayout::DoDone(_)) {
+            return self.format_compound_body_plan(plan);
+        }
+        let plan = plan.with_multiline_do();
+        let CompoundBodyLayout::DoDone(DoDoneBodyLayout::Multiline { open }) = plan.layout() else {
+            return self.format_compound_body_plan(plan);
+        };
+        self.write_text(open);
+        self.write_space();
+        self.write_text(comment.text());
+        if let Some(span) = plan.open_suffix_span() {
+            // `do # other` cannot share the line with the header comment.
+            let suffix = span.slice(self.source()).trim();
+            self.newline();
+            self.with_indent(|formatter| formatter.write_text(suffix));
+        }
+        self.format_body_with_upper_bound_and_open_blank(
+            plan.body(),
+            Some(plan.body_upper_bound()),
+            plan.preserve_open_blank(),
+        )?;
+        self.write_unmodeled_branch_background_terminator(plan.body(), plan.body_upper_bound());
+        if plan.preserve_close_blank() {
+            self.newline();
+        }
+        self.finish_block_with_close_suffix("done", plan.close_span());
+        Ok(())
     }
 
     pub(super) fn write_for_in_words(&mut self, words: Option<&[Word]>, in_span: Option<Span>) {
@@ -693,8 +776,13 @@ where
             }
             ForeachSyntax::InDoDone { .. } => {
                 self.write_for_in_words(Some(&command.words), None);
+                let header_end = command
+                    .words
+                    .last()
+                    .map(|word| word.span.end.offset())
+                    .unwrap_or(command.variable_span.end.offset());
                 let plan = CompoundBodyPlan::do_done(site, self.render_context());
-                self.format_compound_body_plan(plan)?;
+                self.format_loop_body_plan_after_header(plan, Some(header_end))?;
             }
         }
         Ok(())
@@ -709,9 +797,13 @@ where
             self.source_map(),
             self.facts().compound_close_span_for_span(command.span),
         );
+        let header_end = command
+            .words
+            .last()
+            .map(|word| word.span.end.offset())
+            .unwrap_or(command.variable_span.end.offset());
         let plan = CompoundBodyPlan::do_done(site, self.render_context());
-        self.format_compound_body_plan(plan)?;
-        Ok(())
+        self.format_loop_body_plan_after_header(plan, Some(header_end))
     }
 
     pub(super) fn format_while(&mut self, command: &WhileCommand) -> Result<()> {
@@ -755,8 +847,11 @@ where
         self.write_text(keyword);
         self.write_space();
         self.format_inline_stmts(condition)?;
+        let header_end = condition
+            .last()
+            .map(|stmt| self.facts().stmt(stmt).attachment_span().end.offset());
         let plan = CompoundBodyPlan::do_done(site, self.render_context());
-        self.format_compound_body_plan(plan)
+        self.format_loop_body_plan_after_header(plan, header_end)
     }
 
     pub(super) fn format_case(&mut self, command: &CaseCommand) -> Result<()> {
@@ -1188,11 +1283,51 @@ where
         self.format_group_with_upper_bound("{", "}", '{', commands, false, upper_bound)
     }
 
+    /// Whether `(` must be followed by a space because the body itself opens
+    /// with a subshell, as in `( (cmd) )`; an adjacent `((` would start an
+    /// arithmetic command in bash, zsh, and mksh.
+    fn subshell_open_needs_space(&self, commands: &StmtSeq) -> bool {
+        stmt_sequence_renders_with_subshell_open(commands)
+    }
+
+    /// Source text for a POSIX-parsed subshell that was written with an
+    /// adjacent `((`, such as `((x=5, y=x**2))` in a `.sh` file.
+    ///
+    /// The POSIX grammar has no `((` command, so the parser reads these as
+    /// nested subshells, but such scripts are frequently run by bash, where the
+    /// same text is an arithmetic command. Any respelling (`( (`, or `))` for a
+    /// source `) )`) could flip between the two readings, so the whole
+    /// subshell is kept exactly as written.
+    fn posix_double_paren_subshell_source(
+        &self,
+        commands: &StmtSeq,
+        upper_bound: Option<usize>,
+    ) -> Option<&'source str> {
+        if self.options().dialect() != shuck_parser::ShellDialect::Posix
+            || !stmt_sequence_renders_with_subshell_open(commands)
+        {
+            return None;
+        }
+        let span = self
+            .facts()
+            .sequence(commands, upper_bound)
+            .group_attachment_span()?;
+        let raw = self.source().get(span.start.offset()..span.end.offset())?;
+        (raw.starts_with("((") && raw.ends_with(')')).then_some(raw)
+    }
+
     pub(super) fn format_subshell(
         &mut self,
         commands: &StmtSeq,
         upper_bound: Option<usize>,
     ) -> Result<()> {
+        if let Some(raw) = self.posix_double_paren_subshell_source(commands, upper_bound) {
+            if self.line_start() {
+                self.write_indent();
+            }
+            self.write_verbatim(raw);
+            return Ok(());
+        }
         let sequence_facts = self.facts().sequence(commands, upper_bound);
         let should_inline = sequence_facts.group_open_suffix_span().is_none()
             && ((group_has_inline_source_shape(self.render_context(), commands, '(')
@@ -1200,7 +1335,7 @@ where
                 || can_inline_source_line_subshell(self.render_context(), commands, upper_bound));
         if should_inline {
             self.write_text("(");
-            if stmt_sequence_renders_with_subshell_open(commands) {
+            if self.subshell_open_needs_space(commands) {
                 self.write_space();
             }
             self.format_inline_stmts(commands)?;
@@ -1209,7 +1344,7 @@ where
         }
         if can_format_multiline_subshell_inline(self.render_context(), commands, upper_bound) {
             self.write_text("(");
-            if stmt_sequence_renders_with_subshell_open(commands) {
+            if self.subshell_open_needs_space(commands) {
                 self.write_space();
             }
             self.format_stmt_sequence(commands, upper_bound)?;
@@ -1493,7 +1628,7 @@ where
         match layout {
             FunctionSubshellLayout::Inline { .. } => {
                 self.write_text("(");
-                if stmt_sequence_renders_with_subshell_open(site.body()) {
+                if self.subshell_open_needs_space(site.body()) {
                     self.write_space();
                 }
                 self.format_inline_stmts(site.body())?;
@@ -1502,7 +1637,7 @@ where
             }
             FunctionSubshellLayout::MultilineInline => {
                 self.write_text("(");
-                if stmt_sequence_renders_with_subshell_open(site.body()) {
+                if self.subshell_open_needs_space(site.body()) {
                     self.write_space();
                 }
                 self.format_stmt_sequence(site.body(), site.bounds().render_limit())?;

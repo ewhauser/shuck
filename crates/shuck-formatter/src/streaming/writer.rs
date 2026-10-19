@@ -1,6 +1,7 @@
 use std::mem;
 
 use crate::options::{IndentStyle, LineEnding, ResolvedShellFormatOptions};
+use crate::raw_syntax::LiteralLineTracker;
 
 #[derive(Debug, Clone)]
 pub(super) struct PendingHeredoc {
@@ -136,14 +137,27 @@ where
             return;
         }
 
+        if !text.contains('\n') {
+            if self.line_start {
+                self.write_indent();
+            }
+            self.push_output_str(text);
+            self.line_start = false;
+            return;
+        }
+
+        // Lines that begin inside a quoted literal carry string content in
+        // their leading whitespace, so they never receive indentation.
+        let mut literal = LiteralLineTracker::default();
         let mut remaining = text;
         while !remaining.is_empty() {
-            if self.line_start && !remaining.starts_with('\n') {
+            if self.line_start && !remaining.starts_with('\n') && !literal.in_literal() {
                 self.write_indent();
             }
 
             let (line, next, had_newline) = super::split_first_line_including_newline(remaining);
             self.push_output_str(line);
+            literal.scan_line(line);
             self.line_start = had_newline;
             if had_newline {
                 remaining = next;
@@ -222,11 +236,21 @@ where
                 self.push_output_str(self.line_ending());
                 self.line_start = true;
             }
+            // The closing marker is copied from its source line, which keeps a
+            // trailing `\r` from a CRLF ending; the line ending written after it
+            // already restores that byte.
+            let delimiter = match self.options.line_ending() {
+                LineEnding::CrLf => heredoc
+                    .delimiter
+                    .strip_suffix('\r')
+                    .unwrap_or(&heredoc.delimiter),
+                LineEnding::Lf => &heredoc.delimiter,
+            };
             if heredoc.strip_tabs {
                 self.write_indent();
-                self.write_verbatim(heredoc.delimiter.trim_start_matches('\t'));
+                self.write_verbatim(delimiter.trim_start_matches('\t'));
             } else {
-                self.write_verbatim(&heredoc.delimiter);
+                self.write_verbatim(delimiter);
             }
         }
     }

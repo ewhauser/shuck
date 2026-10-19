@@ -11,7 +11,8 @@ use shuck_ast::{
 };
 
 use super::{
-    Keyword, LexedToken, Lexer, ShellDialect, ShellProfile, SyntaxFacts, ZshOptionTimeline,
+    Keyword, LexedToken, Lexer, ParseBudget, ShellDialect, ShellProfile, SyntaxFacts,
+    ZshOptionTimeline,
 };
 
 #[cfg(feature = "benchmarking")]
@@ -119,14 +120,19 @@ pub struct Parser<'a> {
     pub(super) current_span: Span,
     /// Lookahead token for function parsing
     pub(super) peeked_token: Option<LexedToken<'a>>,
-    /// Maximum allowed AST nesting depth
+    /// Maximum allowed absolute AST nesting depth
     pub(super) max_depth: usize,
-    /// Current nesting depth
+    /// Current absolute nesting depth, including the levels of any parsers
+    /// this one is nested inside.
     pub(super) current_depth: usize,
-    /// Remaining fuel for parsing operations
-    pub(super) fuel: usize,
-    /// Maximum fuel (for error reporting)
-    pub(super) max_fuel: usize,
+    /// Fuel, stack, and limit-error accounting shared with nested parsers.
+    pub(super) budget: Arc<ParseBudget>,
+    /// Whether this parser runs inside another parse. Only the outermost
+    /// parser reports limit errors recorded in the shared budget.
+    pub(super) nested: bool,
+    /// Error for an input too large for `u32` source positions. Such input
+    /// is replaced by empty text and reported as a fatal parse error.
+    pub(super) oversized_input: Option<crate::error::Error>,
     /// Depth of reparsing source-text operands as patterns.
     pub(super) source_text_pattern_depth: usize,
     /// Comments collected during parsing.
@@ -165,7 +171,6 @@ pub(super) struct ParserCheckpoint<'a> {
     pub(super) peeked_token: Option<LexedToken<'a>>,
     pub(super) current_depth: usize,
     pub(super) source_text_pattern_depth: usize,
-    pub(super) fuel: usize,
     // `comments`, `brace_body_stack`, and the `syntax_facts` Vecs are append-only
     // inside any speculative parse, so we save lengths and truncate on restore
     // instead of cloning their backing storage.

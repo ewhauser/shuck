@@ -826,7 +826,12 @@ where
                     .map(|(operator, span)| (binary_operator(operator), *span))
                     .unwrap_or(("|", stmt.span));
                 let break_here = operator_breaks.get(index - 1).copied().unwrap_or(false);
-                if break_here && operator_next_line {
+                let operator_comment = break_here
+                    .then(|| self.source_map().suffix_comment_after_span(operator_span))
+                    .flatten();
+                // A comment after the operator cannot follow a `\` continuation,
+                // so keep the operator at the end of the line in that case.
+                if break_here && operator_next_line && operator_comment.is_none() {
                     self.line_continuation();
                     self.with_extra_prefix_indent(
                         self.pipeline_continuation_indent,
@@ -841,6 +846,7 @@ where
                 if break_here {
                     self.write_space();
                     self.write_text(operator);
+                    self.write_operator_suffix_comment(operator_comment);
                     self.newline();
                     self.emit_pipeline_interstitial_comments(stmt, operator_span);
                     self.with_extra_prefix_indent(
@@ -859,6 +865,15 @@ where
         }
 
         Ok(())
+    }
+
+    /// Writes a comment that follows a line-ending `|`, `&&`, or `||` on the
+    /// same source line, e.g. `cmd | # note`.
+    fn write_operator_suffix_comment(&mut self, comment: Option<SourceComment<'_>>) {
+        if let Some(comment) = comment {
+            self.write_space();
+            self.write_text(comment.text());
+        }
     }
 
     pub(super) fn emit_pipeline_interstitial_comments(&mut self, stmt: &Stmt, operator_span: Span) {
@@ -957,6 +972,10 @@ where
             .list_item_has_explicit_line_break(item.operator_span)
         {
             self.write_text(list_item_separator(item.operator, false));
+            let operator_comment = self
+                .source_map()
+                .suffix_comment_after_span(item.operator_span);
+            self.write_operator_suffix_comment(operator_comment);
             self.newline();
             self.with_indent(|formatter| {
                 let emitted_interstitial_comments = formatter

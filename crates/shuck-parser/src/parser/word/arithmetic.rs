@@ -1,6 +1,15 @@
 use super::super::*;
 
 impl<'a> Parser<'a> {
+    /// Limits for an arithmetic expression parsed at the current depth.
+    fn arithmetic_limits(&self) -> NestedLimits {
+        NestedLimits {
+            base_depth: self.current_depth,
+            max_depth: self.max_depth,
+            budget: Arc::clone(&self.budget),
+        }
+    }
+
     pub(in crate::parser) fn simple_subscript_arithmetic_ast(
         &self,
         text: &SourceText,
@@ -47,8 +56,8 @@ impl<'a> Parser<'a> {
             span.slice(self.input),
             span,
             self.dialect,
-            self.max_depth.saturating_sub(self.current_depth),
-            self.fuel,
+            self.arithmetic_limits(),
+            None,
         )
         .map(Some)
         .map_err(|error| match error {
@@ -59,23 +68,50 @@ impl<'a> Parser<'a> {
     pub(in crate::parser) fn parse_source_text_as_arithmetic(
         &self,
         text: &SourceText,
+        word: Option<&Word>,
     ) -> Result<ArithmeticExprNode> {
+        // `word` must have been parsed from this same source-backed text so its
+        // part spans line up with the arithmetic lexer's token spans.
+        let word = word.filter(|_| text.is_source_backed());
+        let lookup = |span: Span| {
+            let word = word?;
+            let part = word
+                .parts
+                .iter()
+                .find(|part| part.span == span && Self::is_reusable_arithmetic_word_part(part))?;
+            Some(self.word_with_single_part(part.clone(), span))
+        };
         arithmetic::parse_expression(
             text.slice(self.input),
             text.span(),
             self.dialect,
-            self.max_depth.saturating_sub(self.current_depth),
-            self.fuel,
+            self.arithmetic_limits(),
+            word.is_some()
+                .then_some(&lookup as arithmetic::KnownWordLookup<'_>),
+        )
+    }
+
+    /// Expansion parts parse the same on their own as inside a larger word.
+    /// Literal and quoted parts can merge with neighbouring text, so those are
+    /// always reparsed.
+    fn is_reusable_arithmetic_word_part(part: &WordPartNode) -> bool {
+        !matches!(
+            part.kind,
+            WordPart::Literal(_)
+                | WordPart::SingleQuoted { .. }
+                | WordPart::DoubleQuoted { .. }
+                | WordPart::ZshQualifiedGlob(_)
         )
     }
 
     pub(in crate::parser) fn maybe_parse_source_text_as_arithmetic(
         &self,
         text: &SourceText,
+        word: Option<&Word>,
     ) -> Option<ArithmeticExprNode> {
         if !text.is_source_backed() {
             return None;
         }
-        self.parse_source_text_as_arithmetic(text).ok()
+        self.parse_source_text_as_arithmetic(text, word).ok()
     }
 }

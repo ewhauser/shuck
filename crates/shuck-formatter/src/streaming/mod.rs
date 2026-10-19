@@ -40,10 +40,10 @@ use crate::context::RenderContext;
 use crate::facts::FormatterFacts;
 use crate::options::{IndentStyle, ResolvedShellFormatOptions};
 use crate::raw_syntax::{
-    CommandSubstitutionPipelineContinuation, RawLineQuoteState, RawShellText, RenderedHeredocTail,
-    command_substitution_context_start, command_substitution_pipeline_stage_continuation,
-    line_without_continuation_backslash, normalize_rendered_heredoc_start_spacing,
-    redirect_operator_end, rendered_heredoc_tail_start,
+    CommandSubstitutionPipelineContinuation, LiteralLineTracker, RawLineQuoteState, RawShellText,
+    RenderedHeredocTail, command_substitution_context_start,
+    command_substitution_pipeline_stage_continuation, line_without_continuation_backslash,
+    normalize_rendered_heredoc_start_spacing, redirect_operator_end, rendered_heredoc_tail_start,
     rendered_line_ends_with_structural_pipe_continuation,
     rendered_line_opens_command_substitution_pipeline, rendered_shell_text_has_heredoc_tail,
 };
@@ -69,9 +69,9 @@ use crate::render_plan::{
 use crate::source::SourceView;
 use crate::word::{
     normalize_raw_empty_parameter_replacement_delimiters,
-    normalize_raw_unquoted_word_continuations, render_arithmetic_expr_to_buf,
-    render_escaped_multiline_word_syntax_to_buf, render_heredoc_body_to_buf,
-    render_pattern_syntax_to_buf, render_word_syntax_to_buf,
+    normalize_raw_unquoted_word_continuations, process_substitution_block_outer_indent,
+    render_arithmetic_expr_to_buf, render_escaped_multiline_word_syntax_to_buf,
+    render_heredoc_body_to_buf, render_pattern_syntax_to_buf, render_word_syntax_to_buf,
     word_gap_end_before_trailing_continuation, word_is_quoted_command_substitution_only,
     word_is_quoted_formattable_command_substitution_only_with_facts,
 };

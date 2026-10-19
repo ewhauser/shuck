@@ -12,14 +12,18 @@ impl<'a> Parser<'a> {
             .cloned()
             .map(|options| ShellProfile::with_zsh_options(self.dialect, options))
             .unwrap_or_else(|| self.shell_profile.clone());
-        let remaining_depth = self.max_depth.saturating_sub(self.current_depth);
-        if remaining_depth == 0 {
+        let limits = if self.current_depth < self.max_depth {
+            self.nested_limits().ok()
+        } else {
+            None
+        };
+        let Some(limits) = limits else {
             return self.word_with_single_part(
                 self.literal_part_from_text(text.slice(self.input), span, text.is_source_backed()),
                 span,
             );
-        }
-        let reparse_depth = (remaining_depth - 1).min(SOURCE_TEXT_WORD_REPARSE_MAX_DEPTH);
+        };
+        let limits = limits.with_extra_depth_cap(SOURCE_TEXT_WORD_REPARSE_MAX_DEPTH);
 
         if !text.is_source_backed()
             && span.start.offset() <= span.end.offset()
@@ -31,9 +35,8 @@ impl<'a> Parser<'a> {
                     self.input,
                     raw,
                     span,
-                    reparse_depth,
-                    self.fuel,
-                    nested_profile.clone(),
+                    limits,
+                    nested_profile,
                 );
             }
         }
@@ -42,8 +45,7 @@ impl<'a> Parser<'a> {
             self.input,
             text.slice(self.input),
             text.span(),
-            reparse_depth,
-            self.fuel,
+            limits,
             nested_profile,
         )
     }

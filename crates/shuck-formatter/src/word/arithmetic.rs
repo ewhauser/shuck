@@ -88,7 +88,8 @@ pub(super) fn push_arithmetic_expr(
         }
         ArithmeticExpr::Binary { left, op, right } => {
             push_arithmetic_expr(rendered, left, ArithmeticContext::Binary(*op), compact, env);
-            if !compact {
+            // Commas read like list separators: `x = 1, y = 2`.
+            if !compact && *op != ArithmeticBinaryOp::Comma {
                 rendered.push(' ');
             }
             rendered.push_str(arithmetic_binary_operator(*op));

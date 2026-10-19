@@ -21,6 +21,30 @@ usage() {
   exit 1
 }
 
+# Scratch space for downloads; removed on exit.
+tmp_root=""
+cleanup() {
+  if [ -n "$tmp_root" ]; then
+    rm -rf "$tmp_root"
+  fi
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+verify_sha256() {
+  file=$1
+  expected=$2
+  if command -v sha256sum >/dev/null 2>&1; then
+    echo "$expected  $file" | sha256sum -c -
+  elif command -v shasum >/dev/null 2>&1; then
+    echo "$expected  $file" | shasum -a 256 -c -
+  else
+    echo "error: neither sha256sum nor shasum is available; refusing to extract an unverified archive" >&2
+    exit 1
+  fi
+}
+
 download_archive() {
   corpus_dir=$1
   marker_dir=$2
@@ -28,7 +52,6 @@ download_archive() {
   archive_url=$4
   sha256=$5
   label=$6
-  tmp_file="/tmp/$archive_file"
 
   if [ -d "$marker_dir" ]; then
     count=$(find "$marker_dir" -type f | wc -l | tr -d ' ')
@@ -37,20 +60,22 @@ download_archive() {
     return 0
   fi
 
+  if [ -z "$tmp_root" ]; then
+    tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/shuck-corpus.XXXXXX")
+  fi
+  tmp_file="$tmp_root/$archive_file"
+
   echo "Downloading $label archive..."
   curl -L --fail --retry 3 -o "$tmp_file" "$archive_url"
 
   echo "Verifying $label checksum..."
-  if command -v sha256sum >/dev/null 2>&1; then
-    echo "$sha256  $tmp_file" | sha256sum -c -
-  elif command -v shasum >/dev/null 2>&1; then
-    echo "$sha256  $tmp_file" | shasum -a 256 -c -
-  else
-    echo "WARNING: no sha256sum or shasum found, skipping checksum verification"
-  fi
+  verify_sha256 "$tmp_file" "$sha256"
 
-  echo "Extracting $label to $repo_root..."
-  tar --zstd -xf "$tmp_file" -C "$repo_root"
+  # Archives store their contents under `.cache/<corpus-name>/`; strip that prefix so
+  # the corpus lands in the requested directory rather than the repository root.
+  echo "Extracting $label to $corpus_dir..."
+  mkdir -p "$corpus_dir"
+  tar --zstd -xf "$tmp_file" -C "$corpus_dir" --strip-components=2 --no-same-owner
   rm -f "$tmp_file"
 
   count=$(find "$marker_dir" -type f | wc -l | tr -d ' ')

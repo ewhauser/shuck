@@ -9,13 +9,13 @@ pub(super) fn push_raw_word_with_normalized_command_redirect_spacing(
     options: &ResolvedShellFormatOptions,
 ) {
     let mut spans = Vec::new();
-    collect_raw_command_substitution_spans(word.parts.as_slice(), &mut spans);
-    spans.sort_by_key(|span| span.start.offset());
+    collect_raw_command_substitution_spans(word.parts.as_slice(), false, &mut spans);
+    spans.sort_by_key(|(span, _)| span.start.offset());
     let mut cursor = word.span.start.offset();
     let word_end = word.span.end.offset().min(source.len());
     let source_view = SourceView::new(source);
     let mut wrote_span = false;
-    for span in spans {
+    for (span, in_double_quotes) in spans {
         let start = span.start.offset();
         let end = span.end.offset();
         if start < cursor || end > word_end || start >= end {
@@ -26,7 +26,12 @@ pub(super) fn push_raw_word_with_normalized_command_redirect_spacing(
         }
         if let Some(command) = source_view.slice_between(start, end) {
             push_raw_command_substitution_with_normalized_spacing(
-                rendered, command, source, start, options,
+                rendered,
+                command,
+                source,
+                start,
+                options,
+                in_double_quotes,
             );
             wrote_span = true;
         }
@@ -47,8 +52,9 @@ pub(super) fn push_raw_command_substitution_with_normalized_spacing(
     source: &str,
     start_offset: usize,
     options: &ResolvedShellFormatOptions,
+    in_double_quotes: bool,
 ) {
-    if let Some(normalized) = normalize_raw_backtick_command_substitution(raw) {
+    if let Some(normalized) = normalize_raw_backtick_command_substitution(raw, in_double_quotes) {
         target.push_str(&normalized);
         return;
     }
@@ -74,6 +80,10 @@ struct RawShellBlockPolicy {
     multiline_literal_policy: RawShellBlockLiteralPolicy,
     pipeline_policy: RawShellBlockPipelinePolicy,
     body_indent_policy: RawShellBlockBodyIndentPolicy,
+    /// Whether lines lose one indent unit when the substitution starts on an
+    /// unindented line. Nested words keep their source indent instead, since
+    /// that is already the rendered body indent after one formatting pass.
+    strip_unit_without_outer_indent: bool,
 }
 
 impl RawShellBlockPolicy {
@@ -85,6 +95,7 @@ impl RawShellBlockPolicy {
             multiline_literal_policy: RawShellBlockLiteralPolicy::NormalizeContinuations,
             pipeline_policy: RawShellBlockPipelinePolicy::NestedWord,
             body_indent_policy: RawShellBlockBodyIndentPolicy::None,
+            strip_unit_without_outer_indent: false,
         }
     }
 
@@ -96,6 +107,7 @@ impl RawShellBlockPolicy {
             multiline_literal_policy: RawShellBlockLiteralPolicy::PreserveSource,
             pipeline_policy: RawShellBlockPipelinePolicy::BodyLine,
             body_indent_policy: RawShellBlockBodyIndentPolicy::StripFirstBodyIndent,
+            strip_unit_without_outer_indent: true,
         }
     }
 }
@@ -136,6 +148,9 @@ struct RawShellBlockFormatter<'source, 'options> {
     previous_pipeline_indent: Option<String>,
     continuation_pipeline_stage_indent: Option<String>,
     continuation_indent: Option<String>,
+    /// Rendered indent of the line that started the current command, so
+    /// pipeline stages after backslash-continued lines align with it.
+    command_start_indent: Option<String>,
     literal_exit_continuation_indent: Option<String>,
     compound_indents: RawCompoundIndentState,
     body_indent: Option<String>,
@@ -179,6 +194,7 @@ impl<'source, 'options> RawShellBlockFormatter<'source, 'options> {
             previous_pipeline_indent: None,
             continuation_pipeline_stage_indent: None,
             continuation_indent: None,
+            command_start_indent: None,
             literal_exit_continuation_indent: None,
             compound_indents: RawCompoundIndentState::default(),
             body_indent: None,
@@ -213,7 +229,11 @@ impl<'source, 'options> RawShellBlockFormatter<'source, 'options> {
         }
 
         let mut line =
-            strip_outer_indent_or_one_unit(line, self.outer_indent, self.options).to_string();
+            if self.outer_indent.is_empty() && !self.policy.strip_unit_without_outer_indent {
+                line.to_string()
+            } else {
+                strip_outer_indent_or_one_unit(line, self.outer_indent, self.options).to_string()
+            };
         let source_indent_for_compound_shift = line_leading_shell_indent(&line).to_string();
         if let Some(shifted) = self.compound_indents.shifted_line(&line, self.options) {
             line = shifted;
@@ -250,6 +270,9 @@ impl<'source, 'options> RawShellBlockFormatter<'source, 'options> {
             )
         };
         let line_is_pipeline_continuation_stage = carried_pipeline_indent.is_some();
+        if !plan.used_continuation_indent {
+            self.command_start_indent = Some(rendered_indent.clone());
+        }
         self.previous_pipeline_indent =
             self.next_pipeline_indent(&line, content, carried_pipeline_indent, &rendered_indent);
         let line_continues = line_without_continuation_backslash(&line).is_some();
@@ -289,16 +312,11 @@ impl<'source, 'options> RawShellBlockFormatter<'source, 'options> {
         match self.policy.multiline_literal_policy {
             RawShellBlockLiteralPolicy::NormalizeContinuations => {
                 let line_continues = line_without_continuation_backslash(line).is_some();
-                if let Some(previous_indent) = self.continuation_indent.as_deref() {
-                    let stripped = line
-                        .strip_prefix(self.outer_indent)
-                        .unwrap_or_else(|| strip_one_indent_unit(line, self.options));
-                    let content = stripped.trim_start_matches([' ', '\t']);
-                    target.push_str(previous_indent);
-                    target.push_str(content);
-                } else {
-                    target.push_str(line);
-                }
+                // Leading whitespace on a line that starts inside a quoted
+                // literal is part of the string's value (a backslash-newline is
+                // either literal or removed without eating the indentation), so
+                // the line is always copied verbatim.
+                target.push_str(line);
                 self.quote.scan_line(line);
                 self.continuation_indent = if line_continues {
                     if self.quote.in_multiline_literal() {
@@ -436,6 +454,12 @@ impl<'source, 'options> RawShellBlockFormatter<'source, 'options> {
         }
         if self.compound_indents.comments.len() > 1 && self.compound_indents.closes_last(content) {
             plan.force_preserve_line_indent = true;
+        } else if plan.forced_rendered_indent.is_none()
+            && let Some(open_indent) = self.compound_indents.closing_indent(content)
+        {
+            // Keep `done`/`fi`/`esac` aligned with the line that opened them.
+            plan.forced_rendered_indent = Some(open_indent.to_string());
+            plan.force_preserve_line_indent = true;
         }
         plan.closes_substitution_wrapper = raw_line_closes_substitution_wrapper(content)
             && raw_block_line_is_outer_substitution_close(lines, line_index);
@@ -509,9 +533,17 @@ impl<'source, 'options> RawShellBlockFormatter<'source, 'options> {
                     },
                 )
             }),
-            RawShellBlockPipelinePolicy::BodyLine => {
-                carried_pipeline_indent.or_else(|| Some(rendered_indent.to_string()))
-            }
+            RawShellBlockPipelinePolicy::BodyLine => carried_pipeline_indent.or_else(|| {
+                // Stages get one unit more than this base (see `plan_body_line`),
+                // so a `|` ending a backslash-continued line must use the
+                // command's first line, not the deeper continuation indent.
+                // Normalized leading-pipe sources already carry the stage
+                // indent itself.
+                Some(match self.command_start_indent.as_deref() {
+                    Some(start) if !self.normalized_pipeline_continuation => start.to_string(),
+                    _ => rendered_indent.to_string(),
+                })
+            }),
         }
     }
 
@@ -564,13 +596,14 @@ impl<'source, 'options> RawShellBlockFormatter<'source, 'options> {
 
 pub(super) fn collect_raw_command_substitution_spans(
     parts: &[shuck_ast::WordPartNode],
-    spans: &mut Vec<shuck_ast::Span>,
+    in_double_quotes: bool,
+    spans: &mut Vec<(shuck_ast::Span, bool)>,
 ) {
     for part in parts {
         match &part.kind {
-            WordPart::CommandSubstitution { .. } => spans.push(part.span),
+            WordPart::CommandSubstitution { .. } => spans.push((part.span, in_double_quotes)),
             WordPart::DoubleQuoted { parts, .. } => {
-                collect_raw_command_substitution_spans(parts.as_slice(), spans);
+                collect_raw_command_substitution_spans(parts.as_slice(), true, spans);
             }
             _ => {}
         }
@@ -627,9 +660,14 @@ pub(super) fn render_command_substitution(
     layout: CommandSubstitutionLayout,
     inline_continuation_indent_levels: usize,
     raw: Option<&str>,
+    in_double_quotes: bool,
 ) -> Option<()> {
     let source = context.source;
     let options = context.options;
+    let is_backtick = raw.is_some_and(|raw| raw.starts_with('`'));
+    if is_backtick && raw.is_some_and(backtick_body_has_nested_backticks) {
+        return None;
+    }
     let mut nested = String::new();
     context
         .format_stmt_sequence_to_buf(body, Some(upper_bound), &mut nested)
@@ -637,8 +675,8 @@ pub(super) fn render_command_substitution(
 
     let trimmed = trim_trailing_line_endings(&nested);
     let normalized_backtick_body;
-    let trimmed = if raw.is_some_and(|raw| raw.starts_with('`')) && trimmed.contains("\\\\$") {
-        normalized_backtick_body = normalize_backtick_body_escaped_dollars(trimmed);
+    let trimmed = if is_backtick && trimmed.contains('\\') {
+        normalized_backtick_body = unescape_backtick_body(trimmed, in_double_quotes);
         normalized_backtick_body.as_str()
     } else {
         trimmed
@@ -781,7 +819,38 @@ pub(super) fn commented_command_substitution_can_use_structural_formatter(body: 
         && (matches!(
             &stmt.command,
             Command::Compound(CompoundCommand::Case(_) | CompoundCommand::If(_))
-        ) || command_is_pipeline_of_compound_groups(&stmt.command))
+        ) || command_is_pipeline_of_compound_groups(&stmt.command)
+            || command_is_pipeline_starting_with_compound(&stmt.command))
+}
+
+/// Pipelines such as `if ...; fi | while ...; done | sort` whose comments sit
+/// inside compound bodies; the structural formatter keeps their stage
+/// indentation stable where the raw line-based fallback does not.
+fn command_is_pipeline_starting_with_compound(command: &Command) -> bool {
+    let Command::Binary(binary) = command else {
+        return false;
+    };
+    if !matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll) {
+        return false;
+    }
+    let mut left = &binary.left;
+    while let Command::Binary(inner) = &left.command
+        && matches!(inner.op, BinaryOp::Pipe | BinaryOp::PipeAll)
+    {
+        left = &inner.left;
+    }
+    !left.negated
+        && left.redirects.is_empty()
+        && matches!(
+            &left.command,
+            Command::Compound(
+                CompoundCommand::If(_)
+                    | CompoundCommand::Case(_)
+                    | CompoundCommand::While(_)
+                    | CompoundCommand::Until(_)
+                    | CompoundCommand::For(_)
+            )
+        )
 }
 
 pub(super) fn command_is_pipeline_of_compound_groups(command: &Command) -> bool {
@@ -880,25 +949,41 @@ pub(super) fn case_terminator_text_appears(text: &str) -> bool {
     text.contains(";;") || text.contains(";&") || text.contains(";;&")
 }
 
-pub(super) fn normalize_backtick_body_escaped_dollars(body: &str) -> String {
+/// Removes the escaping layer that only exists because a command substitution
+/// was written with backticks, so the body can be placed inside `$( ... )`.
+///
+/// Inside backticks a backslash only quotes `$`, `` ` ``, and `\`; when the
+/// backticks themselves sit inside double quotes it also quotes `"`. Every
+/// other backslash is kept literally and is seen again by the nested parse.
+/// The rule applies uniformly to the whole body, including text that will be
+/// single-quoted once the nested command is parsed.
+pub(super) fn unescape_backtick_body(body: &str, in_double_quotes: bool) -> String {
     let mut normalized = String::with_capacity(body.len());
     let mut chars = body.chars().peekable();
     while let Some(ch) = chars.next() {
-        if ch == '\\' && chars.peek() == Some(&'\\') {
+        if ch == '\\'
+            && let Some(&next) = chars.peek()
+            && (matches!(next, '$' | '`' | '\\') || (in_double_quotes && next == '"'))
+        {
+            normalized.push(next);
             chars.next();
-            if chars.peek() == Some(&'$') {
-                normalized.push('\\');
-                normalized.push('$');
-                chars.next();
-                continue;
-            }
-            normalized.push('\\');
-            normalized.push('\\');
             continue;
         }
         normalized.push(ch);
     }
     normalized
+}
+
+/// Nested backticks need a second unescaping pass once they become `$( )`;
+/// keep the original spelling instead of producing a half-converted body.
+pub(super) fn backtick_body_has_nested_backticks(body: &str) -> bool {
+    let mut chars = body.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' && chars.next() == Some('`') {
+            return true;
+        }
+    }
+    false
 }
 
 pub(super) fn push_command_substitution_inline_body(
@@ -985,11 +1070,28 @@ pub(super) fn indent_inline_pipeline_continuations(
     let mut previous_ends_pipeline = false;
     let mut pipeline_comment_continuation = false;
     let mut continuation_indent: Option<String> = None;
-    let mut quote = QuoteState::default();
+    let mut literal_exit_indent: Option<String> = None;
+    let mut quote = LiteralLineTracker::default();
 
     for (index, line) in body.split('\n').enumerate() {
         if index > 0 {
             rendered.push('\n');
+        }
+        if quote.in_literal() {
+            // Leading whitespace here is string content; copy it verbatim.
+            rendered.push_str(line);
+            quote.scan_line(line);
+            previous_ends_pipeline = false;
+            pipeline_comment_continuation = false;
+            continuation_indent = if quote.in_literal() {
+                None
+            } else if line_without_continuation_backslash(line).is_some() {
+                literal_exit_indent.take()
+            } else {
+                literal_exit_indent = None;
+                None
+            };
+            continue;
         }
         let mut rendered_line = String::new();
         let used_continuation_indent = if let Some(indent) = continuation_indent.take()
@@ -1033,14 +1135,20 @@ pub(super) fn indent_inline_pipeline_continuations(
         quote.scan_line(&rendered_line);
         previous_ends_pipeline = line_ends_with_raw_continuation_operator(&rendered_line);
         pipeline_comment_continuation = line_is_pipeline_comment;
-        continuation_indent = line_continues.then(|| {
+        let next_continuation_indent = line_continues.then(|| {
             let indent = line_leading_shell_indent(&rendered_line);
-            if quote.in_multiline_literal() || used_continuation_indent {
+            if used_continuation_indent {
                 indent.to_string()
             } else {
                 source_indent_plus_one_unit(indent, options)
             }
         });
+        if quote.in_literal() {
+            literal_exit_indent = next_continuation_indent;
+            continuation_indent = None;
+        } else {
+            continuation_indent = next_continuation_indent;
+        }
     }
 
     changed.then_some(rendered)
@@ -1339,6 +1447,17 @@ pub(super) fn push_raw_block_command_substitution_without_outer_indent(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Indentation that a block-form process substitution starting at `offset`
+/// places before its closing `)` (and under its body lines), derived from the
+/// source line it starts on.
+pub(crate) fn process_substitution_block_outer_indent(
+    source: &str,
+    offset: usize,
+    options: &ResolvedShellFormatOptions,
+) -> String {
+    options.indent_prefix(source_indent_units_before_offset(source, offset, options))
+}
+
 pub(super) fn render_process_substitution(
     rendered: &mut String,
     body: &shuck_ast::StmtSeq,
@@ -1384,13 +1503,15 @@ pub(super) fn render_process_substitution(
             push_source_indented_inline_command_substitution(rendered, trimmed, raw, options);
             rendered.push(')');
         } else {
+            let outer_indent =
+                process_substitution_block_outer_indent(source, span.start.offset(), options);
             let outer_levels =
                 source_indent_units_before_offset(source, span.start.offset(), options);
             rendered.push(prefix);
             rendered.push_str("(\n");
             push_indented_rendered_block(rendered, trimmed, options, outer_levels + 1);
             rendered.push('\n');
-            options.push_indent_units(rendered, outer_levels);
+            rendered.push_str(&outer_indent);
             rendered.push(')');
         }
     } else {
@@ -1496,7 +1617,7 @@ pub(super) fn push_indented_rendered_block(
     options: &ResolvedShellFormatOptions,
     levels: usize,
 ) {
-    push_indented_rendered_block_with_literal_policy(target, rendered, options, levels, false);
+    push_indented_rendered_block_lines(target, rendered, options, levels);
 }
 
 pub(super) fn push_indented_command_substitution_block(
@@ -1505,28 +1626,20 @@ pub(super) fn push_indented_command_substitution_block(
     options: &ResolvedShellFormatOptions,
     levels: usize,
 ) {
-    push_indented_rendered_block_with_literal_policy(target, rendered, options, levels, true);
+    push_indented_rendered_block_lines(target, rendered, options, levels);
 }
 
-fn push_indented_rendered_block_with_literal_policy(
+fn push_indented_rendered_block_lines(
     target: &mut String,
     rendered: &str,
     options: &ResolvedShellFormatOptions,
     levels: usize,
-    preserve_multiline_single_quoted_lines: bool,
 ) {
-    let preserve_multiline_single_quoted_lines = preserve_multiline_single_quoted_lines
-        && matches!(options.indent_style(), IndentStyle::Space);
     let prefix = options.indent_prefix(levels);
-    let normalized_literal_continuations =
-        normalize_literal_continuation_indent_for_block(rendered);
-    let rendered = normalized_literal_continuations
-        .as_deref()
-        .unwrap_or(rendered);
     let common_source_indent = common_rendered_block_indent(rendered, options);
 
     let mut active_heredoc: Option<CommandSubstitutionHeredocIndent> = None;
-    let mut quote = QuoteState::default();
+    let mut quote = LiteralLineTracker::default();
     for (index, line) in rendered.lines().enumerate() {
         if index > 0 {
             target.push('\n');
@@ -1553,54 +1666,21 @@ fn push_indented_rendered_block_with_literal_policy(
             continue;
         }
 
-        let line_starts_in_single_quotes =
-            preserve_multiline_single_quoted_lines && quote.in_single_quotes();
+        // Leading whitespace on a line that starts inside a quoted literal is
+        // part of the string's value, so such lines are copied verbatim.
+        if quote.in_literal() {
+            target.push_str(line);
+            quote.scan_line(line);
+            continue;
+        }
         let line = strip_common_rendered_block_indent(line, &common_source_indent);
-        if !line_starts_in_single_quotes && line_needs_command_substitution_indent(line, options) {
+        if line_needs_command_substitution_indent(line, options) {
             target.push_str(&prefix);
         }
         target.push_str(line);
-        if preserve_multiline_single_quoted_lines {
-            quote.scan_line(line);
-        }
+        quote.scan_line(line);
         active_heredoc = command_substitution_heredoc_indent(line);
     }
-}
-
-pub(super) fn normalize_literal_continuation_indent_for_block(rendered: &str) -> Option<String> {
-    if !rendered.contains('\n') {
-        return None;
-    }
-
-    let mut quote = QuoteState::default();
-    let mut continuation_indent: Option<String> = None;
-    let mut normalized = String::with_capacity(rendered.len());
-    let mut changed = false;
-
-    for (index, line) in rendered.split('\n').enumerate() {
-        if index > 0 {
-            normalized.push('\n');
-        }
-
-        let mut line = line.to_string();
-        if let Some(indent) = continuation_indent.take()
-            && !line.trim().is_empty()
-        {
-            let content = line.trim_start_matches([' ', '\t']);
-            if line_leading_shell_indent(&line) != indent {
-                line = format!("{indent}{content}");
-                changed = true;
-            }
-        }
-
-        let line_continues = line_without_continuation_backslash(&line).is_some();
-        quote.scan_line(&line);
-        continuation_indent = (line_continues && quote.in_multiline_literal())
-            .then(|| line_leading_shell_indent(&line).to_string());
-        normalized.push_str(&line);
-    }
-
-    changed.then_some(normalized)
 }
 
 pub(super) fn common_rendered_block_indent(

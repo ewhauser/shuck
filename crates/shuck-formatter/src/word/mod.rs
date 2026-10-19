@@ -5,10 +5,11 @@ use crate::context::{FragmentFormatter, RenderContext};
 use crate::facts::FormatterFacts;
 use crate::options::{IndentStyle, ResolvedShellFormatOptions};
 use crate::raw_syntax::{
-    QuoteState, RawShellScanner, RawShellText, common_nonempty_shell_indent, heredoc_start,
-    leading_shell_indent as line_leading_shell_indent, line_ends_with_raw_continuation_operator,
-    line_without_continuation_backslash, matching_raw_command_substitution_close,
-    normalize_raw_pipeline_continuations, redirect_operator_end, refine_common_indent,
+    LiteralLineTracker, QuoteState, RawShellScanner, RawShellText, common_nonempty_shell_indent,
+    heredoc_start, leading_shell_indent as line_leading_shell_indent,
+    line_ends_with_raw_continuation_operator, line_without_continuation_backslash,
+    matching_raw_command_substitution_close, normalize_raw_pipeline_continuations,
+    redirect_operator_end, refine_common_indent,
 };
 use crate::source::{
     SourceView, command_substitution_source_closes_on_own_line,
@@ -34,6 +35,7 @@ mod parameter;
 mod raw_rewrites;
 
 pub(crate) use self::arithmetic::render_arithmetic_expr_to_buf;
+pub(crate) use self::command_substitution::process_substitution_block_outer_indent;
 pub(crate) use self::core::{
     render_escaped_multiline_word_syntax_to_buf, render_word_syntax_to_buf,
     word_gap_end_before_trailing_continuation, word_is_quoted_command_substitution_only,

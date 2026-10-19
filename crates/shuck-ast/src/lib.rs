@@ -34,6 +34,6 @@ pub use github_actions::*;
 /// Identifier names used throughout the shell AST.
 pub use name::Name;
 /// Source positions, spans, and text range utilities.
-pub use span::{Position, Span, TextRange, TextSize};
+pub use span::{MAX_SOURCE_LEN, Position, Span, TextRange, TextSize};
 /// Token kinds emitted by the lexer.
 pub use tokens::TokenKind;

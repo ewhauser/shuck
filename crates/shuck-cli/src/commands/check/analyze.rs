@@ -121,7 +121,7 @@ fn analyze_shell_file(
             warn_fixes_introduce_parse_error(&pending.file.display_path, applied.fixes_applied);
         } else if let Some(fixed_parse_result) = fixed_parse_result {
             source = Arc::<str>::from(applied.code);
-            fs::write(&pending.file.absolute_path, &*source)?;
+            crate::fs_write::write_atomic(&pending.file.absolute_path, source.as_bytes())?;
             parse_result = fixed_parse_result;
             analysis = collect_lint_diagnostics(
                 &source,

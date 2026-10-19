@@ -1,11 +1,70 @@
 use std::collections::BTreeMap;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde::{Serialize, de::DeserializeOwned};
 use shuck_cache::{CacheKey, CacheKeyHasher, FileCacheKey, PackageCache};
 
-use crate::discover::{DiscoveredFile, DiscoveryOptions, ProjectRoot, discover_files};
+use crate::discover::{
+    DiscoveredFile, DiscoveryOptions, ProjectRoot, SkippedInput, discover_files_with_status,
+};
+
+/// A file that could not be processed. Runs continue past these and report them
+/// at the end with a non-zero exit status.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FileError {
+    pub path: PathBuf,
+    pub message: String,
+}
+
+impl FileError {
+    pub(crate) fn new(path: &Path, message: impl std::fmt::Display) -> Self {
+        Self {
+            path: path.to_path_buf(),
+            message: message.to_string(),
+        }
+    }
+
+    pub(crate) fn read(path: &Path, err: &anyhow::Error) -> Self {
+        Self::new(path, format_args!("cannot read file: {err:#}"))
+    }
+}
+
+/// Writes per-file errors to stderr in a stable order.
+pub(crate) fn print_file_errors(errors: &[FileError]) -> io::Result<()> {
+    if errors.is_empty() {
+        return Ok(());
+    }
+    let mut errors = errors.iter().collect::<Vec<_>>();
+    errors.sort_by(|left, right| left.path.cmp(&right.path));
+    let mut stderr = io::stderr().lock();
+    for error in errors {
+        writeln!(stderr, "error: {}: {}", error.path.display(), error.message)?;
+    }
+    stderr.flush()
+}
+
+fn print_skipped_inputs(skipped: &[SkippedInput]) {
+    let mut stderr = io::stderr().lock();
+    for input in skipped {
+        let _ = writeln!(
+            stderr,
+            "warning: skipping {}: {}",
+            input.path.display(),
+            input.reason
+        );
+    }
+}
+
+/// Project runs grouped by root plus any files discovery could not read.
+pub(crate) struct PreparedProjectRuns<T, S>
+where
+    T: Clone + Serialize + DeserializeOwned,
+{
+    pub runs: Vec<ProjectRun<T, S>>,
+    pub file_errors: Vec<FileError>,
+}
 
 pub(crate) struct ProjectRun<T, S>
 where
@@ -14,6 +73,8 @@ where
     pub files: Vec<DiscoveredFile>,
     pub settings: S,
     pub cache: Option<PackageCache<T>>,
+    /// Files dropped from this run because their metadata could not be read.
+    pub file_errors: Vec<FileError>,
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +105,7 @@ where
 {
     fn cache_key(&self, state: &mut CacheKeyHasher) {
         state.write_tag(self.cache_tag);
+        crate::cache::build_fingerprint().cache_key(state);
         self.canonical_project_root.cache_key(state);
         self.settings.cache_key(state);
     }
@@ -57,7 +119,7 @@ pub(crate) fn prepare_project_runs<T, S, F>(
     no_cache: bool,
     cache_tag: &'static [u8],
     resolve_settings: F,
-) -> Result<Vec<ProjectRun<T, S>>>
+) -> Result<PreparedProjectRuns<T, S>>
 where
     T: Clone + Serialize + DeserializeOwned,
     S: CacheKey + Clone,
@@ -81,14 +143,25 @@ pub(crate) fn prepare_project_runs_with_cache_key<T, S, C, F, K>(
     request: ProjectRunRequest<'_>,
     mut resolve_settings: F,
     mut resolve_cache_key: K,
-) -> Result<Vec<ProjectRun<T, S>>>
+) -> Result<PreparedProjectRuns<T, S>>
 where
     T: Clone + Serialize + DeserializeOwned,
     C: CacheKey,
     F: FnMut(&ProjectRoot) -> Result<S>,
     K: FnMut(&ProjectRoot, &[DiscoveredFile], &S) -> Result<C>,
 {
-    let files = discover_files(request.inputs, request.cwd, request.discovery_options)?;
+    let discovery =
+        discover_files_with_status(request.inputs, request.cwd, request.discovery_options)?;
+    print_skipped_inputs(&discovery.skipped);
+    let file_errors = discovery
+        .errors
+        .into_iter()
+        .map(|error| FileError {
+            path: error.path,
+            message: error.message,
+        })
+        .collect();
+    let files = discovery.files;
     let mut groups: BTreeMap<ProjectRoot, Vec<DiscoveredFile>> = BTreeMap::new();
     for file in files {
         groups
@@ -107,7 +180,7 @@ where
             Some(PackageCache::<T>::open(
                 request.cache_root,
                 project_root.canonical_root.clone(),
-                env!("CARGO_PKG_VERSION"),
+                crate::cache::CACHE_VERSION_DIR,
                 &ProjectCacheKey {
                     cache_tag: request.cache_tag,
                     canonical_project_root: project_root.canonical_root.clone(),
@@ -120,10 +193,11 @@ where
             files,
             settings,
             cache,
+            file_errors: Vec::new(),
         });
     }
 
-    Ok(runs)
+    Ok(PreparedProjectRuns { runs, file_errors })
 }
 
 impl<T, S> ProjectRun<T, S>
@@ -149,7 +223,16 @@ where
         let mut pending = Vec::new();
 
         for file in self.files.drain(..) {
-            let file_key = FileCacheKey::from_path(&file.absolute_path)?;
+            let file_key = match FileCacheKey::from_path(&file.absolute_path) {
+                Ok(file_key) => file_key,
+                Err(err) => {
+                    self.file_errors.push(FileError::new(
+                        &file.display_path,
+                        format_args!("cannot access file: {err}"),
+                    ));
+                    continue;
+                }
+            };
             if let Some(cache) = self.cache.as_mut()
                 && let Some(cached) = cache.get(&file.relative_path, &file_key)
             {
@@ -230,7 +313,8 @@ mod tests {
             b"dummy-cache",
             |_| Ok(DummySettings),
         )
-        .unwrap();
+        .unwrap()
+        .runs;
 
         assert_eq!(runs.len(), 2);
         let mut display_paths = runs
@@ -260,7 +344,8 @@ mod tests {
             b"dummy-cache",
             |_| Ok(DummySettings),
         )
-        .unwrap();
+        .unwrap()
+        .runs;
         let mut run = runs.pop().unwrap();
         let mut pending = run.take_pending_files(|_, _| unreachable!()).unwrap();
         assert_eq!(pending.len(), 2);
@@ -284,7 +369,8 @@ mod tests {
             b"dummy-cache",
             |_| Ok(DummySettings),
         )
-        .unwrap();
+        .unwrap()
+        .runs;
         let mut run = runs.pop().unwrap();
 
         let mut cached_hits = Vec::new();

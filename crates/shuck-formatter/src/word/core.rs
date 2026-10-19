@@ -435,6 +435,9 @@ pub(super) fn part_needs_special_rendering(part: &WordPart) -> bool {
             operator.as_ref(),
             ParameterOp::ReplaceFirst { .. } | ParameterOp::ReplaceAll { .. }
         ),
+        // zsh `rc_quotes` decodes `''` to `'`, so the cooked value no longer
+        // matches the quoted syntax and must be rendered from source.
+        WordPart::SingleQuoted { value, .. } if !value.is_source_backed() => true,
         WordPart::SingleQuoted { dollar: true, .. }
         | WordPart::Substring { .. }
         | WordPart::ArraySlice { .. }
@@ -469,6 +472,7 @@ pub(super) fn render_word_parts(
 pub(super) struct WordPartRenderContext {
     allow_source_indented_inline_command_substitution: bool,
     source_indented_inline_command_substitution: bool,
+    inside_double_quotes: bool,
 }
 
 pub(super) fn render_word_part(
@@ -492,6 +496,15 @@ pub(super) fn render_word_part(
             push_unquoted_literal(rendered, text.syntax_str(source, span));
         }
         WordPart::SingleQuoted { value, dollar } => {
+            // zsh `rc_quotes` cooks `''` to `'`; the source spelling is the
+            // only faithful rendering of such a value.
+            if !value.is_source_backed()
+                && let Some(raw) = raw_source_slice(span, source)
+                    .filter(|raw| raw.starts_with('\'') || raw.starts_with("$'"))
+            {
+                rendered.push_str(raw);
+                return Ok(());
+            }
             if *dollar {
                 rendered.push('$');
             }
@@ -534,6 +547,7 @@ pub(super) fn render_word_part(
                                 source_indented_inline_command_substitution: part_context
                                     .allow_source_indented_inline_command_substitution
                                     && follows_line_indent_literal,
+                                inside_double_quotes: true,
                             },
                         )?;
                         follows_line_indent_literal = false;
@@ -583,6 +597,7 @@ pub(super) fn render_word_part(
                             layout,
                             1,
                             Some(raw),
+                            part_context.inside_double_quotes,
                         )
                         .is_some()
                         {
@@ -611,6 +626,7 @@ pub(super) fn render_word_part(
                     layout,
                     1,
                     Some(raw),
+                    part_context.inside_double_quotes,
                 )
                 .is_some()
                 {
@@ -631,6 +647,7 @@ pub(super) fn render_word_part(
                 ),
                 1,
                 None,
+                part_context.inside_double_quotes,
             )
             .is_some()
             {

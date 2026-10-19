@@ -87,6 +87,7 @@ pub(super) fn render_heredoc_body_part(
                     layout,
                     embedded_command_indent_levels,
                     raw,
+                    false,
                 )
                 .is_none()
                 {

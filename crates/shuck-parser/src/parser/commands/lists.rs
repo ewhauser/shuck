@@ -59,15 +59,20 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn apply_stmt_effects(&mut self, stmt: &Stmt) {
-        match &stmt.command {
-            AstCommand::Simple(simple) => {
-                self.apply_word_command_effects(&simple.name, &simple.args)
+        // `&&`/`||` lists nest to the left, so walk them with an explicit
+        // stack, visiting operands in source order.
+        let mut pending = vec![stmt];
+        while let Some(stmt) = pending.pop() {
+            match &stmt.command {
+                AstCommand::Simple(simple) => {
+                    self.apply_word_command_effects(&simple.name, &simple.args)
+                }
+                AstCommand::Binary(binary) if matches!(binary.op, BinaryOp::And | BinaryOp::Or) => {
+                    pending.push(&binary.right);
+                    pending.push(&binary.left);
+                }
+                _ => {}
             }
-            AstCommand::Binary(binary) if matches!(binary.op, BinaryOp::And | BinaryOp::Or) => {
-                self.apply_stmt_effects(&binary.left);
-                self.apply_stmt_effects(&binary.right);
-            }
-            _ => {}
         }
     }
 
@@ -113,12 +118,14 @@ impl<'a> Parser<'a> {
 
     pub(super) fn parse_command_list(&mut self) -> Result<Option<Vec<Stmt>>> {
         self.tick()?;
+        let first = self.budget.begin_first_chain_operand();
         let mut current = match self.parse_pipeline()? {
             Some(stmt) => stmt,
             None => return Ok(None),
         };
 
         let mut stmts = Vec::with_capacity(2);
+        let mut and_or_chain = self.budget.end_first_chain_operand(first);
 
         loop {
             let (op, terminator, allow_empty_tail) = match self.current_token_kind {
@@ -154,6 +161,7 @@ impl<'a> Parser<'a> {
             }
 
             if let Some(binary_op) = op {
+                self.extend_operator_chain(&mut and_or_chain, "command list")?;
                 let Some(right) = self.parse_pipeline()? else {
                     return Err(self.error(match binary_op {
                         BinaryOp::And => "expected command after &&",
@@ -167,7 +175,12 @@ impl<'a> Parser<'a> {
             let Some(terminator) = terminator else {
                 unreachable!("list terminator should be present");
             };
-            if let Some(next) = self.parse_pipeline()? {
+            // Release the finished list's links before its successor starts.
+            drop(and_or_chain);
+            let first = self.budget.begin_first_chain_operand();
+            let next = self.parse_pipeline()?;
+            and_or_chain = self.budget.end_first_chain_operand(first);
+            if let Some(next) = next {
                 current.terminator = Some(terminator);
                 current.terminator_span = Some(operator_span);
                 stmts.push(current);
@@ -216,6 +229,7 @@ impl<'a> Parser<'a> {
             self.advance();
         }
 
+        let first = self.budget.begin_first_chain_operand();
         let mut stmt = match self.parse_command()? {
             Some(cmd) => Self::lower_non_sequence_command_to_stmt(cmd),
             None => {
@@ -227,8 +241,10 @@ impl<'a> Parser<'a> {
         };
 
         let mut saw_pipe = false;
+        let mut pipeline_chain = self.budget.end_first_chain_operand(first);
         while self.at_in_set(PIPE_OPERATOR_TOKENS) {
             saw_pipe = true;
+            self.extend_operator_chain(&mut pipeline_chain, "pipeline")?;
             let op = if self.at(TokenKind::PipeBoth) {
                 BinaryOp::PipeAll
             } else {

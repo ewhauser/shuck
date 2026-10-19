@@ -47,6 +47,9 @@ pub(super) struct DecodeWordPartsOptions {
     parse_dollar_quotes: bool,
     preserve_escaped_expansion_literals: bool,
     parse_process_substitutions: bool,
+    /// The text is a heredoc body, where `"` is an ordinary character rather
+    /// than a quote.
+    heredoc_body: bool,
 }
 
 impl Default for DecodeWordPartsOptions {
@@ -57,6 +60,7 @@ impl Default for DecodeWordPartsOptions {
             parse_dollar_quotes: false,
             preserve_escaped_expansion_literals: false,
             parse_process_substitutions: true,
+            heredoc_body: false,
         }
     }
 }

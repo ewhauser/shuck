@@ -27,6 +27,66 @@ pub const DEFAULT_IGNORED_DIR_NAMES: &[&str] = &[
 ];
 
 const SHEBANG_SNIFF_LIMIT_BYTES: u64 = 4096;
+
+/// File extensions that positively identify a non-shell language. Explicitly
+/// named files with these extensions are skipped instead of being parsed (and
+/// possibly rewritten) as shell.
+const NON_SHELL_EXTENSIONS: &[&str] = &[
+    "awk", "bat", "c", "cc", "cjs", "clj", "cmake", "cmd", "cpp", "cs", "css", "cts", "cxx",
+    "dart", "el", "erl", "ex", "exs", "fish", "go", "groovy", "h", "hh", "hpp", "hs", "htm",
+    "html", "ipynb", "java", "jl", "js", "json", "jsonc", "jsx", "kt", "kts", "lisp", "lua",
+    "markdown", "md", "mjs", "ml", "mts", "nim", "nu", "php", "pl", "pm", "ps1", "psm1", "py",
+    "pyi", "pyw", "r", "rb", "rs", "rst", "scala", "scss", "sed", "swift", "tcl", "toml", "ts",
+    "tsx", "vim", "xml", "zig",
+];
+
+/// Shebang interpreters that positively identify a non-shell language. Version
+/// suffixes such as `python3.12` are stripped before matching.
+const NON_SHELL_INTERPRETERS: &[&str] = &[
+    "awk",
+    "bun",
+    "deno",
+    "elixir",
+    "escript",
+    "expect",
+    "fish",
+    "gawk",
+    "gmake",
+    "groovy",
+    "guile",
+    "julia",
+    "kotlin",
+    "lua",
+    "luajit",
+    "make",
+    "mawk",
+    "nawk",
+    "node",
+    "nodejs",
+    "nu",
+    "ocaml",
+    "osascript",
+    "perl",
+    "php",
+    "powershell",
+    "pwsh",
+    "python",
+    "racket",
+    "raku",
+    "rscript",
+    "ruby",
+    "runghc",
+    "runhaskell",
+    "sbcl",
+    "scala",
+    "sed",
+    "swift",
+    "tclsh",
+    "ts-node",
+    "tsx",
+    "wish",
+];
+
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct ProjectRoot {
     pub storage_root: PathBuf,
@@ -47,16 +107,59 @@ pub struct DiscoveredFile {
 pub struct DiscoveryResult {
     /// Discovered files in stable path order.
     pub files: Vec<DiscoveredFile>,
-    /// Whether discovery finished without hitting a work limit or cancellation.
+    /// Whether discovery finished without hitting a work limit, cancellation,
+    /// or an unreadable path.
     pub complete: bool,
     /// Number of filesystem entries examined during this pass.
     pub visited_entries: usize,
+    /// Paths that could not be read or walked. Discovery continues past them.
+    pub errors: Vec<DiscoveryError>,
+    /// Explicitly named inputs that were not processed because they are not shell.
+    pub skipped: Vec<SkippedInput>,
+}
+
+/// A path that discovery could not process.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct DiscoveryError {
+    /// The affected path, relative to the working directory when possible.
+    pub path: PathBuf,
+    /// A description of the failure, without the path.
+    pub message: String,
+}
+
+/// An explicitly named input that discovery declined to process.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct SkippedInput {
+    /// The skipped path, relative to the working directory when possible.
+    pub path: PathBuf,
+    /// Why the input was skipped.
+    pub reason: &'static str,
+}
+
+/// How an explicitly named input should be handled.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ExplicitInputKind {
+    /// Process the input as the given kind.
+    Process(FileKind),
+    /// Skip the input; the reason describes why.
+    Skip(&'static str),
 }
 
 #[derive(Default)]
 struct DiscoveryState {
     files: BTreeMap<PathBuf, DiscoveredFile>,
     visited_entries: usize,
+    errors: Vec<DiscoveryError>,
+    skipped: Vec<SkippedInput>,
+}
+
+impl DiscoveryState {
+    fn push_error(&mut self, path: &Path, cwd: &Path, message: impl Into<String>) {
+        self.errors.push(DiscoveryError {
+            path: display_path(path, cwd),
+            message: message.into(),
+        });
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
@@ -121,12 +224,20 @@ impl Default for DiscoveryOptions {
     }
 }
 
+/// Discover files, failing when any path could not be read or walked.
+///
+/// Use [`discover_files_with_status`] to keep the files that were found
+/// alongside per-path errors.
 pub fn discover_files(
     inputs: &[PathBuf],
     cwd: &Path,
     options: &DiscoveryOptions,
 ) -> Result<Vec<DiscoveredFile>> {
-    Ok(discover_files_with_status(inputs, cwd, options)?.files)
+    let result = discover_files_with_status(inputs, cwd, options)?;
+    if let Some(error) = result.errors.first() {
+        return Err(anyhow!("{}: {}", error.path.display(), error.message));
+    }
+    Ok(result.files)
 }
 
 /// Discover files and report whether configured work bounds truncated the walk.
@@ -161,7 +272,10 @@ pub fn discover_files_with_status(
         }
         let input = normalize_path(&input);
 
-        if should_ignore_path(&input, options.cache_root.as_deref()) {
+        // Default ignored directory names apply only beneath the input. An
+        // explicitly named path is never skipped because some ancestor (for
+        // example `~/.cache` or a `vendor/` checkout) happens to use one.
+        if path_matches_cache_root(&input, options.cache_root.as_deref()) {
             continue;
         }
         if options
@@ -172,6 +286,14 @@ pub fn discover_files_with_status(
             continue;
         }
 
+        let metadata = match fs::metadata(&input) {
+            Ok(metadata) => metadata,
+            Err(err) => {
+                state.push_error(&input, cwd, format!("cannot access path: {err}"));
+                continue;
+            }
+        };
+
         let storage_root = resolve_project_root_for_input(&input, options.use_config_roots)
             .with_context(|| format!("resolve project root for {}", input.display()))?;
         let canonical_root = fs::canonicalize(&storage_root)
@@ -181,8 +303,22 @@ pub fn discover_files_with_status(
             canonical_root,
         };
 
+        // With `--force-exclude`, explicit inputs inside a default ignored
+        // directory are skipped like walked files would be. Only components
+        // below the working directory (or, outside it, below the project root)
+        // count.
+        if options.force_exclude
+            && input
+                .strip_prefix(cwd)
+                .or_else(|_| input.strip_prefix(&project_root.storage_root))
+                .is_ok_and(path_has_default_ignored_component)
+        {
+            continue;
+        }
+
         collect_input(
             &input,
+            &metadata,
             cwd,
             &project_root,
             &exclude_matcher,
@@ -192,16 +328,21 @@ pub fn discover_files_with_status(
         )?;
     }
 
-    let complete = !discovery_stopped(options, state.files.len(), state.visited_entries);
+    let complete = !discovery_stopped(options, state.files.len(), state.visited_entries)
+        && state.errors.is_empty();
     Ok(DiscoveryResult {
         files: state.files.into_values().collect(),
         complete,
         visited_entries: state.visited_entries,
+        errors: state.errors,
+        skipped: state.skipped,
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_input(
     input: &Path,
+    metadata: &fs::Metadata,
     cwd: &Path,
     project_root: &ProjectRoot,
     exclude_matcher: &ExcludeMatcher,
@@ -209,7 +350,6 @@ fn collect_input(
     options: &DiscoveryOptions,
     state: &mut DiscoveryState,
 ) -> Result<()> {
-    let metadata = fs::metadata(input).with_context(|| format!("stat {}", input.display()))?;
     if metadata.is_dir() {
         if options.force_exclude && exclude_matcher.matches(input, cwd) {
             return Ok(());
@@ -217,8 +357,19 @@ fn collect_input(
         collect_directory(input, cwd, project_root, exclude_matcher, options, state)?;
     } else if metadata.is_file() {
         state.visited_entries += 1;
-        let Some(kind) = explicit_file_kind(input)? else {
-            return Ok(());
+        let kind = match explicit_file_kind(input) {
+            Ok(ExplicitInputKind::Process(kind)) => kind,
+            Ok(ExplicitInputKind::Skip(reason)) => {
+                state.skipped.push(SkippedInput {
+                    path: display_path(input, cwd),
+                    reason,
+                });
+                return Ok(());
+            }
+            Err(err) => {
+                state.push_error(input, cwd, err);
+                return Ok(());
+            }
         };
         if kind == FileKind::Embedded && !options.include_embedded {
             return Ok(());
@@ -236,7 +387,7 @@ fn collect_input(
             .parent()
             .map(Path::to_path_buf)
             .unwrap_or_else(|| PathBuf::from("."));
-        add_file(
+        if let Err(err) = add_file(
             input,
             cwd,
             &fallback_start,
@@ -244,7 +395,9 @@ fn collect_input(
             options.use_config_roots,
             kind,
             &mut state.files,
-        )?;
+        ) {
+            state.push_error(input, cwd, format!("{err:#}"));
+        }
     }
 
     Ok(())
@@ -277,7 +430,7 @@ fn collect_directory(
             exclude_matcher,
             options.use_config_roots,
             &mut builder,
-            &mut state.files,
+            state,
         );
     }
 
@@ -285,7 +438,14 @@ fn collect_directory(
         if discovery_stopped(options, state.files.len(), state.visited_entries) {
             break;
         }
-        let entry = entry.with_context(|| format!("walk {}", input.display()))?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                let (path, message) = walk_error_parts(&err);
+                state.push_error(path.unwrap_or(input), cwd, message);
+                continue;
+            }
+        };
         state.visited_entries += 1;
         let Some(file_type) = entry.file_type() else {
             continue;
@@ -295,19 +455,24 @@ fn collect_directory(
         }
 
         let path = entry.path();
-        if should_ignore_path(path, options.cache_root.as_deref())
+        if should_ignore_walked_path(path, input, options.cache_root.as_deref())
             || exclude_matcher.matches(path, cwd)
         {
             continue;
         }
-        let Some(kind) = discovered_file_kind(path)? else {
-            continue;
+        let kind = match discovered_file_kind(path) {
+            Ok(Some(kind)) => kind,
+            Ok(None) => continue,
+            Err(err) => {
+                state.push_error(path, cwd, err);
+                continue;
+            }
         };
         if kind == FileKind::Embedded && !options.include_embedded {
             continue;
         }
 
-        add_file(
+        if let Err(err) = add_file(
             path,
             cwd,
             input,
@@ -315,7 +480,9 @@ fn collect_directory(
             options.use_config_roots,
             kind,
             &mut state.files,
-        )?;
+        ) {
+            state.push_error(path, cwd, format!("{err:#}"));
+        }
     }
 
     Ok(())
@@ -345,7 +512,7 @@ fn collect_directory_parallel(
     exclude_matcher: &ExcludeMatcher,
     use_config_roots: bool,
     builder: &mut WalkBuilder,
-    files: &mut BTreeMap<PathBuf, DiscoveredFile>,
+    discovery_state: &mut DiscoveryState,
 ) -> Result<()> {
     builder.threads(
         std::thread::available_parallelism()
@@ -358,13 +525,12 @@ fn collect_directory_parallel(
     let mut visitor = ShellFilesVisitorBuilder::new(input, cwd, exclude_matcher, &state);
     walker.visit(&mut visitor);
 
-    if let Some(error) = state
-        .error
+    let mut errors = state
+        .errors
         .into_inner()
-        .map_err(|_| anyhow!("parallel discovery error state mutex poisoned"))?
-    {
-        return Err(error);
-    }
+        .map_err(|_| anyhow!("parallel discovery error state mutex poisoned"))?;
+    errors.sort_by(|left, right| left.path.cmp(&right.path));
+    discovery_state.errors.append(&mut errors);
 
     let mut matched_paths = state
         .matched_paths
@@ -373,15 +539,17 @@ fn collect_directory_parallel(
     matched_paths
         .sort_by(|left, right| left.path.cmp(&right.path).then(left.kind.cmp(&right.kind)));
     for matched_path in matched_paths {
-        add_file(
+        if let Err(err) = add_file(
             &matched_path.path,
             cwd,
             input,
             project_root,
             use_config_roots,
             matched_path.kind,
-            files,
-        )?;
+            &mut discovery_state.files,
+        ) {
+            discovery_state.push_error(&matched_path.path, cwd, format!("{err:#}"));
+        }
     }
 
     Ok(())
@@ -513,8 +681,25 @@ fn candidate_ignore_directories(path: &Path, cwd: &Path) -> Vec<PathBuf> {
     directories
 }
 
-fn should_ignore_path(path: &Path, cache_root: Option<&Path>) -> bool {
-    path_has_default_ignored_component(path) || path_matches_cache_root(path, cache_root)
+/// Returns whether a file found while walking `walk_root` should be skipped.
+/// Only components below the walk root are matched against the default ignored
+/// directory names, so ancestors of the requested directory never hide it.
+fn should_ignore_walked_path(path: &Path, walk_root: &Path, cache_root: Option<&Path>) -> bool {
+    path.strip_prefix(walk_root)
+        .is_ok_and(path_has_default_ignored_component)
+        || path_matches_cache_root(path, cache_root)
+}
+
+/// Splits a walk error into the path it concerns (when known) and a message
+/// that does not repeat that path.
+fn walk_error_parts(err: &ignore::Error) -> (Option<&Path>, String) {
+    match err {
+        ignore::Error::WithPath { path, err } => (Some(path), walk_error_parts(err).1),
+        ignore::Error::WithDepth { err, .. } | ignore::Error::WithLineNumber { err, .. } => {
+            walk_error_parts(err)
+        }
+        _ => (None, format!("cannot walk directory: {err}")),
+    }
 }
 
 fn path_has_default_ignored_component(path: &Path) -> bool {
@@ -535,7 +720,7 @@ fn path_matches_cache_root(path: &Path, cache_root: Option<&Path>) -> bool {
 #[derive(Default)]
 struct ParallelDiscoveryState {
     matched_paths: Mutex<Vec<MatchedPath>>,
-    error: Mutex<Option<anyhow::Error>>,
+    errors: Mutex<Vec<DiscoveryError>>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
@@ -573,7 +758,7 @@ struct ShellFilesVisitor<'a> {
     exclude_matcher: &'a ExcludeMatcher,
     state: &'a ParallelDiscoveryState,
     local_paths: Vec<MatchedPath>,
-    local_error: Option<anyhow::Error>,
+    local_errors: Vec<DiscoveryError>,
 }
 
 impl<'a> ignore::ParallelVisitorBuilder<'a> for ShellFilesVisitorBuilder<'a> {
@@ -584,7 +769,7 @@ impl<'a> ignore::ParallelVisitorBuilder<'a> for ShellFilesVisitorBuilder<'a> {
             exclude_matcher: self.exclude_matcher,
             state: self.state,
             local_paths: Vec::new(),
-            local_error: None,
+            local_errors: Vec::new(),
         })
     }
 }
@@ -594,9 +779,12 @@ impl ParallelVisitor for ShellFilesVisitor<'_> {
         let entry = match result {
             Ok(entry) => entry,
             Err(err) => {
-                self.local_error =
-                    Some(anyhow!(err).context(format!("walk {}", self.input.display())));
-                return WalkState::Quit;
+                let (path, message) = walk_error_parts(&err);
+                self.local_errors.push(DiscoveryError {
+                    path: display_path(path.unwrap_or(self.input), self.cwd),
+                    message,
+                });
+                return WalkState::Continue;
             }
         };
 
@@ -618,10 +806,10 @@ impl ParallelVisitor for ShellFilesVisitor<'_> {
                 kind,
             }),
             Ok(None) => {}
-            Err(err) => {
-                self.local_error = Some(err);
-                return WalkState::Quit;
-            }
+            Err(err) => self.local_errors.push(DiscoveryError {
+                path: display_path(path, self.cwd),
+                message: err,
+            }),
         }
 
         WalkState::Continue
@@ -635,11 +823,9 @@ impl Drop for ShellFilesVisitor<'_> {
             matched_paths.append(&mut self.local_paths);
         }
 
-        if let Some(error) = self.local_error.take() {
-            let mut state_error = lock_or_recover(&self.state.error);
-            if state_error.is_none() {
-                *state_error = Some(error);
-            }
+        if !self.local_errors.is_empty() {
+            let mut errors = lock_or_recover(&self.state.errors);
+            errors.append(&mut self.local_errors);
         }
     }
 }
@@ -716,16 +902,67 @@ pub fn is_shell_script(path: &Path) -> Result<bool> {
         return Ok(true);
     }
 
-    let bytes = read_shebang_prefix(path)?;
-    if infer_shebang_dialect(&bytes).is_some() {
-        return Ok(true);
-    }
+    let bytes = read_shebang_prefix(path).map_err(|err| anyhow!(err))?;
+    Ok(source_prefix_is_shell(&bytes))
+}
 
+fn source_prefix_is_shell(bytes: &[u8]) -> bool {
     // Zsh completion/autoload functions lead with a `#compdef`/`#autoload` tag on
     // the first line (compinit requires the tag there, so no shebang can precede
     // it). Recognize them so these extensionless zsh files are discovered; the
     // linter already infers the zsh dialect from the same marker.
-    Ok(first_line_is_zsh_autoload_tag(&bytes))
+    infer_shebang_dialect(bytes).is_some() || first_line_is_zsh_autoload_tag(bytes)
+}
+
+/// Classifies an explicitly named input (a command-line path or a
+/// `--stdin-filename`) from its path and the start of its contents.
+///
+/// A directly named file is an authoritative request to process it, so files
+/// without any recognizable marker are still parsed as shell. Files that
+/// positively identify as another language, through a non-shell extension or
+/// shebang, are skipped so they are never linted or rewritten as shell, and
+/// YAML or other embedded host formats are only processed when an extractor
+/// supports them.
+pub fn classify_explicit_input(path: &Path, source_prefix: &[u8]) -> ExplicitInputKind {
+    if ShellDialect::infer_from_path(path) != ShellDialect::Unknown
+        || source_prefix_is_shell(source_prefix)
+    {
+        return ExplicitInputKind::Process(FileKind::Shell);
+    }
+    if is_extractable(path) {
+        return ExplicitInputKind::Process(FileKind::Embedded);
+    }
+    if is_embedded_host(path) {
+        return ExplicitInputKind::Skip("no supported embedded shell scripts in this file type");
+    }
+    if has_non_shell_extension(path) || has_non_shell_shebang(source_prefix) {
+        return ExplicitInputKind::Skip("not a shell script");
+    }
+    ExplicitInputKind::Process(FileKind::Shell)
+}
+
+fn has_non_shell_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|extension| {
+            let extension = extension.to_ascii_lowercase();
+            NON_SHELL_EXTENSIONS.contains(&extension.as_str())
+        })
+}
+
+fn has_non_shell_shebang(src: &[u8]) -> bool {
+    let Some(first_line) = src.split(|byte| *byte == b'\n').next() else {
+        return false;
+    };
+    let Some(interpreter) = std::str::from_utf8(first_line)
+        .ok()
+        .and_then(shuck_parser::shebang::interpreter_name)
+    else {
+        return false;
+    };
+    let interpreter = interpreter.to_ascii_lowercase();
+    let name = interpreter.trim_end_matches(|ch: char| ch.is_ascii_digit() || ch == '.');
+    NON_SHELL_INTERPRETERS.contains(&name)
 }
 
 fn first_line_is_zsh_autoload_tag(src: &[u8]) -> bool {
@@ -735,8 +972,12 @@ fn first_line_is_zsh_autoload_tag(src: &[u8]) -> bool {
         .is_some_and(ShellDialect::is_zsh_autoload_tag_line)
 }
 
-fn discovered_file_kind(path: &Path) -> Result<Option<FileKind>> {
-    if is_shell_script(path)? {
+/// Classifies a walked file. Errors are path-free messages.
+fn discovered_file_kind(path: &Path) -> std::result::Result<Option<FileKind>, String> {
+    if ShellDialect::infer_from_path(path) != ShellDialect::Unknown {
+        return Ok(Some(FileKind::Shell));
+    }
+    if source_prefix_is_shell(&read_shebang_prefix(path)?) {
         return Ok(Some(FileKind::Shell));
     }
     if is_extractable(path) {
@@ -745,29 +986,23 @@ fn discovered_file_kind(path: &Path) -> Result<Option<FileKind>> {
     Ok(None)
 }
 
-fn explicit_file_kind(path: &Path) -> Result<Option<FileKind>> {
-    // A directly named regular file is an authoritative request to process that
-    // file. Preserve embedded-host detection and skip other files in a format
-    // owned by an embedded extractor; otherwise let the shell parser decide
-    // whether the contents are valid instead of silently dropping the input.
-    // Directory walks continue to use `discovered_file_kind` so unknown files
-    // are not parsed indiscriminately.
-    if let Some(kind) = discovered_file_kind(path)? {
-        return Ok(Some(kind));
+/// Classifies a directly named file. Directory walks use
+/// `discovered_file_kind` instead so unknown files are not parsed
+/// indiscriminately. Errors are path-free messages.
+fn explicit_file_kind(path: &Path) -> std::result::Result<ExplicitInputKind, String> {
+    if ShellDialect::infer_from_path(path) != ShellDialect::Unknown {
+        return Ok(ExplicitInputKind::Process(FileKind::Shell));
     }
-    if is_embedded_host(path) {
-        return Ok(None);
-    }
-    Ok(Some(FileKind::Shell))
+    Ok(classify_explicit_input(path, &read_shebang_prefix(path)?))
 }
 
-fn read_shebang_prefix(path: &Path) -> Result<Vec<u8>> {
-    let file = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
+fn read_shebang_prefix(path: &Path) -> std::result::Result<Vec<u8>, String> {
+    let file = fs::File::open(path).map_err(|err| format!("cannot open file: {err}"))?;
     let mut reader = BufReader::new(file).take(SHEBANG_SNIFF_LIMIT_BYTES);
     let mut bytes = Vec::new();
     reader
         .read_until(b'\n', &mut bytes)
-        .with_context(|| format!("read {}", path.display()))?;
+        .map_err(|err| format!("cannot read file: {err}"))?;
     Ok(bytes)
 }
 
@@ -1184,5 +1419,144 @@ mod tests {
 
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].display_path, PathBuf::from("z-parent.sh"));
+    }
+
+    #[test]
+    fn explicit_files_in_other_languages_are_skipped() {
+        let tempdir = tempdir().unwrap();
+        let python = tempdir.path().join("tool.py");
+        let python_shebang = tempdir.path().join("tool");
+        let ruby_versioned = tempdir.path().join("task");
+        let shell_shebang_py = tempdir.path().join("wrapper.py");
+        fs::write(&python, "print(1)\n").unwrap();
+        fs::write(&python_shebang, "#!/usr/bin/env python3.12\nprint(1)\n").unwrap();
+        fs::write(&ruby_versioned, "#!/usr/bin/ruby2\nputs 1\n").unwrap();
+        fs::write(&shell_shebang_py, "#!/bin/sh\nexec python3 \"$@\"\n").unwrap();
+
+        let result = discover_files_with_status(
+            &[
+                python.clone(),
+                python_shebang.clone(),
+                ruby_versioned.clone(),
+                shell_shebang_py.clone(),
+            ],
+            tempdir.path(),
+            &DiscoveryOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            result
+                .files
+                .iter()
+                .map(|file| file.display_path.clone())
+                .collect::<Vec<_>>(),
+            vec![PathBuf::from("wrapper.py")]
+        );
+        let mut skipped = result
+            .skipped
+            .iter()
+            .map(|input| input.path.clone())
+            .collect::<Vec<_>>();
+        skipped.sort();
+        assert_eq!(
+            skipped,
+            vec![
+                PathBuf::from("task"),
+                PathBuf::from("tool"),
+                PathBuf::from("tool.py")
+            ]
+        );
+    }
+
+    #[test]
+    fn classify_explicit_input_uses_path_and_contents() {
+        let workflow = Path::new(".github/workflows/ci.yml");
+        assert_eq!(
+            classify_explicit_input(workflow, b"on: push\n"),
+            ExplicitInputKind::Process(FileKind::Embedded)
+        );
+        assert!(matches!(
+            classify_explicit_input(Path::new("config.yaml"), b"a: b\n"),
+            ExplicitInputKind::Skip(_)
+        ));
+        assert!(matches!(
+            classify_explicit_input(Path::new("script"), b"#!/usr/bin/env node\n"),
+            ExplicitInputKind::Skip(_)
+        ));
+        assert_eq!(
+            classify_explicit_input(Path::new("script"), b"echo hi\n"),
+            ExplicitInputKind::Process(FileKind::Shell)
+        );
+        assert_eq!(
+            classify_explicit_input(Path::new("run.bash"), b"#!/usr/bin/env python\n"),
+            ExplicitInputKind::Process(FileKind::Shell)
+        );
+    }
+
+    #[test]
+    fn ignored_ancestor_directories_do_not_hide_inputs() {
+        let tempdir = tempdir().unwrap();
+        let project = tempdir.path().join(".cache/bazel/vendor/proj");
+        fs::create_dir_all(project.join("vendor")).unwrap();
+        fs::write(project.join("main.sh"), "echo ok\n").unwrap();
+        fs::write(project.join("vendor/dep.sh"), "echo dep\n").unwrap();
+
+        for parallel in [false, true] {
+            let files = discover_files(
+                std::slice::from_ref(&project),
+                &project,
+                &DiscoveryOptions {
+                    parallel,
+                    ..DiscoveryOptions::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                files
+                    .iter()
+                    .map(|file| file.display_path.clone())
+                    .collect::<Vec<_>>(),
+                vec![PathBuf::from("main.sh")],
+                "parallel={parallel}"
+            );
+        }
+
+        let explicit = discover_files(
+            &[project.join("vendor/dep.sh")],
+            &project,
+            &DiscoveryOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(explicit.len(), 1);
+
+        let forced = discover_files(
+            &[project.join("vendor/dep.sh")],
+            &project,
+            &DiscoveryOptions {
+                force_exclude: true,
+                ..DiscoveryOptions::default()
+            },
+        )
+        .unwrap();
+        assert!(forced.is_empty());
+    }
+
+    #[test]
+    fn missing_inputs_are_reported_without_aborting() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("ok.sh"), "echo ok\n").unwrap();
+
+        let result = discover_files_with_status(
+            &[PathBuf::from("missing.sh"), PathBuf::from("ok.sh")],
+            tempdir.path(),
+            &DiscoveryOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(result.files.len(), 1);
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].path, PathBuf::from("missing.sh"));
+        assert!(result.errors[0].message.starts_with("cannot access path"));
     }
 }

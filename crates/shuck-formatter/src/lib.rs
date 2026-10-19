@@ -13,6 +13,7 @@ mod command;
 #[allow(missing_docs)]
 mod comments;
 mod context;
+mod depth;
 mod facts;
 #[allow(missing_docs)]
 mod options;
@@ -143,7 +144,22 @@ fn parse_and_resolve(
     })
 }
 
-fn format_file_ast_resolved(
+/// Formats source with options that were already resolved for another buffer.
+///
+/// Range formatting uses this to format a slice of a file with the dialect inferred
+/// from the whole file, since the slice usually lacks the shebang.
+pub(crate) fn format_source_resolved(
+    source: &str,
+    resolved: &ResolvedShellFormatOptions,
+) -> Result<FormattedSource> {
+    let parsed = Parser::with_dialect(source, resolved.dialect()).parse();
+    if parsed.is_err() {
+        return Err(map_parse_error(parsed.strict_error()));
+    }
+    format_file_ast_resolved(source, parsed.file, resolved)
+}
+
+pub(crate) fn format_file_ast_resolved(
     source: &str,
     file: File,
     resolved: &ResolvedShellFormatOptions,
@@ -207,6 +223,12 @@ fn render_file<M: RenderMode>(
     mut file: File,
     resolved: &ResolvedShellFormatOptions,
 ) -> Result<M::Output> {
+    if depth::exceeds_statement_nesting(&file) {
+        return Err(FormatError::Internal(format!(
+            "commands are nested more than {} levels deep (for example a very long `&&` or `|` chain); leaving the file unformatted",
+            depth::MAX_STATEMENT_NESTING
+        )));
+    }
     if resolved.simplify() || resolved.minify() {
         simplify::simplify_file(&mut file, source);
     }

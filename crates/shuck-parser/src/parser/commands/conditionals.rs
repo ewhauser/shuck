@@ -42,13 +42,16 @@ impl<'a> Parser<'a> {
         &mut self,
         stop_at_right_paren: bool,
     ) -> Result<ConditionalExpr> {
+        let first = self.budget.begin_first_chain_operand();
         let mut expr = self.parse_conditional_and(stop_at_right_paren)?;
+        let mut chain = self.budget.end_first_chain_operand(first);
 
         loop {
             self.skip_conditional_newlines();
             if !self.at(TokenKind::Or) {
                 break;
             }
+            self.extend_operator_chain(&mut chain, "conditional expression")?;
 
             let op_span = self.current_span;
             self.advance();
@@ -68,13 +71,16 @@ impl<'a> Parser<'a> {
         &mut self,
         stop_at_right_paren: bool,
     ) -> Result<ConditionalExpr> {
+        let first = self.budget.begin_first_chain_operand();
         let mut expr = self.parse_conditional_term(stop_at_right_paren)?;
+        let mut chain = self.budget.end_first_chain_operand(first);
 
         loop {
             self.skip_conditional_newlines();
             if !self.at(TokenKind::And) {
                 break;
             }
+            self.extend_operator_chain(&mut chain, "conditional expression")?;
 
             let op_span = self.current_span;
             self.advance();
@@ -102,7 +108,7 @@ impl<'a> Parser<'a> {
             self.skip_conditional_newlines();
 
             let expr = if matches!(op, ConditionalUnaryOp::Not) {
-                self.parse_conditional_term(stop_at_right_paren)?
+                self.with_nested_depth(|parser| parser.parse_conditional_term(stop_at_right_paren))?
             } else {
                 if matches!(
                     op,
@@ -146,7 +152,7 @@ impl<'a> Parser<'a> {
         let left = if self.at(TokenKind::LeftParen) {
             let left_paren_span = self.current_span;
             self.advance();
-            let expr = self.parse_conditional_or(true)?;
+            let expr = self.with_nested_depth(|parser| parser.parse_conditional_or(true))?;
             self.skip_conditional_newlines();
             if self.at(TokenKind::DoubleRightParen) {
                 self.split_current_double_right_paren();

@@ -14,12 +14,16 @@ use super::analyze::{
     collect_lint_diagnostics, fixes_introduce_parse_error, warn_fixes_introduce_parse_error,
 };
 use super::display::{display_lint_diagnostics_for_file, display_parse_error};
+use super::embedded::analyze_embedded_source;
 use super::settings::resolve_project_check_settings;
 use super::source_resolver::NativeSourceResolver;
 use crate::ExitStatus;
 use crate::args::{CheckCommand, CheckOutputFormatArg};
 use crate::commands::check_output::print_report_to;
-use crate::discover::{DiscoveredFile, FileKind, ProjectRoot, normalize_path};
+use crate::discover::{
+    DiscoveredFile, ExplicitInputKind, FileKind, ProjectRoot, classify_explicit_input,
+    normalize_path,
+};
 use crate::stdin::read_from_stdin;
 
 pub(super) fn is_stdin(args: &CheckCommand) -> Result<bool> {
@@ -70,18 +74,67 @@ pub(super) fn check_stdin(
         &args.rule_selection,
         &args.zsh_plugin_resolution,
     )?;
+    let base_linter_settings =
+        settings
+            .linter_settings
+            .clone()
+            .with_analyzed_path_set(LinterSettings::analyzed_path_set([file
+                .absolute_path
+                .clone()]));
+    let shellcheck_map = ShellCheckCodeMap::default();
+    let applicability = requested_fix_applicability(args);
+    let include_source = matches!(args.output_format, CheckOutputFormatArg::Full);
+
+    // `--stdin-filename` names the file the contents belong to, so classify it
+    // exactly like an explicitly named file on disk.
+    let kind = match args.stdin_filename.as_deref() {
+        Some(_) => classify_explicit_input(&file.absolute_path, source.as_bytes()),
+        None => ExplicitInputKind::Process(FileKind::Shell),
+    };
+    match kind {
+        ExplicitInputKind::Process(FileKind::Shell) => {}
+        ExplicitInputKind::Process(FileKind::Embedded) => {
+            let diagnostics = if settings.embedded_enabled {
+                let (diagnostics, parse_failed) = analyze_embedded_source(
+                    &file,
+                    source.clone(),
+                    &base_linter_settings,
+                    &shellcheck_map,
+                    include_source,
+                );
+                CheckReport {
+                    diagnostics,
+                    parse_failed,
+                    ..CheckReport::default()
+                }
+            } else {
+                CheckReport::default()
+            };
+            // Embedded snippets are never fixed in place; `--fix` echoes the
+            // host document unchanged.
+            emit_stdin_report(args, &diagnostics, applicability.is_some(), &source)?;
+            return Ok(diagnostics.exit_status(args.exit_zero, args.exit_non_zero_on_fix));
+        }
+        ExplicitInputKind::Skip(reason) => {
+            eprintln!(
+                "warning: skipping {}: {reason}",
+                file.display_path.display()
+            );
+            emit_stdin_report(
+                args,
+                &CheckReport::default(),
+                applicability.is_some(),
+                &source,
+            )?;
+            return Ok(ExitStatus::Success);
+        }
+    }
+
     let shell = settings
         .per_file_shell
         .shell_for_path(&file.absolute_path)
         .unwrap_or_else(|| ShellDialect::infer(&source, Some(&file.absolute_path)));
-    let linter_settings = settings
-        .linter_settings
-        .clone()
-        .with_analyzed_path_set(LinterSettings::analyzed_path_set([file
-            .absolute_path
-            .clone()]))
-        .with_shell(shell);
-    let shellcheck_map = ShellCheckCodeMap::default();
+    let linter_settings = base_linter_settings.with_shell(shell);
     // Relative `[lint] source-paths` resolve against the project root, matching
     // the file-based check path. Stdin only imports symbols from hinted
     // targets; it never lints them.
@@ -91,8 +144,6 @@ pub(super) fn check_stdin(
     );
     let closure_resolver: Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)> =
         source_resolver.has_roots().then_some(&source_resolver);
-    let applicability = requested_fix_applicability(args);
-    let include_source = matches!(args.output_format, CheckOutputFormatArg::Full);
 
     let mut checked_source = source;
     let mut parse_result = Parser::with_dialect(&checked_source, shell.parser_dialect()).parse();
@@ -169,7 +220,19 @@ pub(super) fn check_stdin(
         ..CheckReport::default()
     };
 
-    if applicability.is_some() {
+    emit_stdin_report(args, &report, applicability.is_some(), &checked_source)?;
+    Ok(report.exit_status(args.exit_zero, args.exit_non_zero_on_fix))
+}
+
+/// Prints a stdin report. When fixing, the (possibly rewritten) source goes to
+/// stdout and diagnostics go to stderr.
+fn emit_stdin_report(
+    args: &CheckCommand,
+    report: &CheckReport,
+    fixing: bool,
+    checked_source: &str,
+) -> Result<()> {
+    if fixing {
         let mut stdout = BufWriter::new(io::stdout().lock());
         stdout.write_all(checked_source.as_bytes())?;
         stdout.flush()?;
@@ -181,6 +244,7 @@ pub(super) fn check_stdin(
             args.output_format,
             colored::control::SHOULD_COLORIZE.should_colorize(),
         )?;
+        let fixes_applied = report.fixes_applied;
         if fixes_applied > 0 && is_human_readable(args.output_format) {
             writeln!(
                 stderr,
@@ -197,8 +261,7 @@ pub(super) fn check_stdin(
             colored::control::SHOULD_COLORIZE.should_colorize(),
         )?;
     }
-
-    Ok(report.exit_status(args.exit_zero, args.exit_non_zero_on_fix))
+    Ok(())
 }
 
 fn requested_fix_applicability(args: &CheckCommand) -> Option<Applicability> {
@@ -254,6 +317,7 @@ fn stdin_file(
             storage_root,
             canonical_root,
         },
+        // Callers classify the contents with `classify_explicit_input`.
         kind: FileKind::Shell,
     })
 }

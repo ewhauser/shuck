@@ -4,7 +4,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
 use lsp_types as types;
 use sha2::{Digest, Sha256};
-use shuck_discover::{DiscoveredFile, DiscoveryOptions, FileKind, discover_files};
+use shuck_discover::{DiscoveredFile, DiscoveryOptions, FileKind, discover_files_with_status};
 use shuck_indexer::LineIndex;
 use shuck_linter::ShellDialect;
 use shuck_semantic::{EditorDocumentSymbol, EditorSymbolKind};
@@ -548,17 +548,37 @@ fn rebuild_closed_workspace_symbols(
             continue;
         }
 
-        let discovered = match discover_files(
+        // Stop the walk once enough files are retained instead of walking
+        // the whole tree and truncating afterwards. Nested workspace roots are
+        // pruned (they own their files) and open buffers are skipped below,
+        // so leave room for those plus one file to detect truncation.
+        let discovered = match discover_files_with_status(
             std::slice::from_ref(root),
             root,
             &DiscoveryOptions {
                 respect_gitignore: true,
                 parallel: true,
                 use_config_roots: true,
+                max_files: Some(
+                    options
+                        .max_files
+                        .saturating_add(open_paths.len())
+                        .saturating_add(1),
+                ),
+                include_embedded: false,
+                excluded_subtrees: context
+                    .workspace_roots
+                    .iter()
+                    .filter(|other| *other != root && other.starts_with(root))
+                    .cloned()
+                    .collect(),
                 ..DiscoveryOptions::default()
             },
         ) {
-            Ok(files) => files,
+            Ok(result) => {
+                partial |= !result.complete;
+                result.files
+            }
             Err(error) => {
                 tracing::warn!(
                     "Failed to discover workspace symbol files in {}: {error}",
@@ -595,8 +615,18 @@ fn closed_workspace_symbol_summary(
     context: &WorkspaceSymbolContext,
     file: &DiscoveredFile,
 ) -> Option<WorkspaceSymbolSummary> {
-    let source = match std::fs::read_to_string(&file.absolute_path) {
-        Ok(source) => source,
+    let source = match crate::workspace::read_source_bounded(
+        &file.absolute_path,
+        crate::workspace::MAX_WORKSPACE_FILE_BYTES,
+    ) {
+        Ok(Some(source)) => source,
+        Ok(None) => {
+            tracing::debug!(
+                "Skipping oversized workspace symbol file {}",
+                file.absolute_path.display()
+            );
+            return None;
+        }
         Err(error) => {
             tracing::warn!(
                 "Failed to read workspace symbol file {}: {error}",

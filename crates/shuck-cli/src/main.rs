@@ -9,7 +9,36 @@ use shuck::args::Args;
 use shuck::shellcheck_compat;
 use shuck::{ExitStatus, run};
 
+/// Native stack for every thread that parses, analyzes, or formats scripts.
+///
+/// The parser bounds its own recursion, but the semantic model, linter, and
+/// formatter walk the AST recursively, and deeply nested scripts can exceed the
+/// 2 MiB default for spawned threads. Release builds abort on stack overflow,
+/// which would take down a whole multi-file run, so give these threads ample
+/// headroom. The memory is only reserved; pages are committed as they are used.
+const ANALYSIS_THREAD_STACK_SIZE: usize = 64 * 1024 * 1024;
+
 fn main() -> ExitCode {
+    // Ignore the error: it only means a global pool already exists.
+    let _ = rayon::ThreadPoolBuilder::new()
+        .stack_size(ANALYSIS_THREAD_STACK_SIZE)
+        .build_global();
+
+    // Run on a thread with the same stack so work done outside the pool, such
+    // as stdin input or single-file paths, gets the same headroom.
+    let worker = std::thread::Builder::new()
+        .name("shuck-main".to_owned())
+        .stack_size(ANALYSIS_THREAD_STACK_SIZE)
+        .spawn(run_main);
+    match worker {
+        Ok(handle) => handle
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+        Err(_) => run_main(),
+    }
+}
+
+fn run_main() -> ExitCode {
     #[cfg(windows)]
     assert!(colored::control::set_virtual_terminal(true).is_ok());
 

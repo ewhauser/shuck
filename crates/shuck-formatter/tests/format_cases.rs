@@ -995,7 +995,7 @@ bash_format_ast_cases! {
         => "f() {\n\tbranchName=\"$(git symbolic-ref --quiet --short HEAD 2>/dev/null ||\n\t\tgit rev-parse --short HEAD 2>/dev/null ||\n\t\techo '(unknown)')\"\n}\n";
     indents_assignment_command_substitution_leading_pipe_continuations:
         "f() {\n  certText=$(echo \"${tmp}\" \\\n    | openssl x509 -text -certopt \"no_header, no_serial, \\\n    no_signame\")\n}\n"
-        => "f() {\n\tcertText=$(echo \"${tmp}\" |\n\t\topenssl x509 -text -certopt \"no_header, no_serial, \\\n\t\tno_signame\")\n}\n";
+        => "f() {\n\tcertText=$(echo \"${tmp}\" |\n\t\topenssl x509 -text -certopt \"no_header, no_serial, \\\n    no_signame\")\n}\n";
     indents_inline_command_substitution_backslash_continuations:
         "f() {\n  providers=\"$(find . |\n    sed -e 's/^a/b/' \\\n      -e 's/^c/d/')\"\n}\n"
         => "f() {\n\tproviders=\"$(find . |\n\t\tsed -e 's/^a/b/' \\\n\t\t\t-e 's/^c/d/')\"\n}\n";
@@ -2704,5 +2704,289 @@ fn does_not_introduce_unused_assignment_for_backslash_heredoc_reproducer() {
     assert!(
         formatted_c001 <= original_c001,
         "formatter introduced extra C001 diagnostics: original={original_c001}, formatted={formatted_c001}\nformatted source:\n{formatted:?}"
+    );
+}
+
+#[track_caller]
+fn assert_formats_file_stably(source: &str, filename: &str, expected: &str) {
+    let path = Some(Path::new(filename));
+    let options = ShellFormatOptions::default();
+    let once = format_to_string(source, path, &options);
+    assert_eq!(once, expected);
+    assert_eq!(format_to_string(&once, path, &options), once);
+}
+
+#[test]
+fn backtick_conversion_drops_backtick_only_dollar_escapes() {
+    assert_formats_file_stably(
+        "x=1; echo `echo \\$x`\necho `echo \\\\$x`\n",
+        "script.bash",
+        "x=1\necho $(echo $x)\necho $(echo \\$x)\n",
+    );
+}
+
+#[test]
+fn backtick_conversion_unescapes_quotes_inside_double_quotes() {
+    assert_formats_file_stably(
+        "echo \"`echo \\\"q\\\"`\"\necho \"`echo '\\\"' \\\"z\\\"`\"\n",
+        "script.bash",
+        "echo \"$(echo \"q\")\"\necho \"$(echo '\"' \"z\")\"\n",
+    );
+}
+
+#[test]
+fn backtick_conversion_keeps_backslashes_before_other_characters() {
+    assert_formats_file_stably(
+        "y=`printf '%s\\n' \"a\\\\b\"`\n",
+        "script.bash",
+        "y=$(printf '%s\\n' \"a\\b\")\n",
+    );
+}
+
+#[test]
+fn backtick_conversion_keeps_nested_backticks_verbatim() {
+    assert_formats_file_stably(
+        "echo `echo \\`echo nested\\``\n",
+        "script.bash",
+        "echo `echo \\`echo nested\\``\n",
+    );
+}
+
+#[test]
+fn backtick_conversion_in_heredoc_keeps_escaped_double_quotes() {
+    assert_formats_file_stably(
+        "cat <<E\na `echo \\\"q\\\" \\$x`\nE\n",
+        "script.bash",
+        "cat <<E\na $(echo \\\"q\\\" $x)\nE\n",
+    );
+}
+
+#[test]
+fn stray_crlf_in_lf_file_is_not_promoted_to_file_style() {
+    let source = "echo a\ncat <<EOF | od -c\nGET / HTTP/1.0\r\n\r\nEOF\necho   b\nx=\"q\r\nr\"\n";
+    assert_formats_file_stably(
+        source,
+        "script.sh",
+        "echo a\ncat <<EOF | od -c\nGET / HTTP/1.0\r\n\r\nEOF\necho b\nx=\"q\r\nr\"\n",
+    );
+}
+
+#[test]
+fn crlf_file_keeps_single_carriage_return_on_heredoc_delimiter() {
+    assert_formats_file_stably(
+        "echo   a\r\ncat <<EOF\r\nx\r\nEOF\r\necho b\r\n",
+        "script.sh",
+        "echo a\r\ncat <<EOF\r\nx\r\nEOF\r\necho b\r\n",
+    );
+}
+
+#[test]
+fn zsh_rc_quotes_keep_doubled_single_quotes() {
+    assert_formats_file_stably(
+        "setopt rc_quotes\nprint 'it''s ok'\nx='a''''b'; print $x\n",
+        "script.zsh",
+        "setopt rc_quotes\nprint 'it''s ok'\nx='a''''b'\nprint $x\n",
+    );
+}
+
+#[test]
+fn command_substitution_keeps_whitespace_after_continuation_in_single_quotes() {
+    assert_formats_file_stably(
+        "x=$(echo 'a \\\n    b')\n",
+        "script.bash",
+        "x=$(echo 'a \\\n    b')\n",
+    );
+}
+
+#[test]
+fn command_substitution_keeps_whitespace_after_continuation_in_double_quotes() {
+    assert_formats_file_stably(
+        "x=$(echo \"a \\\n    b\")\nw=$(echo a \\\n    'c \\\n   d')\n",
+        "script.bash",
+        "x=$(echo \"a \\\n    b\")\nw=$(echo a \\\n\t'c \\\n   d')\n",
+    );
+}
+
+#[test]
+fn indented_command_substitution_keeps_multiline_literal_lines() {
+    assert_formats_file_stably(
+        "f() {\n  y=\"$(printf '%s\\n' 'p\n   q' |\n    tr p P)\"\n  cat <(echo 'r\n      s')\n}\n",
+        "script.bash",
+        "f() {\n\ty=\"$(printf '%s\\n' 'p\n   q' |\n\t\ttr p P)\"\n\tcat <(echo 'r\n      s')\n}\n",
+    );
+}
+
+#[test]
+fn keeps_comments_after_line_ending_operators() {
+    assert_formats_file_stably(
+        "echo a | # c1\n  grep a\ntrue && # c2\n  echo b\nfalse || # c3\n  echo c\nf() {\n  echo x | # c4\n    cat\n}\n",
+        "script.bash",
+        "echo a | # c1\n\tgrep a\ntrue && # c2\n\techo b\nfalse || # c3\n\techo c\nf() {\n\techo x | # c4\n\t\tcat\n}\n",
+    );
+}
+
+#[test]
+fn keeps_pipe_comment_with_binary_next_line() {
+    let options = ShellFormatOptions::default().with_binary_next_line(true);
+    assert_formats_to(
+        "echo a | # c1\n  grep a\n",
+        None,
+        &options,
+        "echo a | # c1\n\tgrep a\n",
+    );
+}
+
+#[test]
+fn keeps_comments_between_loop_header_and_do() {
+    assert_formats_file_stably(
+        "for i in a b # c1\ndo\n  echo $i\ndone\nwhile false # c2\ndo\n  :\ndone\nfor i # c3\ndo\n  :\ndone\nfor i in a # c4\ndo echo $i; done\n",
+        "script.bash",
+        "for i in a b; do # c1\n\techo $i\ndone\nwhile false; do # c2\n\t:\ndone\nfor i; do # c3\n\t:\ndone\nfor i in a; do # c4\n\techo $i\ndone\n",
+    );
+}
+
+#[test]
+fn posix_double_paren_subshell_is_kept_verbatim() {
+    assert_formats_file_stably(
+        "((x=5, y=x**2)); echo $y\n((echo c) )\n( (echo d) )\n",
+        "script.sh",
+        "((x=5, y=x**2))\necho $y\n((echo c) )\n( (echo d))\n",
+    );
+}
+
+#[test]
+fn arithmetic_comma_has_no_space_before_it() {
+    assert_formats_file_stably(
+        "((x=5, y=x**2))\necho $((a=1,b=2))\n",
+        "script.bash",
+        "((x = 5, y = x ** 2))\necho $((a = 1, b = 2))\n",
+    );
+}
+
+#[test]
+fn commented_command_substitution_pipeline_after_continued_command_is_stable() {
+    assert_formats_file_stably(
+        "m=\"$(git grep -Ei \\\n    -e a \\\n    -e b \\\n    | grep -Fv c \\\n    || :\n    # note\n)\"\n",
+        "script.bash",
+        "m=\"$(\n\tgit grep -Ei \\\n\t\t-e a \\\n\t\t-e b |\n\t\tgrep -Fv c ||\n\t\t:\n\t# note\n)\"\n",
+    );
+}
+
+#[test]
+fn process_substitution_argument_in_pipeline_is_stable() {
+    assert_formats_file_stably(
+        "for p in a; do\n    echo $p\ndone |\nsort -u |\ngrep -Fxf <(\n    echo a\n    echo b\n) |\ncat\n",
+        "script.bash",
+        "for p in a; do\n\techo $p\ndone |\n\tsort -u |\n\tgrep -Fxf <(\n\t\techo a\n\t\techo b\n\t) |\n\tcat\n",
+    );
+}
+
+#[test]
+fn commented_command_substitution_compound_pipeline_is_stable() {
+    assert_formats_file_stably(
+        "urls=\"$(\n    if a; then\n        b\n    else\n        c |\n        { d || : ; }\n    fi |\n    while read -r f; do\n        [ -f \"$f\" ] || continue  # note\n        e\n    done |\n    sort\n)\"\n",
+        "script.bash",
+        "urls=\"$(\n\tif a; then\n\t\tb\n\telse\n\t\tc |\n\t\t\t{ d || :; }\n\tfi |\n\t\twhile read -r f; do\n\t\t\t[ -f \"$f\" ] || continue # note\n\t\t\te\n\t\tdone |\n\t\tsort\n)\"\n",
+    );
+}
+
+#[test]
+fn quoted_command_substitution_with_multiline_literal_is_stable() {
+    assert_formats_file_stably(
+        "urls=\"$(\n    a |\n    while read -r f; do\n        { grep -Eiv \\\n            -e x || : ; } |\n        sed 's/a//;\n             s/b//'\n    done\n)\"\n",
+        "script.bash",
+        "urls=\"$(\n\ta |\n\t\twhile read -r f; do\n\t\t\t{ grep -Eiv \\\n\t\t\t\t-e x || :; } |\n\t\t\tsed 's/a//;\n             s/b//'\n\t\tdone\n)\"\n",
+    );
+}
+
+/// Runs `f` on a thread with a generous stack so these tests exercise the
+/// formatter's algorithmic cost rather than the test harness's stack size.
+fn with_large_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+    std::thread::Builder::new()
+        .stack_size(256 << 20)
+        .spawn(f)
+        .unwrap()
+        .join()
+        .unwrap()
+}
+
+#[test]
+fn deeply_nested_groups_and_functions_format_quickly() {
+    with_large_stack(|| {
+        let depth = 40;
+        let braces = format!("{}x; {}\n", "{ ".repeat(depth), "} ".repeat(depth));
+        let subshells = format!("{}x{}\n", "( ".repeat(depth), " )".repeat(depth));
+        let functions = format!(
+            "{}x; {}}}\n",
+            "f() { ".repeat(depth),
+            "}; ".repeat(depth - 1)
+        );
+        for source in [braces, subshells, functions] {
+            let started = std::time::Instant::now();
+            let formatted = format_to_string(&source, None, &ShellFormatOptions::default());
+            assert!(formatted.contains('x'));
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(10),
+                "formatting {depth} nested groups took {:?}",
+                started.elapsed()
+            );
+        }
+    });
+}
+
+#[test]
+fn long_lists_and_pipelines_format_quickly() {
+    with_large_stack(|| {
+        for operator in [" | ", " && ", " || "] {
+            let source = format!("{}\n", vec!["a"; 999].join(operator));
+            let started = std::time::Instant::now();
+            assert_eq!(
+                format_source(&source, None, &ShellFormatOptions::default()).unwrap(),
+                FormattedSource::Unchanged
+            );
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(10),
+                "formatting a 999-element `{operator}` chain took {:?}",
+                started.elapsed()
+            );
+        }
+    });
+}
+
+#[test]
+fn overly_deep_command_chains_are_rejected_instead_of_overflowing() {
+    with_large_stack(|| {
+        let source = format!("{}\n", vec!["a"; 1500].join(" && "));
+        assert!(matches!(
+            format_source(&source, None, &ShellFormatOptions::default()),
+            Err(FormatError::Internal(message)) if message.contains("nested")
+        ));
+    });
+}
+
+#[test]
+fn single_quoted_script_argument_keeps_leading_pipe_lines() {
+    assert_formats_file_stably(
+        "sh -c '\n  v=$(cat f | cut -d. -f1)\n  curl a \\\n    | tee b\n'\n",
+        "script.bash",
+        "sh -c '\n  v=$(cat f | cut -d. -f1)\n  curl a \\\n    | tee b\n'\n",
+    );
+}
+
+#[test]
+fn case_inside_quoted_command_substitution_keeps_indentation() {
+    assert_formats_file_stably(
+        "f() {\n  x=\"$(\n    a |\n      while read -r k; do\n        case \"$k\" in\n        a) echo a ;;\n        b) echo b ;;\n        esac\n      done |\n      paste -sd' ' -\n  )\"\n}\n",
+        "script.bash",
+        "f() {\n\tx=\"$(\n\t\ta |\n\t\t\twhile read -r k; do\n\t\t\t\tcase \"$k\" in\n\t\t\t\ta) echo a ;;\n\t\t\t\tb) echo b ;;\n\t\t\t\tesac\n\t\t\tdone |\n\t\t\tpaste -sd' ' -\n\t)\"\n}\n",
+    );
+}
+
+#[test]
+fn quoted_command_substitution_with_heredoc_keeps_string_tail_unindented() {
+    assert_formats_file_stably(
+        "if a; then\n  if b; then\n    echo \"$(\n      cat <<EOS\nx ${what}.\nEOS\n    )\n\" | tr -d \"\\\\\"\n  fi\nfi\n",
+        "script.bash",
+        "if a; then\n\tif b; then\n\t\techo \"$(\n\t\t\tcat <<EOS\nx ${what}.\nEOS\n\t\t)\n\" | tr -d \"\\\\\"\n\tfi\nfi\n",
     );
 }

@@ -141,7 +141,7 @@ impl<'a> Parser<'a> {
                     break;
                 }
 
-                if ch == '\x00' {
+                if self.is_escape_marker_at(ch, *cursor, true) {
                     Self::next_word_char_unwrap(chars, cursor);
                     if let Some(&literal) = chars.peek() {
                         if literal == '/' {
@@ -382,6 +382,7 @@ impl<'a> Parser<'a> {
             DecodeWordPartsOptions {
                 preserve_escaped_expansion_literals: true,
                 parse_process_substitutions: false,
+                heredoc_body: true,
                 ..DecodeWordPartsOptions::default()
             },
             &mut parts,
@@ -414,12 +415,13 @@ impl<'a> Parser<'a> {
         expression: SourceText,
         syntax: ArithmeticExpansionSyntax,
     ) -> WordPart {
+        let expression_word_ast = self.parse_source_text_as_word(&expression);
         WordPart::ArithmeticExpansion {
             expression_ast: self
-                .parse_source_text_as_arithmetic(&expression)
+                .parse_source_text_as_arithmetic(&expression, Some(&expression_word_ast))
                 .ok()
                 .map(Box::new),
-            expression_word_ast: Box::new(self.parse_source_text_as_word(&expression)),
+            expression_word_ast: Box::new(expression_word_ast),
             expression,
             syntax,
         }
@@ -469,17 +471,19 @@ impl<'a> Parser<'a> {
         offset: SourceText,
         length: Option<SourceText>,
     ) -> WordPart {
+        let offset_word_ast = self.parse_source_text_as_word(&offset);
         let offset_ast = self
-            .maybe_parse_source_text_as_arithmetic(&offset)
+            .maybe_parse_source_text_as_arithmetic(&offset, Some(&offset_word_ast))
             .map(Box::new);
-        let offset_word_ast = Box::new(self.parse_source_text_as_word(&offset));
+        let offset_word_ast = Box::new(offset_word_ast);
+        let length_word_ast = self.parse_optional_source_text_as_word(length.as_ref());
         let length_ast = length
             .as_ref()
-            .and_then(|length| self.maybe_parse_source_text_as_arithmetic(length))
+            .and_then(|length| {
+                self.maybe_parse_source_text_as_arithmetic(length, length_word_ast.as_ref())
+            })
             .map(Box::new);
-        let length_word_ast = self
-            .parse_optional_source_text_as_word(length.as_ref())
-            .map(Box::new);
+        let length_word_ast = length_word_ast.map(Box::new);
         WordPart::Substring {
             reference: Box::new(reference),
             offset: Box::new(offset),
@@ -723,17 +727,19 @@ impl<'a> Parser<'a> {
         offset: SourceText,
         length: Option<SourceText>,
     ) -> WordPart {
+        let offset_word_ast = self.parse_source_text_as_word(&offset);
         let offset_ast = self
-            .maybe_parse_source_text_as_arithmetic(&offset)
+            .maybe_parse_source_text_as_arithmetic(&offset, Some(&offset_word_ast))
             .map(Box::new);
-        let offset_word_ast = Box::new(self.parse_source_text_as_word(&offset));
+        let offset_word_ast = Box::new(offset_word_ast);
+        let length_word_ast = self.parse_optional_source_text_as_word(length.as_ref());
         let length_ast = length
             .as_ref()
-            .and_then(|length| self.maybe_parse_source_text_as_arithmetic(length))
+            .and_then(|length| {
+                self.maybe_parse_source_text_as_arithmetic(length, length_word_ast.as_ref())
+            })
             .map(Box::new);
-        let length_word_ast = self
-            .parse_optional_source_text_as_word(length.as_ref())
-            .map(Box::new);
+        let length_word_ast = length_word_ast.map(Box::new);
         WordPart::ArraySlice {
             reference: Box::new(reference),
             offset: Box::new(offset),
@@ -910,7 +916,7 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if c == '\x00' {
+            if self.is_escape_marker_at(c, *cursor, source_backed) {
                 if operand.is_none() {
                     operand = Some(
                         Span::from_positions(start, *cursor)

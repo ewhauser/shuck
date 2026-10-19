@@ -26,10 +26,9 @@ use shuck_indexer::{
 };
 
 use crate::command::{
-    array_elem_parts, builtin_like_parts, case_item_body_upper_bound,
-    case_item_was_inline_in_source, case_terminator,
-    collect_binary_list_first as collect_binary_list_first_with, collect_pipeline_parts,
-    command_format_span, command_group_commands,
+    array_elem_parts, binary_stmt_attachment_span_from_operands, builtin_like_parts,
+    case_item_body_upper_bound, case_item_was_inline_in_source, case_terminator,
+    collect_pipeline_parts, command_format_span, command_group_commands, complete_stmt_span_with,
     compound_close_span as command_compound_close_span, group_attachment_span_with_heredoc,
     group_open_suffix, group_was_inline_in_source, if_close_span,
     if_next_branch_region_with_body_end, matching_group_close, rendered_stmt_end_line_with_heredoc,
@@ -1686,6 +1685,18 @@ struct FormatterFactsBuilder<'source, 'options> {
     facts: FormatterFacts<'source>,
     layout: LayoutAnnotations,
     comment_attachments: CommentAttachmentModel<'source>,
+    /// Per-pipeline-node results, so long `a | b | ...` chains are measured
+    /// once per node instead of re-walking the whole chain at every node.
+    pipeline_chain_facts: HashMap<FactSpan, PipelineChainFacts>,
+    /// Format spans by statement, reused when measuring enclosing binary
+    /// commands.
+    format_spans: HashMap<FactSpan, Span>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct PipelineChainFacts {
+    has_explicit_line_break: bool,
+    contains_multistatement_brace_group: bool,
 }
 
 impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
@@ -1714,6 +1725,8 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             },
             layout: LayoutAnnotations::default(),
             comment_attachments,
+            pipeline_chain_facts: HashMap::default(),
+            format_spans: HashMap::default(),
         }
     }
 
@@ -1993,33 +2006,56 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             self.options,
             contains_heredoc,
         );
+        let format_span = self.cached_stmt_format_span(stmt);
         let render_span = if preserve_verbatim {
             stmt_verbatim_span_with_source_map(stmt, self.source_map())
         } else {
-            stmt_format_span(stmt)
+            format_span
         };
         let stmt_contains_heredoc = |stmt: &Stmt| self.layout.stmt(stmt).contains_heredoc;
-        let attachment_span = stmt_attachment_span_with_heredoc_and_compound_close(
-            stmt,
-            self.source,
-            self.source_map(),
-            self.options,
-            stmt_contains_heredoc,
-            self.facts.stmt_compound_close_span(stmt),
-        );
+        // Binary operands were visited first; reuse their attachment spans
+        // rather than re-walking the whole `&&`/`|` chain at every node.
+        let operand_attachment_spans = match &stmt.command {
+            Command::Binary(command) if !preserve_verbatim => self
+                .cached_attachment_span(&command.left)
+                .zip(self.cached_attachment_span(&command.right)),
+            _ => None,
+        };
+        let attachment_span = if let Some((left, right)) = operand_attachment_spans {
+            binary_stmt_attachment_span_from_operands(
+                stmt,
+                left,
+                right,
+                self.facts.stmt_compound_close_span(stmt),
+                self.source_map(),
+            )
+        } else {
+            stmt_attachment_span_with_heredoc_and_compound_close(
+                stmt,
+                self.source,
+                self.source_map(),
+                self.options,
+                stmt_contains_heredoc,
+                self.facts.stmt_compound_close_span(stmt),
+            )
+        };
         let rendered_end_line = rendered_stmt_end_line_with_heredoc(
             stmt,
             self.source,
             self.source_map(),
             stmt_contains_heredoc,
         );
-        let rendered_start_line = stmt_render_start_line_with_heredoc(
-            stmt,
-            self.source,
-            self.source_map(),
-            self.options,
-            stmt_contains_heredoc,
-        );
+        let rendered_start_line = if operand_attachment_spans.is_some() {
+            attachment_span.start.line()
+        } else {
+            stmt_render_start_line_with_heredoc(
+                stmt,
+                self.source,
+                self.source_map(),
+                self.options,
+                stmt_contains_heredoc,
+            )
+        };
         self.facts.layout_facts.statements.insert(
             site.key,
             StmtFacts {
@@ -2033,6 +2069,32 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             },
         );
         layout
+    }
+
+    fn cached_attachment_span(&self, stmt: &Stmt) -> Option<Span> {
+        self.facts
+            .layout_facts
+            .statements
+            .get(&StmtSite::new(stmt).key)
+            .map(StmtFacts::attachment_span)
+    }
+
+    /// [`stmt_format_span`] with binary operands looked up from earlier visits.
+    fn cached_stmt_format_span(&mut self, stmt: &Stmt) -> Span {
+        let key = StmtSite::new(stmt).key;
+        if let Some(span) = self.format_spans.get(&key) {
+            return *span;
+        }
+        let span = match &stmt.command {
+            Command::Binary(command) if !stmt.negated => {
+                let left = self.cached_stmt_format_span(&command.left);
+                let right = self.cached_stmt_format_span(&command.right);
+                complete_stmt_span_with(stmt, left.merge(right))
+            }
+            _ => stmt_format_span(stmt),
+        };
+        self.format_spans.insert(key, span);
+        span
     }
 
     fn visit_command(&mut self, command: &Command) -> LayoutSummary {
@@ -2107,47 +2169,88 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
     fn visit_binary_command(&mut self, command: &BinaryCommand) -> LayoutSummary {
         let mut summary = self.visit_stmt(command.left.as_ref());
         summary.merge(self.visit_stmt(command.right.as_ref()));
-        summary.contains_multistatement_pipeline_brace_group =
-            self.command_contains_multistatement_pipeline_brace_group(command, false);
 
-        if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll)
-            && pipeline_has_explicit_line_break(command, self.source, self.source_map())
-        {
-            self.facts
-                .breaks
-                .pipeline
-                .insert(FactSpan::from(command.span));
+        if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) {
+            // Children were visited above, so their chain facts are cached
+            // and only this node's own operator needs inspecting.
+            let left = self.plain_pipeline_chain_facts(&command.left);
+            let right = self.plain_pipeline_chain_facts(&command.right);
+            let next = first_plain_pipeline_stmt(&command.right);
+            let next_start = stmt_start_after_operator(
+                next,
+                command.op_span.end.offset(),
+                self.source,
+                self.source_map(),
+            );
+            let own_break = self
+                .source_map()
+                .operator_starts_or_ends_line(command.op_span)
+                || self
+                    .source_map()
+                    .contains_newline_between(command.op_span.end.offset(), next_start);
+            let chain = PipelineChainFacts {
+                has_explicit_line_break: own_break
+                    || left.has_explicit_line_break
+                    || right.has_explicit_line_break,
+                contains_multistatement_brace_group: left.contains_multistatement_brace_group
+                    || right.contains_multistatement_brace_group
+                    || self.stmt_contains_multistatement_pipeline_brace_group(&command.left, true)
+                    || self.stmt_contains_multistatement_pipeline_brace_group(&command.right, true),
+            };
+            self.pipeline_chain_facts
+                .insert(FactSpan::from(command.span), chain);
+            summary.contains_multistatement_pipeline_brace_group =
+                chain.contains_multistatement_brace_group;
+            if chain.has_explicit_line_break {
+                self.facts
+                    .breaks
+                    .pipeline
+                    .insert(FactSpan::from(command.span));
+            }
+        } else {
+            summary.contains_multistatement_pipeline_brace_group =
+                self.command_contains_multistatement_pipeline_brace_group(command, false);
         }
 
         if matches!(command.op, BinaryOp::And | BinaryOp::Or) {
-            let mut rest = Vec::new();
-            let mut previous = collect_command_list_first(command, &mut rest);
-            for item in rest {
-                let next_start = stmt_start_after_operator(
-                    item.stmt,
-                    item.operator_span.end.offset(),
-                    self.source,
-                    self.source_map(),
-                );
-                let next_start_line = self.source_map().line_number_for_offset(next_start);
-                let previous_span = stmt_span(previous);
-                if self
-                    .source_map()
-                    .operator_starts_or_ends_line(item.operator_span)
-                    || self
-                        .facts
-                        .contains_newline_between(item.operator_span.end.offset(), next_start)
-                    || (stmt_is_multiline_conditional(previous)
-                        && previous_span.start.line() < item.operator_span.start.line()
-                        && item.operator_span.end.line() == next_start_line
-                        && !stmt_can_follow_multiline_conditional_inline(item.stmt))
+            // Lists are left-nested, and the left operand's own items were
+            // recorded when it was visited, so only this operator is new.
+            let previous = match &command.left.command {
+                Command::Binary(left)
+                    if command.left.redirects.is_empty()
+                        && !command.left.negated
+                        && command.left.terminator.is_none()
+                        && matches!(left.op, BinaryOp::And | BinaryOp::Or) =>
                 {
-                    self.facts
-                        .breaks
-                        .list_item
-                        .insert(FactSpan::from(item.operator_span));
+                    left.right.as_ref()
                 }
-                previous = item.stmt;
+                _ => command.left.as_ref(),
+            };
+            let operator_span = command.op_span;
+            let next = command.right.as_ref();
+            let next_start = stmt_start_after_operator(
+                next,
+                operator_span.end.offset(),
+                self.source,
+                self.source_map(),
+            );
+            let next_start_line = self.source_map().line_number_for_offset(next_start);
+            let previous_span = stmt_span(previous);
+            if self
+                .source_map()
+                .operator_starts_or_ends_line(operator_span)
+                || self
+                    .facts
+                    .contains_newline_between(operator_span.end.offset(), next_start)
+                || (stmt_is_multiline_conditional(previous)
+                    && previous_span.start.line() < operator_span.start.line()
+                    && operator_span.end.line() == next_start_line
+                    && !stmt_can_follow_multiline_conditional_inline(next))
+            {
+                self.facts
+                    .breaks
+                    .list_item
+                    .insert(FactSpan::from(operator_span));
             }
         }
         summary
@@ -2963,11 +3066,34 @@ impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
             Command::Binary(command)
                 if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) =>
             {
+                if let Some(chain) = self.pipeline_chain_facts.get(&FactSpan::from(command.span)) {
+                    return chain.contains_multistatement_brace_group;
+                }
                 self.command_contains_multistatement_pipeline_brace_group(command, in_pipeline)
             }
             Command::Compound(CompoundCommand::BraceGroup(body)) if in_pipeline => body.len() > 1,
             _ => false,
         }
+    }
+
+    /// Cached chain facts for a statement that continues a pipeline chain
+    /// (a pipeline without its own redirects, negation, or terminator).
+    fn plain_pipeline_chain_facts(&self, stmt: &Stmt) -> PipelineChainFacts {
+        let Some(binary) = plain_pipeline_binary(stmt) else {
+            return PipelineChainFacts::default();
+        };
+        self.pipeline_chain_facts
+            .get(&FactSpan::from(binary.span))
+            .copied()
+            .unwrap_or_else(|| PipelineChainFacts {
+                has_explicit_line_break: pipeline_has_explicit_line_break(
+                    binary,
+                    self.source,
+                    self.source_map(),
+                ),
+                contains_multistatement_brace_group: self
+                    .command_contains_multistatement_pipeline_brace_group(binary, true),
+            })
     }
 
     fn record_close_suffix(&mut self, span: Option<Span>) {
@@ -3173,22 +3299,6 @@ impl<'source, 'options> AstVisitor for FormatterFactsBuilder<'source, 'options> 
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct BinaryListItemFact<'a> {
-    operator_span: Span,
-    stmt: &'a Stmt,
-}
-
-fn collect_command_list_first<'a>(
-    command: &'a BinaryCommand,
-    rest: &mut Vec<BinaryListItemFact<'a>>,
-) -> &'a Stmt {
-    collect_binary_list_first_with(command, rest, &|command| BinaryListItemFact {
-        operator_span: command.op_span,
-        stmt: command.right.as_ref(),
-    })
-}
-
 fn stmt_is_multiline_conditional(stmt: &Stmt) -> bool {
     matches!(
         stmt.command,
@@ -3203,6 +3313,28 @@ fn stmt_can_follow_multiline_conditional_inline(stmt: &Stmt) -> bool {
             | Command::Builtin(_)
             | Command::Compound(CompoundCommand::BraceGroup(_) | CompoundCommand::Subshell(_))
     )
+}
+
+fn plain_pipeline_binary(stmt: &Stmt) -> Option<&BinaryCommand> {
+    match &stmt.command {
+        Command::Binary(binary)
+            if stmt.redirects.is_empty()
+                && !stmt.negated
+                && stmt.terminator.is_none()
+                && matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll) =>
+        {
+            Some(binary)
+        }
+        _ => None,
+    }
+}
+
+/// The first statement of a flattened pipeline chain starting at `stmt`.
+fn first_plain_pipeline_stmt(mut stmt: &Stmt) -> &Stmt {
+    while let Some(binary) = plain_pipeline_binary(stmt) {
+        stmt = &binary.left;
+    }
+    stmt
 }
 
 fn pipeline_has_explicit_line_break(

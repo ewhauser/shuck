@@ -3,9 +3,14 @@ use shuck_ast::{
     ArithmeticPostfixOp, ArithmeticUnaryOp, Name, Position, SourceText, Span, Word,
 };
 
+use std::{cell::Cell, sync::Arc};
+
 use crate::error::{Error, Result};
 
-use super::{Parser, ShellDialect};
+use super::{
+    Parser, ShellDialect,
+    limits::{ChainLinks, MAX_OPERATOR_CHAIN_LEN, NestedLimits, ParseBudget},
+};
 
 #[derive(Debug, Clone)]
 enum TokenKind {
@@ -71,14 +76,17 @@ impl Token {
     }
 }
 
+/// Looks up an already-parsed shell word covering exactly the given span.
+pub(super) type KnownWordLookup<'r> = &'r dyn Fn(Span) -> Option<Word>;
+
 pub(super) fn parse_expression(
     input: &str,
     base: Span,
     dialect: ShellDialect,
-    max_depth: usize,
-    max_fuel: usize,
+    limits: NestedLimits,
+    known_words: Option<KnownWordLookup<'_>>,
 ) -> Result<ArithmeticExprNode> {
-    let mut parser = ArithmeticParser::new(input, base, dialect, max_depth, max_fuel);
+    let mut parser = ArithmeticParser::new(input, base, dialect, limits, known_words);
     let expr = parser.parse_expression()?;
     if !matches!(parser.peek_token()?.kind, TokenKind::End) {
         let trailing_start = parser.peek_token()?.span.start;
@@ -87,24 +95,31 @@ pub(super) fn parse_expression(
     Ok(expr)
 }
 
-struct ArithmeticParser<'a> {
+struct ArithmeticParser<'a, 'r> {
     input: &'a str,
     base: Span,
     dialect: ShellDialect,
     index: usize,
     peeked: Option<Token>,
+    /// Absolute nesting depth, continuing from the enclosing shell parser.
+    depth: usize,
     max_depth: usize,
-    max_fuel: usize,
-    fuel: usize,
+    budget: Arc<ParseBudget>,
+    /// Shell words the caller already parsed from this same source text.
+    /// Reusing them keeps nested subscripts and slices from being parsed
+    /// once as words and again as arithmetic at every nesting level.
+    known_words: Option<KnownWordLookup<'r>>,
+    /// Last `(byte index, position)` computed by `position_at`.
+    position_cache: Cell<(usize, Position)>,
 }
 
-impl<'a> ArithmeticParser<'a> {
+impl<'a, 'r> ArithmeticParser<'a, 'r> {
     fn new(
         input: &'a str,
         base: Span,
         dialect: ShellDialect,
-        max_depth: usize,
-        max_fuel: usize,
+        limits: NestedLimits,
+        known_words: Option<KnownWordLookup<'r>>,
     ) -> Self {
         Self {
             input,
@@ -112,10 +127,36 @@ impl<'a> ArithmeticParser<'a> {
             dialect,
             index: 0,
             peeked: None,
-            max_depth,
-            max_fuel,
-            fuel: max_fuel.max(1),
+            depth: limits.base_depth,
+            max_depth: limits.max_depth,
+            budget: limits.budget,
+            known_words,
+            position_cache: Cell::new((0, base.start)),
         }
+    }
+
+    /// Add a link to a left-associative operator chain. These chains are
+    /// parsed in a loop but produce left-nested nodes that AST consumers walk
+    /// recursively, so they share the parse-wide chain limit.
+    fn extend_operator_chain(&self, chain: &mut ChainLinks) -> Result<()> {
+        chain.extend(&self.budget).map_err(|links| {
+            self.budget.record(Error::parse(format!(
+                "arithmetic expression too long ({links} chained operators, max {MAX_OPERATOR_CHAIN_LEN})"
+            )))
+        })
+    }
+
+    /// Parse a sub-expression one nesting level deeper.
+    fn nested<T>(&mut self, parse: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
+        let depth = self.depth + 1;
+        if depth > self.max_depth {
+            return Err(self.budget.depth_error(depth, self.max_depth));
+        }
+        self.budget.check_stack()?;
+        self.depth = depth;
+        let result = parse(self);
+        self.depth = depth - 1;
+        result
     }
 
     fn parse_expression(&mut self) -> Result<ArithmeticExprNode> {
@@ -123,11 +164,14 @@ impl<'a> ArithmeticParser<'a> {
     }
 
     fn parse_comma(&mut self) -> Result<ArithmeticExprNode> {
+        let first = self.budget.begin_first_chain_operand();
         let mut expr = self.parse_assignment()?;
+        let mut chain = self.budget.end_first_chain_operand(first);
         loop {
             if !matches!(self.peek_token()?.kind, TokenKind::Comma) {
                 break;
             }
+            self.extend_operator_chain(&mut chain)?;
             self.next_token()?;
             let right = self.parse_assignment()?;
             let span = expr.span.merge(right.span);
@@ -160,7 +204,7 @@ impl<'a> ArithmeticParser<'a> {
             _ => return Ok(left),
         };
         self.next_token()?;
-        let right = self.parse_assignment()?;
+        let right = self.nested(Self::parse_assignment)?;
         let span = left.span.merge(right.span);
         let target = self.node_to_lvalue(left)?;
         Ok(ArithmeticExprNode::new(
@@ -179,12 +223,12 @@ impl<'a> ArithmeticParser<'a> {
             return Ok(condition);
         }
         self.next_token()?;
-        let then_expr = self.parse_comma()?;
+        let then_expr = self.nested(Self::parse_comma)?;
         let colon = self.next_token()?;
         if !matches!(colon.kind, TokenKind::Colon) {
             return Err(self.error_at(colon.span.start, "expected ':' in arithmetic conditional"));
         }
-        let else_expr = self.parse_conditional()?;
+        let else_expr = self.nested(Self::parse_conditional)?;
         let span = condition.span.merge(else_expr.span);
         Ok(ArithmeticExprNode::new(
             ArithmeticExpr::Conditional {
@@ -280,7 +324,7 @@ impl<'a> ArithmeticParser<'a> {
             return Ok(left);
         }
         self.next_token()?;
-        let right = self.parse_power()?;
+        let right = self.nested(Self::parse_power)?;
         let span = left.span.merge(right.span);
         Ok(ArithmeticExprNode::new(
             ArithmeticExpr::Binary {
@@ -321,7 +365,7 @@ impl<'a> ArithmeticParser<'a> {
             _ => return self.parse_postfix(),
         };
         self.next_token()?;
-        let expr = self.parse_unary()?;
+        let expr = self.nested(Self::parse_unary)?;
         let span = start_span.merge(expr.span);
         self.ensure_lvalue_if_update(op, &expr)?;
         Ok(ArithmeticExprNode::new(
@@ -338,7 +382,7 @@ impl<'a> ArithmeticParser<'a> {
         loop {
             if matches!(self.peek_token()?.kind, TokenKind::LeftBracket) {
                 self.next_token()?;
-                let index = self.parse_comma()?;
+                let index = self.nested(Self::parse_comma)?;
                 let closing = self.next_token()?;
                 if !matches!(closing.kind, TokenKind::RightBracket) {
                     return Err(
@@ -380,7 +424,7 @@ impl<'a> ArithmeticParser<'a> {
         let token = self.next_token()?;
         match token.kind {
             TokenKind::LeftParen => {
-                let expr = self.parse_comma()?;
+                let expr = self.nested(Self::parse_comma)?;
                 let closing = self.next_token()?;
                 if !matches!(closing.kind, TokenKind::RightParen) {
                     return Err(
@@ -418,8 +462,11 @@ impl<'a> ArithmeticParser<'a> {
         subparser: fn(&mut Self) -> Result<ArithmeticExprNode>,
         op_of: fn(&TokenKind) -> Option<ArithmeticBinaryOp>,
     ) -> Result<ArithmeticExprNode> {
+        let first = self.budget.begin_first_chain_operand();
         let mut expr = subparser(self)?;
+        let mut chain = self.budget.end_first_chain_operand(first);
         while let Some(op) = op_of(&self.peek_token()?.kind) {
+            self.extend_operator_chain(&mut chain)?;
             self.next_token()?;
             let right = subparser(self)?;
             let span = expr.span.merge(right.span);
@@ -717,18 +764,21 @@ impl<'a> ArithmeticParser<'a> {
 
     fn lex_shell_word(&mut self, start: usize) -> Result<Token> {
         let end = self.scan_shell_word_end(start)?;
-        let raw = &self.input[start..end];
-        let mut word = Parser::parse_word_string_with_limits_and_dialect(
-            raw,
-            self.max_depth,
-            self.max_fuel,
-            self.dialect,
-        );
-        Parser::rebase_word(&mut word, self.position_at(start));
+        let span = self.span_for(start, end);
+        let word = match self.known_words.and_then(|lookup| lookup(span)) {
+            Some(word) => word,
+            None => {
+                let raw = &self.input[start..end];
+                let limits = NestedLimits::below(self.depth, self.max_depth, &self.budget)?;
+                let mut word = Parser::parse_nested_word_string(raw, limits, self.dialect);
+                Parser::rebase_word(&mut word, span.start);
+                word
+            }
+        };
         self.index = end;
         Ok(Token {
             kind: TokenKind::ShellWord(word),
-            span: self.span_for(start, end),
+            span,
         })
     }
 
@@ -1200,7 +1250,16 @@ impl<'a> ArithmeticParser<'a> {
     }
 
     fn position_at(&self, index: usize) -> Position {
-        self.base.start.advanced_by(&self.input[..index])
+        // Tokens are positioned left to right, so continue from the last
+        // computed position instead of rescanning from the expression start.
+        let (cached_index, cached_position) = self.position_cache.get();
+        let position = if cached_index <= index {
+            cached_position.advanced_by(&self.input[cached_index..index])
+        } else {
+            self.base.start.advanced_by(&self.input[..index])
+        };
+        self.position_cache.set((index, position));
+        position
     }
 
     fn safe_position_at(&self, index: usize) -> Position {
@@ -1297,11 +1356,7 @@ impl<'a> ArithmeticParser<'a> {
     }
 
     fn tick(&mut self) -> Result<()> {
-        if self.fuel == 0 {
-            return Err(Error::parse("arithmetic parser exceeded operation limit"));
-        }
-        self.fuel -= 1;
-        Ok(())
+        self.budget.tick()
     }
 }
 
