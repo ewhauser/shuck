@@ -6526,28 +6526,6 @@ repos:
           column: 50
         classification: real
       - path: "plugins/z/z.plugin.zsh"
-        code: "C112"
-        severity: "warning"
-        message: "all-elements array expansions collapse inside `[[ ... ]]` tests"
-        start:
-          line: 830
-          column: 9
-        end:
-          line: 830
-          column: 17
-        classification: real
-      - path: "plugins/z/z.plugin.zsh"
-        code: "C112"
-        severity: "warning"
-        message: "all-elements array expansions collapse inside `[[ ... ]]` tests"
-        start:
-          line: 832
-          column: 11
-        end:
-          line: 832
-          column: 19
-        classification: real
-      - path: "plugins/z/z.plugin.zsh"
         code: "C048"
         severity: "warning"
         message: "case patterns should be literal instead of built from expansions"
