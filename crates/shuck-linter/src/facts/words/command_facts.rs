@@ -1273,9 +1273,10 @@ pub(crate) fn detect_sudo_family_invoker(
         // Unresolved sudo-family wrappers intentionally keep the wrapper marker
         // even when there is no statically known inner command.
         .take_while(|word| scan_all_words || word.span.start.offset() < body_start)
-        .filter_map(|word| static_word_text(word, source))
-        .map(|word| word.strip_prefix('\\').unwrap_or(word.as_ref()).to_owned())
-        .filter_map(|word| match word.as_str() {
+        // Decode names the same way command normalization does, so escaped
+        // spellings such as `sud\o` resolve to the same invoker.
+        .filter_map(|word| static_command_name_text(word, source))
+        .filter_map(|word| match word.as_ref() {
             "sudo" => Some(SudoFamilyInvoker::Sudo),
             "doas" => Some(SudoFamilyInvoker::Doas),
             "run0" => Some(SudoFamilyInvoker::Run0),

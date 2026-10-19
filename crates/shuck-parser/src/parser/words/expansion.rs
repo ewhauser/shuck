@@ -141,7 +141,7 @@ impl<'a> Parser<'a> {
                     break;
                 }
 
-                if ch == '\x00' {
+                if self.is_escape_marker_at(ch, *cursor, true) {
                     Self::next_word_char_unwrap(chars, cursor);
                     if let Some(&literal) = chars.peek() {
                         if literal == '/' {
@@ -382,6 +382,7 @@ impl<'a> Parser<'a> {
             DecodeWordPartsOptions {
                 preserve_escaped_expansion_literals: true,
                 parse_process_substitutions: false,
+                heredoc_body: true,
                 ..DecodeWordPartsOptions::default()
             },
             &mut parts,
@@ -915,7 +916,7 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if c == '\x00' {
+            if self.is_escape_marker_at(c, *cursor, source_backed) {
                 if operand.is_none() {
                     operand = Some(
                         Span::from_positions(start, *cursor)

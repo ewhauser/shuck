@@ -567,3 +567,38 @@ fn test_parse_conditional_non_direct_var_ref_falls_back_to_word() {
     };
     assert_eq!(word.render(input), "prefix$var");
 }
+
+#[test]
+fn test_literal_nul_byte_is_not_treated_as_an_escape_marker() {
+    // The lexer marks escapes with `\0` internally; a NUL byte in the script
+    // must neither escape the next character nor shift later spans.
+    for input in ["echo \0$((i--))\n", "echo ${a:-\0$((i--))}\n"] {
+        let output = Parser::new(input).parse();
+        let AstCommand::Simple(command) = &output.file.body[0].command else {
+            panic!("expected simple command for {input:?}");
+        };
+        let word = &command.args[0];
+        let mut pending = word.parts.iter().collect::<Vec<_>>();
+        let mut expression = None;
+        while let Some(part) = pending.pop() {
+            match &part.kind {
+                WordPart::ArithmeticExpansion {
+                    expression: text, ..
+                } => {
+                    expression = Some(text.span().slice(input));
+                }
+                WordPart::Parameter(parameter) => {
+                    if let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+                        operand_word_ast: Some(operand),
+                        ..
+                    }) = &parameter.syntax
+                    {
+                        pending.extend(operand.parts.iter());
+                    }
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(expression, Some("i--"), "{input:?}");
+    }
+}

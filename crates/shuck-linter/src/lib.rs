@@ -6506,4 +6506,37 @@ f() {
         let diagnostics = lint_for_rule(source, Rule::SourceInsideFunctionInSh);
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn malformed_inputs_lint_without_panicking() {
+        // Inputs found by fuzzing that used to hit `unreachable!` in fact
+        // builders. Linting them with every rule enabled must not panic.
+        let all_rules = LinterSettings::from_selectors(&[RuleSelector::All], &[]);
+        for source in [
+            "sud\\o",
+            "do\\as ls\n",
+            "sud\\o tee /tmp/out > /dev/null\n",
+            "${(\0$((i--",
+            "echo ${a:-\0$((i--))}\n",
+            "cat <<F\n\"$(echo x",
+            "cat <<F\n\"$(<<c",
+        ] {
+            for settings in [&LinterSettings::default(), &all_rules] {
+                let _ = crate::test::test_snippet(source, settings);
+            }
+        }
+    }
+
+    #[test]
+    fn escaped_sudo_family_names_still_resolve_their_invoker() {
+        for source in [
+            "sudo echo hi > /etc/motd\n",
+            "sud\\o echo hi > /etc/motd\n",
+            "\\sudo echo hi > /etc/motd\n",
+            "do\\as echo hi > /etc/motd\n",
+        ] {
+            let diagnostics = lint_for_rule(source, Rule::SudoRedirectionOrder);
+            assert_eq!(diagnostics.len(), 1, "{source:?}: {diagnostics:?}");
+        }
+    }
 }

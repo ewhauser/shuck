@@ -1,6 +1,23 @@
 use super::*;
 
 impl<'a> Parser<'a> {
+    /// Whether `ch`, read at `position`, is the lexer's escape marker.
+    ///
+    /// The lexer replaces the backslash of an escape with `\x00` in cooked
+    /// word text. A script can also contain a literal NUL byte, which must stay
+    /// an ordinary character: treating it as a marker would escape the next
+    /// character and drop a byte from the decoded text, shifting later spans.
+    /// When the text is source-backed, a NUL byte at the same source position
+    /// identifies the literal case.
+    pub(in crate::parser) fn is_escape_marker_at(
+        &self,
+        ch: char,
+        position: Position,
+        source_backed: bool,
+    ) -> bool {
+        ch == '\x00' && !(source_backed && self.input.as_bytes().get(position.offset()) == Some(&0))
+    }
+
     pub(in crate::parser) fn decode_word_parts_into_with_escape_mode(
         &mut self,
         s: &str,
@@ -47,7 +64,7 @@ impl<'a> Parser<'a> {
             let part_start = cursor;
             let ch = Self::next_word_char_unwrap(&mut chars, &mut cursor);
 
-            if ch == '\x00' {
+            if self.is_escape_marker_at(ch, part_start, source_backed) {
                 if current.is_empty() {
                     current_start = part_start;
                 }
@@ -691,7 +708,10 @@ impl<'a> Parser<'a> {
                 } else {
                     let inner_start = cursor;
                     let prefix = Span::from_positions(current_start, part_start).slice(self.input);
+                    // `"` is literal in heredoc bodies, so the prefix's quote
+                    // state says nothing about how the body was captured there.
                     let nested_source_base = if source_backed
+                        && !options.heredoc_body
                         && (source_prefix_ends_inside_double_quotes(prefix)
                             || (!options.preserve_quote_fragments
                                 && source_prefix_has_same_line_escaped_double_quote_fragment(
