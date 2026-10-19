@@ -9,7 +9,7 @@ use crate::error::{Error, Result};
 
 use super::{
     Parser, ShellDialect,
-    limits::{NestedLimits, ParseBudget},
+    limits::{MAX_OPERATOR_CHAIN_LEN, NestedLimits, ParseBudget},
 };
 
 #[derive(Debug, Clone)]
@@ -132,6 +132,18 @@ impl<'a, 'r> ArithmeticParser<'a, 'r> {
         }
     }
 
+    /// Fail once a left-associative operator chain grows past
+    /// [`MAX_OPERATOR_CHAIN_LEN`] operands. These chains are parsed in a loop
+    /// but produce left-nested nodes that AST consumers walk recursively.
+    fn check_operator_chain(&self, operands: usize) -> Result<()> {
+        if operands <= MAX_OPERATOR_CHAIN_LEN {
+            return Ok(());
+        }
+        Err(self.budget.record(Error::parse(format!(
+            "arithmetic expression too long ({operands} operands, max {MAX_OPERATOR_CHAIN_LEN})"
+        ))))
+    }
+
     /// Parse a sub-expression one nesting level deeper.
     fn nested<T>(&mut self, parse: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
         let depth = self.depth + 1;
@@ -151,10 +163,13 @@ impl<'a, 'r> ArithmeticParser<'a, 'r> {
 
     fn parse_comma(&mut self) -> Result<ArithmeticExprNode> {
         let mut expr = self.parse_assignment()?;
+        let mut operands = 1;
         loop {
             if !matches!(self.peek_token()?.kind, TokenKind::Comma) {
                 break;
             }
+            operands += 1;
+            self.check_operator_chain(operands)?;
             self.next_token()?;
             let right = self.parse_assignment()?;
             let span = expr.span.merge(right.span);
@@ -446,7 +461,10 @@ impl<'a, 'r> ArithmeticParser<'a, 'r> {
         op_of: fn(&TokenKind) -> Option<ArithmeticBinaryOp>,
     ) -> Result<ArithmeticExprNode> {
         let mut expr = subparser(self)?;
+        let mut operands = 1;
         while let Some(op) = op_of(&self.peek_token()?.kind) {
+            operands += 1;
+            self.check_operator_chain(operands)?;
             self.next_token()?;
             let right = subparser(self)?;
             let span = expr.span.merge(right.span);

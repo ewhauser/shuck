@@ -24,8 +24,8 @@ use crate::error::Error;
 /// two budget checks.
 const PARSER_STACK_BUDGET: usize = 1536 * 1024;
 
-/// Longest `&&`/`||` list, pipeline, or `[[ ]]` operator chain the parser
-/// accepts.
+/// Longest `&&`/`||` list, pipeline, `[[ ]]` operator chain, or arithmetic
+/// operator chain the parser accepts.
 ///
 /// These chains are parsed iteratively, but they produce left-nested AST nodes
 /// whose depth equals the chain length, and AST consumers (including `Drop`)

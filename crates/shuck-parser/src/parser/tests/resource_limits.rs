@@ -111,6 +111,12 @@ fn long_operator_chains_report_length_error() {
 
     let output = parse_bash(&format!("[[ {}a ]]\n", "a && ".repeat(40_000)));
     assert_limit_error(&output, "conditional expression too long");
+
+    let output = parse_bash(&format!("echo $(({}1))\n", "1+".repeat(20_000)));
+    assert_limit_error(&output, "arithmetic expression too long");
+
+    let output = parse_bash(&format!("(( {}1 ))\n", "a=1, ".repeat(20_000)));
+    assert_limit_error(&output, "arithmetic expression too long");
 }
 
 #[test]
