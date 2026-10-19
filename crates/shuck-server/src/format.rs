@@ -329,6 +329,64 @@ mod tests {
     }
 
     #[test]
+    fn range_formatting_ignores_unrelated_syntax_errors() {
+        let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
+        let (client_sender, _client_receiver) = channel::unbounded();
+        let client = Client::new(main_loop_sender, client_sender);
+        let workspace_root = std::env::temp_dir().join("shuck-server-format-tests-recovery");
+        let workspace_uri =
+            Url::from_file_path(&workspace_root).expect("workspace path should convert to a URL");
+        let workspaces = Workspaces::new(vec![Workspace::default(workspace_uri)]);
+        let global = GlobalOptions::default().into_settings(client.clone());
+        let mut session = Session::new(
+            &ClientCapabilities {
+                general: Some(lsp_types::GeneralClientCapabilities {
+                    position_encodings: Some(vec![PositionEncodingKind::UTF16]),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            PositionEncoding::UTF16,
+            global,
+            &workspaces,
+            &client,
+        )
+        .expect("test session should initialize");
+
+        let uri = Url::from_file_path(workspace_root.join("script.sh"))
+            .expect("script path should convert to a URL");
+        session.open_text_document(
+            uri.clone(),
+            TextDocument::new("echo   hi\nif true; then\n".to_owned(), 1)
+                .with_language_id("shellscript"),
+        );
+        let snapshot = session
+            .take_snapshot(uri.clone())
+            .expect("test document should produce a snapshot");
+
+        let edits = format_range(
+            snapshot,
+            &client,
+            types::DocumentRangeFormattingParams {
+                text_document: types::TextDocumentIdentifier { uri },
+                range: types::Range::new(types::Position::new(0, 0), types::Position::new(0, 9)),
+                options: types::FormattingOptions::default(),
+                work_done_progress_params: types::WorkDoneProgressParams::default(),
+            },
+        )
+        .expect("range formatting should succeed")
+        .expect("range formatting should return an edit list");
+
+        assert_eq!(
+            edits,
+            vec![types::TextEdit {
+                range: types::Range::new(types::Position::new(0, 5), types::Position::new(0, 7)),
+                new_text: String::new(),
+            }]
+        );
+    }
+
+    #[test]
     fn range_formatting_returns_none_for_ranges_without_one_complete_statement() {
         let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
         let (client_sender, _client_receiver) = channel::unbounded();

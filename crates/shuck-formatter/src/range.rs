@@ -1,8 +1,9 @@
 use std::path::Path;
 
 use shuck_ast::{Command, CompoundCommand, Span, Stmt, StmtSeq, TextRange};
+use shuck_parser::parser::Parser;
 
-use crate::{FormattedSource, Result, ShellFormatOptions, format_source, parse_and_resolve};
+use crate::{FormattedSource, Result, ShellFormatOptions, format_source};
 
 /// Result of formatting a range of shell source.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,6 +17,7 @@ pub struct FormattedRange {
 /// Formats the smallest statement in a shell source string covering the requested range.
 ///
 /// Returns `Ok(None)` if no complete statement contains the requested range.
+/// Syntax errors outside the selected statement do not prevent formatting it.
 ///
 /// # Arguments
 /// - `source`: The full shell script source string.
@@ -28,7 +30,10 @@ pub fn format_range(
     path: Option<&Path>,
     options: &ShellFormatOptions,
 ) -> Result<Option<FormattedRange>> {
-    let parsed = parse_and_resolve(source, path, options)?;
+    let resolved = options.resolve_for_format(source, path);
+    // Use recovered statements to locate the selection in an incomplete editor buffer.
+    // The selected source is still parsed strictly by format_source below.
+    let parsed = Parser::with_dialect(source, resolved.dialect()).parse();
     let Some(statement_span) = smallest_statement_span_containing(&parsed.file.body, range) else {
         return Ok(None);
     };
@@ -149,6 +154,41 @@ fn span_contains_text_range(span: Span, range: TextRange) -> bool {
 mod tests {
     use super::*;
     use crate::TextSize;
+
+    #[test]
+    fn format_range_formats_statement_before_unrelated_syntax_error() {
+        let source = "echo   hi\nif true; then\n";
+        let result = format_range(
+            source,
+            TextRange::new(TextSize::new(0), TextSize::new(9)),
+            None,
+            &ShellFormatOptions::default(),
+        )
+        .expect("an unrelated syntax error should not prevent formatting")
+        .expect("the valid statement should be selected");
+
+        assert_eq!(
+            result.range,
+            TextRange::new(TextSize::new(0), TextSize::new(10))
+        );
+        assert_eq!(
+            result.formatted,
+            FormattedSource::Formatted("echo hi\n".to_owned())
+        );
+    }
+
+    #[test]
+    fn format_range_does_not_format_incomplete_selected_statement() {
+        let source = "if true; then\necho   hi\n";
+        let result = format_range(
+            source,
+            TextRange::new(TextSize::new(0), TextSize::new(source.len() as u32)),
+            None,
+            &ShellFormatOptions::default(),
+        );
+
+        assert!(matches!(result, Err(_) | Ok(None)));
+    }
 
     #[test]
     fn format_range_formats_targeted_statement() {
