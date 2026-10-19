@@ -417,6 +417,44 @@ jobs:
     }
 
     #[test]
+    fn remaps_block_scalar_runs_with_leading_blank_lines_and_folding() {
+        let tempdir = tempdir().unwrap();
+        let workflows = tempdir.path().join(".github/workflows");
+        fs::create_dir_all(&workflows).unwrap();
+        fs::write(
+            workflows.join("ci.yml"),
+            r#"on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+
+          unused=1
+      - run: >
+          echo hi;
+          other=1
+"#,
+        )
+        .unwrap();
+
+        let report = run_check_with_cwd(
+            &check_args(true),
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        let positions = report
+            .diagnostics
+            .iter()
+            .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+            .collect::<Vec<_>>();
+        assert_eq!(positions, vec![(8, 11), (11, 11)]);
+    }
+
+    #[test]
     fn skips_default_windows_shell_steps() {
         let tempdir = tempdir().unwrap();
         let workflows = tempdir.path().join(".github/workflows");
