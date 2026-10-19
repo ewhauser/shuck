@@ -69,6 +69,15 @@ impl WatchTarget {
         }
     }
 
+    /// Ignored directory names only count below the watched root, so a project
+    /// that itself lives under e.g. `~/.cache` or `vendor/` still reruns.
+    fn ignores_event_path(&self, path: &Path) -> bool {
+        std::iter::once(&self.watch_path)
+            .chain(&self.watch_paths)
+            .filter_map(|root| path.strip_prefix(root).ok())
+            .any(has_default_ignored_component)
+    }
+
     fn add_match_path(&mut self, path: PathBuf) {
         self.match_paths.push(path);
         self.match_paths.sort();
@@ -204,7 +213,14 @@ pub(super) fn collect_watch_targets(
         target.add_match_path(canonical_input);
         targets.push(target);
 
-        if let Some(config_path) = watch_config_target(config_arguments, cwd, &resolved_input)? {
+        // The input can vanish between the metadata read above and the config
+        // lookup; the next rerun will pick up whatever is there then.
+        let config_path = match watch_config_target(config_arguments, cwd, &resolved_input) {
+            Ok(config_path) => config_path,
+            Err(err) if is_not_found(&err) => None,
+            Err(err) => return Err(err),
+        };
+        if let Some(config_path) = config_path {
             let canonical_config_parent =
                 config_path.canonical_path.parent().map(Path::to_path_buf);
             let mut target = WatchTarget::file(config_path.resolved_path);
@@ -334,10 +350,24 @@ fn build_watcher(
     let mut watcher = recommended_watcher(tx.clone())?;
     for target in watch_targets {
         for watch_path in &target.watch_paths {
-            watcher.watch(watch_path, target.recursive_mode())?;
+            match watcher.watch(watch_path, target.recursive_mode()) {
+                Ok(()) => {}
+                // A path removed since the targets were collected is skipped;
+                // targets are recollected after every rerun.
+                Err(_) if !watch_path.exists() => {}
+                Err(err) => return Err(err.into()),
+            }
         }
     }
     Ok(watcher)
+}
+
+fn is_not_found(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<io::Error>()
+            .is_some_and(|err| err.kind() == io::ErrorKind::NotFound)
+    })
 }
 
 fn watch_config_target(
@@ -440,24 +470,25 @@ pub(super) fn watch_event_requires_rerun(
         .paths
         .iter()
         .map(|path| normalize_path(path))
-        .filter(|path| !watch_event_path_is_ignored(path, cache_root))
+        .filter(|path| !path.starts_with(cache_root))
         .any(|path| {
             watch_targets
                 .iter()
-                .any(|target| target.matches_event_path(&path))
+                .any(|target| target.matches_event_path(&path) && !target.ignores_event_path(&path))
         })
 }
 
-fn watch_event_path_is_ignored(path: &Path, cache_root: &Path) -> bool {
-    path.starts_with(cache_root)
-        || path.components().any(|component| {
-            let std::path::Component::Normal(part) = component else {
-                return false;
-            };
-            DEFAULT_IGNORED_DIR_NAMES
-                .iter()
-                .any(|name| part == OsStr::new(name))
-        })
+/// Returns whether `relative` (a path below a watch root) passes through a
+/// default ignored directory such as `.git` or `node_modules`.
+fn has_default_ignored_component(relative: &Path) -> bool {
+    relative.components().any(|component| {
+        let std::path::Component::Normal(part) = component else {
+            return false;
+        };
+        DEFAULT_IGNORED_DIR_NAMES
+            .iter()
+            .any(|name| part == OsStr::new(name))
+    })
 }
 
 #[cfg(test)]
@@ -563,6 +594,35 @@ mod tests {
                 paths: vec![PathBuf::from("/workspace/config/other.txt")],
                 attrs: EventAttributes::default(),
             },
+            cache_root,
+            &watch_targets,
+        ));
+    }
+
+    #[test]
+    fn watch_event_filter_only_ignores_directories_below_the_watch_root() {
+        let cache_root = Path::new("/tmp/shuck-cache");
+        let watch_targets = vec![WatchTarget::recursive(PathBuf::from(
+            "/home/user/.cache/bazel/vendor/project",
+        ))];
+        let modified = |path: &str| notify::Event {
+            kind: notify::EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Content)),
+            paths: vec![PathBuf::from(path)],
+            attrs: EventAttributes::default(),
+        };
+
+        assert!(watch_event_requires_rerun(
+            &modified("/home/user/.cache/bazel/vendor/project/script.sh"),
+            cache_root,
+            &watch_targets,
+        ));
+        assert!(!watch_event_requires_rerun(
+            &modified("/home/user/.cache/bazel/vendor/project/.git/index"),
+            cache_root,
+            &watch_targets,
+        ));
+        assert!(!watch_event_requires_rerun(
+            &modified("/home/user/.cache/bazel/vendor/project/node_modules/x/a.sh"),
             cache_root,
             &watch_targets,
         ));
