@@ -173,7 +173,8 @@ impl Session {
         self.analysis_cache.invalidate_uri(&key.clone().into_url());
         self.workspace_diagnostics
             .invalidate_uri(&key.clone().into_url());
-        self.workspace_function_index.invalidate();
+        self.workspace_function_index
+            .invalidate_closed_document(&key.clone().into_url());
         self.workspace_symbols
             .invalidate_uri(&key.clone().into_url());
         Ok(())
@@ -185,7 +186,8 @@ impl Session {
         let config_changed = self.index.reload_settings(changes, client);
         self.analysis_cache.clear();
         self.workspace_diagnostics.invalidate_all();
-        self.workspace_function_index.invalidate();
+        self.workspace_function_index
+            .invalidate_file_events(changes, config_changed);
         self.workspace_symbols.invalidate_file_events(changes);
         config_changed
     }
@@ -195,7 +197,7 @@ impl Session {
             .open_workspace_folder(url, &self.global_settings, client)?;
         self.analysis_cache.clear();
         self.workspace_diagnostics.invalidate_all();
-        self.workspace_function_index.invalidate();
+        self.workspace_function_index.invalidate_closed_files();
         self.workspace_symbols.invalidate_all();
         Ok(())
     }
@@ -204,7 +206,7 @@ impl Session {
         self.index.close_workspace_folder(url)?;
         self.analysis_cache.clear();
         self.workspace_diagnostics.invalidate_all();
-        self.workspace_function_index.invalidate();
+        self.workspace_function_index.invalidate_closed_files();
         self.workspace_symbols.invalidate_all();
         Ok(())
     }
@@ -228,7 +230,7 @@ impl Session {
     pub(crate) fn update_client_options(&mut self, options: ClientOptions) {
         self.analysis_cache.clear();
         self.workspace_diagnostics.invalidate_all();
-        self.workspace_function_index.invalidate();
+        self.workspace_function_index.invalidate_closed_files();
         self.workspace_symbols.invalidate_all();
         self.global_settings.update_options(options);
         self.index.clear_project_settings_cache();
@@ -241,7 +243,7 @@ impl Session {
     ) {
         self.analysis_cache.clear();
         self.workspace_diagnostics.invalidate_all();
-        self.workspace_function_index.invalidate();
+        self.workspace_function_index.invalidate_closed_files();
         self.workspace_symbols.invalidate_all();
         self.global_settings.update_options(options);
         if let Some(workspace_options) = workspace_options {
@@ -371,6 +373,7 @@ impl Session {
                 .call_hierarchy
                 .max_files,
             epoch: self.workspace_function_index.current_epoch(),
+            closed_epoch: self.workspace_function_index.current_closed_epoch(),
             cache: self.workspace_function_index.clone(),
             cancellation,
         }
@@ -568,6 +571,51 @@ mod tests {
                 .epoch
                 > before
         );
+    }
+
+    #[test]
+    fn workspace_function_index_reuses_closed_files_across_buffer_edits() {
+        let (workspace, mut session, uri) = make_test_session();
+        let closed = workspace.path().join("closed.sh");
+        std::fs::write(&closed, "closed_fn() { :; }\n").expect("closed file should be written");
+        let build = |session: &Session| {
+            crate::workspace_functions::workspace_function_index(
+                &session.workspace_function_context(RequestCancellationToken::default()),
+            )
+            .expect("index should build")
+        };
+        build(&session);
+        let reads = session.workspace_function_index.closed_reads();
+        assert_eq!(reads, 1);
+
+        let key = session.key_from_url(uri);
+        session
+            .update_text_document(
+                &key,
+                vec![TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: "#!/bin/bash\nclosed_fn\n".to_owned(),
+                }],
+                2,
+            )
+            .expect("document change should apply");
+        let edited = build(&session);
+        assert_eq!(session.workspace_function_index.closed_reads(), reads);
+        assert!(edited.contains(&crate::workspace_functions::canonical_path(&closed)));
+
+        let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
+        let (client_sender, _client_receiver) = channel::unbounded();
+        let client = Client::new(main_loop_sender, client_sender);
+        session.reload_settings(
+            &[FileEvent {
+                uri: Url::from_file_path(&closed).expect("closed path should convert"),
+                typ: FileChangeType::CHANGED,
+            }],
+            &client,
+        );
+        build(&session);
+        assert_eq!(session.workspace_function_index.closed_reads(), reads + 1);
     }
 
     #[test]

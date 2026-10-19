@@ -50,15 +50,20 @@ struct IncomingVariableSource {
     cutoff: usize,
 }
 
+/// File-scope variable definitions and references for one file, plus the
+/// source effects that relate it to other files.
 #[derive(Clone, Debug, Default)]
-struct FileVariableFacts {
+pub(crate) struct FileVariableFacts {
     definitions: Vec<VariableDefinition>,
     references: Vec<VariableReference>,
     source_effects: Vec<CallFactSourceEffect>,
 }
 
 impl FileVariableFacts {
-    fn project(model: &SemanticModel, source_effects: &[CallFactSourceEffect]) -> Self {
+    /// Projects a file's definitions and references. Source effects depend on
+    /// how `source` edges resolve, so they are attached when the file is linked
+    /// into an index with [`Self::with_source_effects`].
+    pub(crate) fn project(model: &SemanticModel) -> Self {
         let definitions = model
             .bindings()
             .iter()
@@ -102,6 +107,14 @@ impl FileVariableFacts {
         Self {
             definitions,
             references,
+            source_effects: Vec::new(),
+        }
+    }
+
+    pub(crate) fn with_source_effects(&self, source_effects: &[CallFactSourceEffect]) -> Self {
+        Self {
+            definitions: self.definitions.clone(),
+            references: self.references.clone(),
             source_effects: source_effects.to_vec(),
         }
     }
@@ -165,16 +178,7 @@ pub(crate) struct WorkspaceVariableIndex {
 }
 
 impl WorkspaceVariableIndex {
-    pub(crate) fn insert(
-        &mut self,
-        path: PathBuf,
-        model: &SemanticModel,
-        source_effects: &[CallFactSourceEffect],
-    ) {
-        self.insert_facts(path, FileVariableFacts::project(model, source_effects));
-    }
-
-    fn insert_facts(&mut self, path: PathBuf, facts: FileVariableFacts) {
+    pub(crate) fn insert_facts(&mut self, path: PathBuf, facts: FileVariableFacts) {
         if let Some(previous) = self.files.remove(&path) {
             for (target, cutoff) in previous.resolved_top_level_source_edges(usize::MAX) {
                 if let Some(sources) = self.incoming.get_mut(target) {
