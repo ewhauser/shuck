@@ -179,76 +179,94 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         self.arithmetic_reference_kind = previous_kind;
     }
 
+    /// Visits an arithmetic expression tree.
+    ///
+    /// Operator chains such as `1+1+...+1` parse into trees as deep as they are long, so the walk
+    /// keeps its own work stack instead of recursing per operator. Children are pushed in reverse
+    /// so they are visited in source order, and assignments finish (binding creation) only after
+    /// their whole value subtree has been visited.
     pub(super) fn visit_arithmetic_expr_into(
         &mut self,
         expr: &'a ArithmeticExprNode,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
-        match &expr.kind {
-            ArithmeticExpr::Number(_) => {}
-            ArithmeticExpr::Variable(name) => {
-                self.add_reference(name, self.arithmetic_reference_kind, expr.span);
-            }
-            ArithmeticExpr::Indexed { name, index } => {
-                self.add_reference(
-                    name,
-                    self.arithmetic_reference_kind,
-                    arithmetic_name_span(expr.span, name),
-                );
-                self.visit_arithmetic_index_into(name, index, flow, nested_regions);
-            }
-            ArithmeticExpr::ShellWord(word) => {
-                let previous_kind =
-                    if self.arithmetic_reference_kind == ReferenceKind::ParameterSliceArithmetic {
+        let mut work = vec![ArithmeticWork::Expr(expr)];
+        while let Some(item) = work.pop() {
+            let expr = match item {
+                ArithmeticWork::Expr(expr) => expr,
+                ArithmeticWork::FinishAssignment(assignment) => {
+                    self.finish_arithmetic_assignment(assignment);
+                    continue;
+                }
+            };
+            match &expr.kind {
+                ArithmeticExpr::Number(_) => {}
+                ArithmeticExpr::Variable(name) => {
+                    self.add_reference(name, self.arithmetic_reference_kind, expr.span);
+                }
+                ArithmeticExpr::Indexed { name, index } => {
+                    self.add_reference(
+                        name,
+                        self.arithmetic_reference_kind,
+                        arithmetic_name_span(expr.span, name),
+                    );
+                    self.visit_arithmetic_index_into(name, index, flow, nested_regions);
+                }
+                ArithmeticExpr::ShellWord(word) => {
+                    let previous_kind = if self.arithmetic_reference_kind
+                        == ReferenceKind::ParameterSliceArithmetic
+                    {
                         self.word_reference_kind_override
                             .replace(ReferenceKind::ParameterSliceArithmetic)
                     } else {
                         None
                     };
-                self.visit_word_into(word, WordVisitKind::Expansion, flow, nested_regions);
-                if self.arithmetic_reference_kind == ReferenceKind::ParameterSliceArithmetic {
-                    self.word_reference_kind_override = previous_kind;
+                    self.visit_word_into(word, WordVisitKind::Expansion, flow, nested_regions);
+                    if self.arithmetic_reference_kind == ReferenceKind::ParameterSliceArithmetic {
+                        self.word_reference_kind_override = previous_kind;
+                    }
                 }
-            }
-            ArithmeticExpr::Parenthesized { expression } => {
-                self.visit_arithmetic_expr_into(expression, flow, nested_regions);
-            }
-            ArithmeticExpr::Unary { op, expr: inner } => {
-                if matches!(
-                    op,
-                    ArithmeticUnaryOp::PreIncrement | ArithmeticUnaryOp::PreDecrement
-                ) {
+                ArithmeticExpr::Parenthesized { expression } => {
+                    work.push(ArithmeticWork::Expr(expression));
+                }
+                ArithmeticExpr::Unary { op, expr: inner } => {
+                    if matches!(
+                        op,
+                        ArithmeticUnaryOp::PreIncrement | ArithmeticUnaryOp::PreDecrement
+                    ) {
+                        self.visit_arithmetic_update_into(inner, flow, nested_regions);
+                    } else {
+                        work.push(ArithmeticWork::Expr(inner));
+                    }
+                }
+                ArithmeticExpr::Postfix { expr: inner, .. } => {
                     self.visit_arithmetic_update_into(inner, flow, nested_regions);
-                } else {
-                    self.visit_arithmetic_expr_into(inner, flow, nested_regions);
                 }
-            }
-            ArithmeticExpr::Postfix { expr: inner, .. } => {
-                self.visit_arithmetic_update_into(inner, flow, nested_regions);
-            }
-            ArithmeticExpr::Binary { left, right, .. } => {
-                self.visit_arithmetic_expr_into(left, flow, nested_regions);
-                self.visit_arithmetic_expr_into(right, flow, nested_regions);
-            }
-            ArithmeticExpr::Conditional {
-                condition,
-                then_expr,
-                else_expr,
-            } => {
-                self.visit_arithmetic_expr_into(condition, flow, nested_regions);
-                self.visit_arithmetic_expr_into(then_expr, flow, nested_regions);
-                self.visit_arithmetic_expr_into(else_expr, flow, nested_regions);
-            }
-            ArithmeticExpr::Assignment { target, op, value } => {
-                self.visit_arithmetic_assignment_into(
-                    target,
-                    expr.span,
-                    *op,
-                    value,
-                    flow,
-                    nested_regions,
-                );
+                ArithmeticExpr::Binary { left, right, .. } => {
+                    work.push(ArithmeticWork::Expr(right));
+                    work.push(ArithmeticWork::Expr(left));
+                }
+                ArithmeticExpr::Conditional {
+                    condition,
+                    then_expr,
+                    else_expr,
+                } => {
+                    work.push(ArithmeticWork::Expr(else_expr));
+                    work.push(ArithmeticWork::Expr(then_expr));
+                    work.push(ArithmeticWork::Expr(condition));
+                }
+                ArithmeticExpr::Assignment { target, op, value } => {
+                    let assignment = self.start_arithmetic_assignment(
+                        target,
+                        expr.span,
+                        *op,
+                        flow,
+                        nested_regions,
+                    );
+                    work.push(ArithmeticWork::FinishAssignment(assignment));
+                    work.push(ArithmeticWork::Expr(value));
+                }
             }
         }
     }
@@ -318,53 +336,37 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
-        match &expr.kind {
-            ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
-            ArithmeticExpr::Indexed { index, .. } => {
-                self.visit_associative_arithmetic_key_into(index, flow, nested_regions);
-            }
-            ArithmeticExpr::ShellWord(word) => {
-                self.visit_word_into(word, WordVisitKind::Expansion, flow, nested_regions);
-            }
-            ArithmeticExpr::Parenthesized { expression } => {
-                self.visit_associative_arithmetic_key_into(expression, flow, nested_regions);
-            }
-            ArithmeticExpr::Unary { expr: inner, .. } => {
-                self.visit_associative_arithmetic_key_into(inner, flow, nested_regions);
-            }
-            ArithmeticExpr::Postfix { expr: inner, .. } => {
-                self.visit_associative_arithmetic_key_into(inner, flow, nested_regions);
-            }
-            ArithmeticExpr::Binary { left, right, .. } => {
-                self.visit_associative_arithmetic_key_into(left, flow, nested_regions);
-                self.visit_associative_arithmetic_key_into(right, flow, nested_regions);
-            }
-            ArithmeticExpr::Conditional {
-                condition,
-                then_expr,
-                else_expr,
-            } => {
-                self.visit_associative_arithmetic_key_into(condition, flow, nested_regions);
-                self.visit_associative_arithmetic_key_into(then_expr, flow, nested_regions);
-                self.visit_associative_arithmetic_key_into(else_expr, flow, nested_regions);
-            }
-            ArithmeticExpr::Assignment { target, value, .. } => {
-                self.visit_associative_arithmetic_lvalue_into(target, flow, nested_regions);
-                self.visit_associative_arithmetic_key_into(value, flow, nested_regions);
-            }
-        }
-    }
-
-    pub(super) fn visit_associative_arithmetic_lvalue_into(
-        &mut self,
-        target: &'a ArithmeticLvalue,
-        flow: FlowState,
-        nested_regions: &mut Vec<IsolatedRegion>,
-    ) {
-        match target {
-            ArithmeticLvalue::Variable(_) => {}
-            ArithmeticLvalue::Indexed { index, .. } => {
-                self.visit_associative_arithmetic_key_into(index, flow, nested_regions);
+        // Iterative for the same reason as `visit_arithmetic_expr_into`.
+        let mut work = vec![expr];
+        while let Some(expr) = work.pop() {
+            match &expr.kind {
+                ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
+                ArithmeticExpr::Indexed { index, .. } => work.push(index),
+                ArithmeticExpr::ShellWord(word) => {
+                    self.visit_word_into(word, WordVisitKind::Expansion, flow, nested_regions);
+                }
+                ArithmeticExpr::Parenthesized { expression } => work.push(expression),
+                ArithmeticExpr::Unary { expr: inner, .. }
+                | ArithmeticExpr::Postfix { expr: inner, .. } => work.push(inner),
+                ArithmeticExpr::Binary { left, right, .. } => {
+                    work.push(right);
+                    work.push(left);
+                }
+                ArithmeticExpr::Conditional {
+                    condition,
+                    then_expr,
+                    else_expr,
+                } => {
+                    work.push(else_expr);
+                    work.push(then_expr);
+                    work.push(condition);
+                }
+                ArithmeticExpr::Assignment { target, value, .. } => {
+                    work.push(value);
+                    if let ArithmeticLvalue::Indexed { index, .. } = target {
+                        work.push(index);
+                    }
+                }
             }
         }
     }
@@ -428,26 +430,46 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         }
     }
 
-    pub(super) fn visit_arithmetic_assignment_into(
+    /// Runs the part of an arithmetic assignment that precedes visiting its value: target
+    /// indices, the compound-operator read, and the binding attributes as seen at the target.
+    fn start_arithmetic_assignment(
         &mut self,
         target: &'a ArithmeticLvalue,
         target_span: Span,
         op: ArithmeticAssignOp,
-        value: &'a ArithmeticExprNode,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
-    ) {
+    ) -> PendingArithmeticAssignment<'a> {
         let name = match target {
             ArithmeticLvalue::Variable(name) | ArithmeticLvalue::Indexed { name, .. } => name,
         };
         let name_span = arithmetic_name_span(target_span, name);
         let reference_start = self.references.len();
         self.visit_arithmetic_lvalue_indices_into(target, flow, nested_regions);
-        let mut attributes = self.arithmetic_binding_attributes(target, target_span.start.offset());
+        let attributes = self.arithmetic_binding_attributes(target, target_span.start.offset());
         if !matches!(op, ArithmeticAssignOp::Assign) {
             self.add_reference(name, self.arithmetic_reference_kind, name_span);
         }
-        self.visit_arithmetic_expr_into(value, flow, nested_regions);
+        PendingArithmeticAssignment {
+            target,
+            target_span,
+            name,
+            name_span,
+            reference_start,
+            attributes,
+        }
+    }
+
+    /// Records the binding for an arithmetic assignment once its value has been visited.
+    fn finish_arithmetic_assignment(&mut self, assignment: PendingArithmeticAssignment<'a>) {
+        let PendingArithmeticAssignment {
+            target,
+            target_span,
+            name,
+            name_span,
+            reference_start,
+            mut attributes,
+        } = assignment;
         let self_referential_refs =
             self.newly_added_reference_ids_reading_name(name, reference_start);
         if !self_referential_refs.is_empty() {
@@ -481,6 +503,20 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             }
         }
     }
+}
+
+enum ArithmeticWork<'a> {
+    Expr(&'a ArithmeticExprNode),
+    FinishAssignment(PendingArithmeticAssignment<'a>),
+}
+
+struct PendingArithmeticAssignment<'a> {
+    target: &'a ArithmeticLvalue,
+    target_span: Span,
+    name: &'a Name,
+    name_span: Span,
+    reference_start: usize,
+    attributes: BindingAttributes,
 }
 
 fn conditional_expr_is_logical_binary(expression: &ConditionalExpr) -> bool {

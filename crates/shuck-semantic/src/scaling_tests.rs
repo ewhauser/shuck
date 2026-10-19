@@ -277,3 +277,49 @@ fn analyzed_path_lookup_normalizes_parent_components() {
         Some(&analyzed)
     ));
 }
+
+#[test]
+fn long_arithmetic_operator_chains_do_not_recurse_per_operator() {
+    // Past the ~5.4k terms that overflowed the old per-operator recursion in debug builds.
+    let terms = 6_000;
+    // Parsing, indexing, and dropping such a deep tree still recurse, so those run on a large
+    // stack; only the semantic build runs on the small one.
+    let (y_reads, z_bindings) = thread::Builder::new()
+        .stack_size(256 * 1024 * 1024)
+        .spawn(move || {
+            let sum = vec!["y"; terms].join("+");
+            let source = format!("#!/bin/bash\ny=1\necho $(({sum}))\n: $((z = y + y, z += y))\n");
+            let output = Parser::new(&source).parse().unwrap();
+            let indexer = Indexer::new(&source, &output);
+            thread::scope(|scope| {
+                thread::Builder::new()
+                    .stack_size(1024 * 1024)
+                    .spawn_scoped(scope, || {
+                        let model = SemanticModel::build(&output.file, &source, &indexer);
+                        let y_reads = model
+                            .references()
+                            .iter()
+                            .filter(|reference| reference.name == "y")
+                            .count();
+                        let z_bindings = model
+                            .bindings()
+                            .iter()
+                            .filter(|binding| {
+                                binding.name == "z"
+                                    && binding.kind == BindingKind::ArithmeticAssignment
+                            })
+                            .count();
+                        (y_reads, z_bindings)
+                    })
+                    .unwrap()
+                    .join()
+                    .unwrap()
+            })
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+
+    assert_eq!(y_reads, terms + 3);
+    assert_eq!(z_bindings, 2);
+}
