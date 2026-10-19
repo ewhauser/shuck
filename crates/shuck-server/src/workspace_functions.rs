@@ -31,6 +31,11 @@ use crate::session::{ClientOptions, RequestCancellationToken, WorkspaceSettingsS
 use crate::symbols::WorkspaceOpenDocument;
 use crate::workspace_variables::{WorkspaceVariableIndex, WorkspaceVariableTarget};
 
+/// Total bytes of closed-file source one index build will load and retain.
+/// Together with the per-file cap this bounds the memory a build can pin,
+/// whatever `max_files` is set to.
+const MAX_CLOSED_SOURCE_BYTES: usize = 128 * 1024 * 1024;
+
 /// Immutable session state needed to build or query the cross-file symbol index.
 pub(crate) struct WorkspaceFunctionContext {
     pub(crate) workspace_roots: Vec<PathBuf>,
@@ -194,6 +199,8 @@ impl WorkspaceFunctionIndex {
             .iter()
             .map(|(path, _)| path.clone())
             .collect::<BTreeSet<_>>();
+        let source_scope = SourceTargetScope::new(context, &open_paths);
+        let mut closed_source_bytes = 0usize;
 
         for (path, open) in &open_docs {
             if context.cancellation.is_cancelled() {
@@ -221,6 +228,7 @@ impl WorkspaceFunctionIndex {
                 },
                 &resolution,
                 &open_paths,
+                &source_scope,
             );
         }
 
@@ -239,7 +247,7 @@ impl WorkspaceFunctionIndex {
             if context.cancellation.is_cancelled() {
                 return None;
             }
-            let Ok(source) = std::fs::read_to_string(&file) else {
+            let Some(source) = read_closed_source(&file, &mut closed_source_bytes) else {
                 complete = false;
                 continue;
             };
@@ -261,6 +269,7 @@ impl WorkspaceFunctionIndex {
                 },
                 &resolution,
                 &open_paths,
+                &source_scope,
             );
         }
 
@@ -294,7 +303,7 @@ impl WorkspaceFunctionIndex {
                     .iter()
                     .find_map(|(path, open)| (path == &target).then_some(*open))
                 else {
-                    let Ok(source) = std::fs::read_to_string(&target) else {
+                    let Some(source) = read_closed_source(&target, &mut closed_source_bytes) else {
                         complete = false;
                         graph.insert(target.clone(), FileCallFacts::default());
                         continue;
@@ -318,6 +327,7 @@ impl WorkspaceFunctionIndex {
                         },
                         &resolution,
                         &open_paths,
+                        &source_scope,
                     );
                     continue;
                 };
@@ -335,6 +345,7 @@ impl WorkspaceFunctionIndex {
                     },
                     &resolution,
                     &open_paths,
+                    &source_scope,
                 );
             }
         }
@@ -685,6 +696,7 @@ fn insert_file(
     input: WorkspaceFileInput<'_>,
     source_paths: &SourcePathResolution,
     open_paths: &BTreeSet<PathBuf>,
+    source_scope: &SourceTargetScope,
 ) {
     let key = canonical_path(input.path);
     let open_uri = input.version.is_some().then(|| input.uri.clone());
@@ -713,7 +725,10 @@ fn insert_file(
             candidates
                 .into_iter()
                 .map(|candidate| canonical_path(&candidate))
-                .find(|candidate| open_paths.contains(candidate) || candidate.is_file())
+                .find(|candidate| {
+                    open_paths.contains(candidate)
+                        || (candidate.is_file() && source_scope.allows(candidate, source_paths))
+                })
                 .map(|target| CallFactSourceEdge {
                     path: target,
                     span: source_ref.span,
@@ -742,6 +757,80 @@ fn insert_file(
     );
 }
 
+/// Read a closed file for the index, charging it against the build's total
+/// source budget. Returns `None` for unreadable, oversized, or over-budget
+/// files, which leave the index incomplete.
+fn read_closed_source(path: &Path, closed_source_bytes: &mut usize) -> Option<String> {
+    let remaining = MAX_CLOSED_SOURCE_BYTES.saturating_sub(*closed_source_bytes);
+    let max_bytes = crate::workspace::MAX_WORKSPACE_FILE_BYTES.min(remaining);
+    match crate::workspace::read_source_bounded(path, max_bytes) {
+        Ok(Some(source)) => {
+            *closed_source_bytes += source.len();
+            Some(source)
+        }
+        Ok(None) => {
+            tracing::debug!(
+                "workspace functions: skipping {} because it exceeds the source budget",
+                path.display()
+            );
+            None
+        }
+        Err(error) => {
+            tracing::debug!(
+                "workspace functions: failed to read {}: {error}",
+                path.display()
+            );
+            None
+        }
+    }
+}
+
+/// Directories a `source` edge may follow a closed file into.
+///
+/// Edges are confined to the workspace, the directories of open buffers, and
+/// each file's project root and configured `source-path` roots, so a script
+/// naming an arbitrary absolute path cannot make the server load files from
+/// elsewhere on disk.
+struct SourceTargetScope {
+    roots: Vec<PathBuf>,
+}
+
+impl SourceTargetScope {
+    fn new(context: &WorkspaceFunctionContext, open_paths: &BTreeSet<PathBuf>) -> Self {
+        let mut roots = context
+            .workspace_roots
+            .iter()
+            .chain(&context.settings_workspace_roots)
+            .map(|root| canonical_path(root))
+            .chain(
+                open_paths
+                    .iter()
+                    .filter_map(|path| path.parent().map(Path::to_path_buf)),
+            )
+            .collect::<Vec<_>>();
+        roots.sort();
+        roots.dedup();
+        Self { roots }
+    }
+
+    fn allows(&self, target: &Path, source_paths: &SourcePathResolution) -> bool {
+        if self.roots.iter().any(|root| target.starts_with(root))
+            || target.starts_with(canonical_path(&source_paths.project_root))
+        {
+            return true;
+        }
+        source_paths.roots.iter().any(|root| {
+            let root = Path::new(root);
+            let root = if root.is_absolute() {
+                root.to_path_buf()
+            } else {
+                source_paths.project_root.join(root)
+            };
+            target.starts_with(canonical_path(&root))
+        })
+    }
+}
+
 struct ClosedFileDiscovery {
     files: Vec<PathBuf>,
     complete: bool,
@@ -753,7 +842,7 @@ fn discover_closed_shell_files(
     max_files: usize,
     cancellation: &RequestCancellationToken,
 ) -> Option<ClosedFileDiscovery> {
-    use shuck_discover::{DiscoveryOptions, FileKind, discover_files};
+    use shuck_discover::{DiscoveryOptions, FileKind, discover_files_with_status};
 
     let mut files = BTreeSet::new();
     let mut complete = true;
@@ -761,17 +850,27 @@ fn discover_closed_shell_files(
         if cancellation.is_cancelled() {
             return None;
         }
-        let discovered = match discover_files(
+        // Stop each walk once enough files are retained rather than walking
+        // the whole tree and truncating afterwards. Open buffers are skipped
+        // below, so leave room for them plus one file to detect truncation.
+        let limit = max_files
+            .saturating_sub(files.len())
+            .saturating_add(open_paths.len())
+            .saturating_add(1);
+        let discovered = match discover_files_with_status(
             std::slice::from_ref(root),
             root,
             &DiscoveryOptions {
                 respect_gitignore: true,
                 parallel: true,
                 use_config_roots: true,
+                max_files: Some(limit),
+                cancellation: Some(cancellation.discovery_token()),
+                include_embedded: false,
                 ..DiscoveryOptions::default()
             },
         ) {
-            Ok(files) => files,
+            Ok(result) => result,
             Err(error) => {
                 complete = false;
                 tracing::warn!(
@@ -781,10 +880,11 @@ fn discover_closed_shell_files(
                 continue;
             }
         };
-        for file in discovered {
-            if cancellation.is_cancelled() {
-                return None;
-            }
+        if cancellation.is_cancelled() {
+            return None;
+        }
+        complete &= discovered.complete;
+        for file in discovered.files {
             if file.kind != FileKind::Shell {
                 continue;
             }
@@ -794,12 +894,15 @@ fn discover_closed_shell_files(
             }
             files.insert(path);
         }
+        if files.len() > max_files {
+            break;
+        }
     }
     if files.len() > max_files {
         complete = false;
         tracing::warn!(
-            "workspace functions: workspace has {} closed shell files; indexing only {max_files}",
-            files.len()
+            "workspace functions: workspace has more than {max_files} closed shell files; \
+             indexing only {max_files}"
         );
     }
     Some(ClosedFileDiscovery {
@@ -904,6 +1007,59 @@ mod tests {
         std::fs::create_dir_all(workspace.join("vendored")).unwrap();
         std::fs::write(workspace.join(".gitignore"), "vendored/\n").unwrap();
         std::fs::write(workspace.join("vendored/edge.sh"), "edge_fn() { :; }\n").unwrap();
+    }
+
+    fn context_with_open_source(workspace: &Path, source: String) -> WorkspaceFunctionContext {
+        let mut context = context_for(workspace, 100);
+        context.open_documents = vec![WorkspaceOpenDocument {
+            uri: types::Url::from_file_path(workspace.join("main.sh")).unwrap(),
+            document: Arc::new(TextDocument::new(source, 1).with_language_id("shellscript")),
+        }];
+        context
+    }
+
+    #[test]
+    fn source_edges_are_not_followed_outside_the_workspace() {
+        let workspace_dir = tempfile::tempdir().unwrap();
+        let workspace = std::fs::canonicalize(workspace_dir.path()).unwrap();
+        let outside_dir = tempfile::tempdir().unwrap();
+        let outside = std::fs::canonicalize(outside_dir.path()).unwrap();
+        let outside_target = outside.join("secret.sh");
+        std::fs::write(&outside_target, "outside_fn() { :; }\n").unwrap();
+        let inside_target = workspace.join("lib.sh");
+        std::fs::write(&inside_target, "inside_fn() { :; }\n").unwrap();
+
+        let context = context_with_open_source(
+            &workspace,
+            format!(
+                "source {}\nsource {}\noutside_fn\ninside_fn\n",
+                outside_target.display(),
+                inside_target.display()
+            ),
+        );
+        let built = WorkspaceFunctionIndex::build(&context).unwrap();
+
+        assert!(built.contains(&inside_target));
+        assert!(!built.contains(&outside_target));
+        assert!(built.file(&outside_target).is_none());
+    }
+
+    #[test]
+    fn oversized_closed_files_are_skipped_and_mark_partial_builds() {
+        let workspace_dir = tempfile::tempdir().unwrap();
+        let workspace = std::fs::canonicalize(workspace_dir.path()).unwrap();
+        let large = workspace.join("large.sh");
+        let mut source = "big_fn() { :; }\n".to_owned();
+        source.push_str(&"#".repeat(crate::workspace::MAX_WORKSPACE_FILE_BYTES));
+        std::fs::write(&large, source).unwrap();
+        std::fs::write(workspace.join("small.sh"), "small_fn() { :; }\n").unwrap();
+
+        let context = context_with_open_source(&workspace, "small_fn\n".to_owned());
+        let built = WorkspaceFunctionIndex::build(&context).unwrap();
+
+        assert!(built.contains(&workspace.join("small.sh")));
+        assert!(built.file(&large).is_none());
+        assert!(!built.is_complete());
     }
 
     #[test]
