@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.5](https://github.com/ewhauser/shuck/compare/v0.2.4...v0.2.5) (2026-10-19)
+
+
+### Features
+
+* **formatter:** add range formatting support ([#1314](https://github.com/ewhauser/shuck/issues/1314)) ([e0ee308](https://github.com/ewhauser/shuck/commit/e0ee3085df0f89502c17c77ae8f0232b80b43242))
+
+
+### Bug Fixes
+
+* **linter:** guard recovered quote span past EOF ([#1316](https://github.com/ewhauser/shuck/issues/1316)) ([3c25904](https://github.com/ewhauser/shuck/commit/3c259040310e0ffe7fcd2c27566f9bfaa2eefda1))
+* **linter:** preserve single-argument zsh slices ([#1319](https://github.com/ewhauser/shuck/issues/1319)) ([f0c1141](https://github.com/ewhauser/shuck/commit/f0c11413ad4a773b443359d220055c46d1f0f549))
+
 ## [0.2.4](https://github.com/ewhauser/shuck/compare/v0.2.3...v0.2.4) (2026-10-10)
 
 
