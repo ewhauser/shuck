@@ -27,7 +27,6 @@ clearscreen = { workspace = true }
 clap = { workspace = true }
 colored = { workspace = true }
 etcetera = { workspace = true }
-globset = { workspace = true }
 notify = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }

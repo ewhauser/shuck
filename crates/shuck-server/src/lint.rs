@@ -165,6 +165,7 @@ pub(crate) fn collect_raw_diagnostics_for_analysis(
     )
     .with_optional_source_path(analysis.path())
     .with_shellcheck_map(&shellcheck_map)
+    .with_plugin_resolver(snapshot.shuck_settings().zsh_plugins())
     .lint();
     let parse_error = analysis.parse_result().is_err().then(|| {
         let shuck_parser::Error::Parse {

@@ -42,7 +42,8 @@ use crate::facts::FormatterFacts;
 
 /// Formatter option types exposed by the shell formatter.
 pub use crate::options::{
-    IndentStyle, LineEnding, ResolvedShellFormatOptions, ShellDialect, ShellFormatOptions,
+    FormatSettingsPatch, IndentStyle, LineEnding, ResolvedShellFormatOptions, ShellDialect,
+    ShellFormatOptions,
 };
 pub use crate::range::{FormattedRange, format_range};
 pub use shuck_ast::{TextRange, TextSize};

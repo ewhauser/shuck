@@ -73,6 +73,21 @@ pub fn run() -> Result<()> {
     }
 }
 
+/// Returns the linter settings the language server would use for `file_path`.
+///
+/// Exposed so the CLI can test that both front ends resolve the same
+/// `.shuck.toml` identically; not a stable API.
+#[doc(hidden)]
+pub fn resolve_linter_settings_for_file(
+    file_path: &std::path::Path,
+    workspace_roots: &[std::path::PathBuf],
+    options: &ClientOptions,
+) -> shuck_linter::LinterSettings {
+    session::ShuckSettings::resolve(Some(file_path), workspace_roots, &[options])
+        .linter()
+        .clone()
+}
+
 #[doc(hidden)]
 pub fn run_connection(connection: lsp_server::Connection) -> Result<()> {
     let four = NonZeroUsize::try_from(4usize)

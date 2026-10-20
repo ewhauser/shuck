@@ -48,6 +48,19 @@ impl ShellDialect {
         }
     }
 
+    /// The lowercase name accepted by [`Self::from_name`], or `unknown`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Sh => "sh",
+            Self::Bash => "bash",
+            Self::Dash => "dash",
+            Self::Ksh => "ksh",
+            Self::Mksh => "mksh",
+            Self::Zsh => "zsh",
+        }
+    }
+
     pub fn infer(source: &str, path: Option<&Path>) -> Self {
         let path_dialect = path.map_or(Self::Unknown, Self::infer_from_path);
         let shebang_dialect = Self::infer_from_shebang(source);

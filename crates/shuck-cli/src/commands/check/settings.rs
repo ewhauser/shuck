@@ -1,33 +1,26 @@
-use std::collections::{BTreeMap, HashMap};
-use std::env;
-use std::path::{Path, PathBuf};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
-use globset::{Glob, GlobMatcher};
+use anyhow::Result;
 use shuck_cache::{CacheKey, CacheKeyHasher};
-use shuck_config::{
-    ConfigArguments, LintConfig, LintContractActivationTypeConfig, LintContractWhenConfig,
-    LintContractsConfig, LintCustomContractConfig, ShuckConfig, ZshPluginEntrypointConfig,
-    ZshPluginLoadConfig, ZshThemeLoadConfig, load_project_config,
+#[cfg(test)]
+pub(super) use shuck_config::resolve::parse_rule_selectors;
+use shuck_config::resolve::{
+    ParsedOverride, PerFileIgnoreSpec, ResolvePolicy, ResolvedZshPluginSettings,
+    RuleSelectionLayer, SettingsOverride, SettingsResolver, ZshLoadSpec, ZshPluginEntrypointSpec,
+    ZshPluginLayer,
 };
-use shuck_linter::{
-    AmbientContractActivation, AmbientContractConfig, AmbientContractEffects, AmbientContractSpec,
-    AmbientFunctionContractSpec, CompiledPerFileIgnoreList, LinterSettings, PerFileIgnore,
-    ResolvedAmbientContracts, Rule, RuleSelector, RuleSet, ShellDialect,
-};
+use shuck_config::{ConfigArguments, load_project_config};
 pub(super) use shuck_linter::{CompiledPerFileShellList, PerFileShell};
-use shuck_semantic::{
-    PluginFramework, PluginRequest, PluginRequestKind, PluginResolution, PluginResolver,
-    resolve_zsh_plugin_entrypoint, resolve_zsh_plugin_source_paths, zsh_plugin_framework_from_name,
-    zsh_plugin_root_keys,
+use shuck_linter::{
+    LinterSettings, PerFileIgnore, ResolvedAmbientContracts, RuleSelector, RuleSet,
 };
 
 use crate::args::{
     PatternFrameworkNameTriple, PatternPathPair, PatternRuleSelectorPair, PatternShellPair,
     RuleSelectionArgs, ZshPluginArgs,
 };
-use crate::discover::{ProjectRoot, normalize_path};
+use crate::discover::ProjectRoot;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct EffectiveCheckSettings {
@@ -151,7 +144,7 @@ impl EffectiveCheckSettings {
             .iter()
             .map(|shell| EffectivePerFileShell {
                 pattern: shell.pattern().to_owned(),
-                shell: shell_name(shell.shell()).to_owned(),
+                shell: shell.shell().as_str().to_owned(),
             })
             .collect::<Vec<_>>();
 
@@ -161,7 +154,7 @@ impl EffectiveCheckSettings {
             per_file_shell,
             rule_options: EffectiveRuleOptions::new(rule_options),
             ambient_contracts: EffectiveAmbientContractSettings::new(ambient_contracts),
-            zsh_plugins: zsh_plugins.effective(),
+            zsh_plugins: EffectiveZshPluginSettings::new(zsh_plugins),
             source_paths,
             lint_sources,
             embedded_enabled,
@@ -294,6 +287,57 @@ impl CacheKey for EffectiveAmbientContractSettings {
     }
 }
 
+impl EffectiveZshPluginSettings {
+    fn new(settings: &ResolvedZshPluginSettings) -> Self {
+        let mut roots = settings
+            .roots()
+            .iter()
+            .map(|(framework, path)| (framework.clone(), path.to_string_lossy().into_owned()))
+            .collect::<Vec<_>>();
+        roots.sort_by(|left, right| left.0.cmp(&right.0));
+
+        let effective_loads = |loads: &[shuck_config::resolve::CompiledZshLoad]| {
+            let mut loads = loads
+                .iter()
+                .map(|load| EffectiveZshPluginLoad {
+                    pattern: load.pattern().to_owned(),
+                    framework: load.framework().to_owned(),
+                    name: load.name().to_owned(),
+                })
+                .collect::<Vec<_>>();
+            loads.sort_by(|left, right| {
+                left.pattern
+                    .cmp(&right.pattern)
+                    .then(left.framework.cmp(&right.framework))
+                    .then(left.name.cmp(&right.name))
+            });
+            loads
+        };
+
+        let mut entrypoints = settings
+            .entrypoints()
+            .iter()
+            .map(|entrypoint| EffectiveZshPluginEntrypoint {
+                pattern: entrypoint.pattern().to_owned(),
+                paths: entrypoint
+                    .paths()
+                    .iter()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .collect(),
+            })
+            .collect::<Vec<_>>();
+        entrypoints.sort_by(|left, right| left.pattern.cmp(&right.pattern));
+
+        Self {
+            resolution_enabled: settings.is_enabled(),
+            roots,
+            plugin_loads: effective_loads(settings.plugin_loads()),
+            theme_loads: effective_loads(settings.theme_loads()),
+            entrypoints,
+        }
+    }
+}
+
 impl CacheKey for EffectiveZshPluginSettings {
     fn cache_key(&self, state: &mut CacheKeyHasher) {
         state.write_tag(b"effective-zsh-plugin-settings");
@@ -343,484 +387,6 @@ impl CacheKey for ResolvedCheckSettings {
         self.effective.cache_key(state);
     }
 }
-#[derive(Debug, Clone, Default)]
-struct RuleSelectionLayer {
-    select: Option<Vec<RuleSelector>>,
-    ignore: Vec<RuleSelector>,
-    extend_select: Vec<RuleSelector>,
-    per_file_ignores: Option<Vec<PerFileIgnoreSpec>>,
-    extend_per_file_ignores: Vec<PerFileIgnoreSpec>,
-    per_file_shell: Option<Vec<PerFileShell>>,
-    extend_per_file_shell: Vec<PerFileShell>,
-    fixable: Option<Vec<RuleSelector>>,
-    unfixable: Vec<RuleSelector>,
-    extend_fixable: Vec<RuleSelector>,
-}
-
-#[derive(Debug, Clone, Default)]
-struct ZshPluginLayer {
-    resolution: Option<bool>,
-    roots: Option<BTreeMap<String, String>>,
-    extend_roots: BTreeMap<String, String>,
-    plugin_loads: Option<Vec<ZshPluginLoadSpec>>,
-    extend_plugin_loads: Vec<ZshPluginLoadSpec>,
-    theme_loads: Option<Vec<ZshThemeLoadSpec>>,
-    extend_theme_loads: Vec<ZshThemeLoadSpec>,
-    entrypoints: Option<Vec<ZshPluginEntrypointSpec>>,
-    extend_entrypoints: Vec<ZshPluginEntrypointSpec>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ZshPluginLoadSpec {
-    pattern: String,
-    framework: String,
-    name: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ZshThemeLoadSpec {
-    pattern: String,
-    framework: String,
-    name: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ZshPluginEntrypointSpec {
-    pattern: String,
-    paths: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct PerFileIgnoreSpec {
-    pattern: String,
-    selectors: Vec<RuleSelector>,
-}
-
-impl PerFileIgnoreSpec {
-    fn into_ignore(self) -> PerFileIgnore {
-        let rules = self
-            .selectors
-            .into_iter()
-            .fold(RuleSet::EMPTY, |rules, selector| {
-                rules.union(&selector.into_rule_set())
-            });
-        PerFileIgnore::new(self.pattern, rules)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct ResolvedZshPluginSettings {
-    enabled: bool,
-    project_root: PathBuf,
-    ambient_contracts: Arc<ResolvedAmbientContracts>,
-    roots: BTreeMap<String, PathBuf>,
-    plugin_loads: Vec<CompiledZshPluginLoad>,
-    theme_loads: Vec<CompiledZshThemeLoad>,
-    entrypoints: Vec<CompiledZshPluginEntrypoint>,
-}
-
-#[derive(Debug, Clone)]
-struct CompiledZshPluginLoad {
-    matcher: CompiledPathMatcher,
-    framework: String,
-    name: String,
-}
-
-#[derive(Debug, Clone)]
-struct CompiledZshThemeLoad {
-    matcher: CompiledPathMatcher,
-    framework: String,
-    name: String,
-}
-
-#[derive(Debug, Clone)]
-struct CompiledZshPluginEntrypoint {
-    matcher: CompiledPathMatcher,
-    paths: Vec<PathBuf>,
-}
-
-#[derive(Debug, Clone)]
-struct CompiledPathMatcher {
-    pattern: String,
-    basename_matcher: GlobMatcher,
-    relative_matcher: GlobMatcher,
-    absolute_matcher: GlobMatcher,
-    negated: bool,
-}
-
-impl ResolvedZshPluginSettings {
-    fn resolve(
-        project_root: impl Into<PathBuf>,
-        enabled: bool,
-        ambient_contracts: Arc<ResolvedAmbientContracts>,
-        roots: BTreeMap<String, String>,
-        plugin_loads: Vec<ZshPluginLoadSpec>,
-        theme_loads: Vec<ZshThemeLoadSpec>,
-        entrypoints: Vec<ZshPluginEntrypointSpec>,
-    ) -> Result<Self> {
-        let project_root = project_root.into();
-        if !enabled {
-            return Ok(Self {
-                enabled,
-                project_root,
-                ambient_contracts,
-                roots: BTreeMap::new(),
-                plugin_loads: Vec::new(),
-                theme_loads: Vec::new(),
-                entrypoints: Vec::new(),
-            });
-        }
-        let roots = roots
-            .into_iter()
-            .map(|(framework, path)| {
-                Ok((framework, normalize_zsh_plugin_path(&project_root, &path)?))
-            })
-            .collect::<Result<BTreeMap<_, _>>>()?;
-        let plugin_loads = plugin_loads
-            .into_iter()
-            .map(|load| {
-                Ok(CompiledZshPluginLoad {
-                    matcher: CompiledPathMatcher::new(load.pattern)?,
-                    framework: load.framework,
-                    name: load.name,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let theme_loads = theme_loads
-            .into_iter()
-            .map(|load| {
-                Ok(CompiledZshThemeLoad {
-                    matcher: CompiledPathMatcher::new(load.pattern)?,
-                    framework: load.framework,
-                    name: load.name,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let entrypoints = entrypoints
-            .into_iter()
-            .map(|entrypoint| {
-                Ok(CompiledZshPluginEntrypoint {
-                    matcher: CompiledPathMatcher::new(entrypoint.pattern)?,
-                    paths: entrypoint
-                        .paths
-                        .into_iter()
-                        .map(|path| normalize_zsh_plugin_path(&project_root, &path))
-                        .collect::<Result<Vec<_>>>()?,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        Ok(Self {
-            enabled,
-            project_root,
-            ambient_contracts,
-            roots,
-            plugin_loads,
-            theme_loads,
-            entrypoints,
-        })
-    }
-
-    fn effective(&self) -> EffectiveZshPluginSettings {
-        let mut roots = self
-            .roots
-            .iter()
-            .map(|(framework, path)| (framework.clone(), path.to_string_lossy().into_owned()))
-            .collect::<Vec<_>>();
-        roots.sort_by(|left, right| left.0.cmp(&right.0));
-
-        let mut plugin_loads = self
-            .plugin_loads
-            .iter()
-            .map(|load| EffectiveZshPluginLoad {
-                pattern: load.matcher.pattern.clone(),
-                framework: load.framework.clone(),
-                name: load.name.clone(),
-            })
-            .collect::<Vec<_>>();
-        plugin_loads.sort_by(|left, right| {
-            left.pattern
-                .cmp(&right.pattern)
-                .then(left.framework.cmp(&right.framework))
-                .then(left.name.cmp(&right.name))
-        });
-
-        let mut theme_loads = self
-            .theme_loads
-            .iter()
-            .map(|load| EffectiveZshPluginLoad {
-                pattern: load.matcher.pattern.clone(),
-                framework: load.framework.clone(),
-                name: load.name.clone(),
-            })
-            .collect::<Vec<_>>();
-        theme_loads.sort_by(|left, right| {
-            left.pattern
-                .cmp(&right.pattern)
-                .then(left.framework.cmp(&right.framework))
-                .then(left.name.cmp(&right.name))
-        });
-
-        let mut entrypoints = self
-            .entrypoints
-            .iter()
-            .map(|entrypoint| EffectiveZshPluginEntrypoint {
-                pattern: entrypoint.matcher.pattern.clone(),
-                paths: entrypoint
-                    .paths
-                    .iter()
-                    .map(|path| path.to_string_lossy().into_owned())
-                    .collect(),
-            })
-            .collect::<Vec<_>>();
-        entrypoints.sort_by(|left, right| left.pattern.cmp(&right.pattern));
-
-        EffectiveZshPluginSettings {
-            resolution_enabled: self.enabled,
-            roots,
-            plugin_loads,
-            theme_loads,
-            entrypoints,
-        }
-    }
-}
-
-impl PluginResolver for ResolvedZshPluginSettings {
-    fn additional_plugin_requests(&self, source_path: &Path) -> Vec<PluginRequest> {
-        if !self.enabled {
-            return Vec::new();
-        }
-
-        let mut requests = self
-            .plugin_loads
-            .iter()
-            .filter(|load| load.matcher.matches(&self.project_root, source_path))
-            .map(|load| PluginRequest {
-                framework: plugin_framework_from_name(&load.framework),
-                kind: PluginRequestKind::Plugin,
-                name: load.name.clone(),
-                span: shuck_ast::Span::new(),
-                explicit: true,
-                root_hint: None,
-            })
-            .collect::<Vec<_>>();
-        requests.extend(
-            self.theme_loads
-                .iter()
-                .filter(|load| load.matcher.matches(&self.project_root, source_path))
-                .map(|load| PluginRequest {
-                    framework: plugin_framework_from_name(&load.framework),
-                    kind: PluginRequestKind::Theme,
-                    name: load.name.clone(),
-                    span: shuck_ast::Span::new(),
-                    explicit: true,
-                    root_hint: None,
-                }),
-        );
-        requests.extend(
-            self.entrypoints
-                .iter()
-                .filter(|entrypoint| entrypoint.matcher.matches(&self.project_root, source_path))
-                .flat_map(|entrypoint| entrypoint.paths.iter())
-                .map(|path| PluginRequest {
-                    framework: PluginFramework::ExplicitFilesystem,
-                    kind: PluginRequestKind::Entrypoint,
-                    name: path.to_string_lossy().into_owned(),
-                    span: shuck_ast::Span::new(),
-                    explicit: true,
-                    root_hint: None,
-                }),
-        );
-        requests
-    }
-
-    fn resolve_source_path(&self, source_path: &Path, candidate: &str) -> Vec<PathBuf> {
-        if !self.enabled {
-            return Vec::new();
-        }
-
-        resolve_zsh_plugin_source_paths(
-            self.roots
-                .iter()
-                .map(|(framework, root)| (framework.as_str(), root.as_path())),
-            source_path,
-            candidate,
-        )
-    }
-
-    fn resolve_plugin_request(
-        &self,
-        source_path: &Path,
-        request: &PluginRequest,
-    ) -> PluginResolution {
-        if !self.enabled {
-            return PluginResolution::default();
-        }
-
-        match request.kind {
-            PluginRequestKind::Entrypoint => {
-                let path = PathBuf::from(&request.name);
-                PluginResolution {
-                    entrypoints: vec![path],
-                    file_entry_contracts: Vec::new(),
-                    requesting_file_contract: Default::default(),
-                }
-            }
-            PluginRequestKind::Plugin | PluginRequestKind::Theme => {
-                let request_contracts = self
-                    .ambient_contracts
-                    .request_contracts_for_plugin(source_path, request);
-                let entrypoint = request
-                    .root_hint
-                    .clone()
-                    .or_else(|| plugin_root_for_request(self, request))
-                    .and_then(|root| resolve_zsh_plugin_entrypoint(&root, request));
-
-                PluginResolution {
-                    entrypoints: entrypoint.into_iter().collect(),
-                    file_entry_contracts: request_contracts.imported_contracts,
-                    requesting_file_contract: request_contracts.requesting_file_contract,
-                }
-            }
-        }
-    }
-}
-
-impl CompiledPathMatcher {
-    fn new(pattern: String) -> Result<Self> {
-        let mut matcher_pattern = pattern.clone();
-        let negated = matcher_pattern.starts_with('!');
-        if negated {
-            matcher_pattern.drain(..1);
-        }
-
-        Ok(Self {
-            pattern,
-            basename_matcher: Glob::new(&matcher_pattern)
-                .map_err(|err| anyhow!("invalid glob {matcher_pattern:?}: {err}"))?
-                .compile_matcher(),
-            relative_matcher: Glob::new(&matcher_pattern)
-                .map_err(|err| anyhow!("invalid glob {matcher_pattern:?}: {err}"))?
-                .compile_matcher(),
-            absolute_matcher: Glob::new(&matcher_pattern)
-                .map_err(|err| anyhow!("invalid glob {matcher_pattern:?}: {err}"))?
-                .compile_matcher(),
-            negated,
-        })
-    }
-
-    fn matches(&self, project_root: &Path, path: &Path) -> bool {
-        let relative_path = path.strip_prefix(project_root).unwrap_or(path);
-        let Some(file_name) = relative_path.file_name().or_else(|| path.file_name()) else {
-            return false;
-        };
-        let matches = self.basename_matcher.is_match(file_name)
-            || self.relative_matcher.is_match(relative_path)
-            || per_file_shell_absolute_match(&self.absolute_matcher, path);
-        if self.negated { !matches } else { matches }
-    }
-}
-
-fn per_file_shell_absolute_match(matcher: &GlobMatcher, path: &Path) -> bool {
-    matcher.is_match(path)
-        || matcher.is_match(normalize_path(path))
-        || slash_normalized_match_path(path)
-            .as_deref()
-            .is_some_and(|normalized| matcher.is_match(normalized))
-        || normalized_absolute_shell_match_path(path)
-            .as_ref()
-            .is_some_and(|normalized| {
-                matcher.is_match(normalized)
-                    || slash_normalized_match_path(normalized)
-                        .as_deref()
-                        .is_some_and(|slash_normalized| matcher.is_match(slash_normalized))
-            })
-}
-
-fn plugin_framework_from_name(name: &str) -> PluginFramework {
-    zsh_plugin_framework_from_name(name)
-}
-
-fn plugin_root_for_request(
-    settings: &ResolvedZshPluginSettings,
-    request: &PluginRequest,
-) -> Option<PathBuf> {
-    if let Some(root_keys) = zsh_plugin_root_keys(&request.framework) {
-        return configured_plugin_roots(settings, root_keys).next().cloned();
-    }
-    match &request.framework {
-        PluginFramework::Other(other) => settings.roots.get(other.as_str()).cloned(),
-        PluginFramework::ExplicitFilesystem => None,
-        _ => None,
-    }
-}
-
-fn configured_plugin_roots<'a>(
-    settings: &'a ResolvedZshPluginSettings,
-    keys: &'static [&'static str],
-) -> impl Iterator<Item = &'a PathBuf> {
-    keys.iter().filter_map(|key| settings.roots.get(*key))
-}
-
-fn normalize_zsh_plugin_path(project_root: &Path, value: &str) -> Result<PathBuf> {
-    let expanded = expand_zsh_plugin_path(value)?;
-    let path = PathBuf::from(expanded);
-    let resolved = if path.is_absolute() {
-        path
-    } else {
-        project_root.join(path)
-    };
-    Ok(normalize_path(&resolved))
-}
-
-fn expand_zsh_plugin_path(value: &str) -> Result<String> {
-    if value == "~" || value.starts_with("~/") {
-        let home = home_dir_string()?;
-        return Ok(if value == "~" {
-            home
-        } else {
-            format!("{home}/{}", &value[2..])
-        });
-    }
-    if value == "$HOME" || value.starts_with("$HOME/") {
-        let home = home_dir_string()?;
-        return Ok(if value == "$HOME" {
-            home
-        } else {
-            format!("{home}/{}", &value["$HOME/".len()..])
-        });
-    }
-    if value == "${HOME}" || value.starts_with("${HOME}/") {
-        let home = home_dir_string()?;
-        return Ok(if value == "${HOME}" {
-            home
-        } else {
-            format!("{home}/{}", &value["${HOME}/".len()..])
-        });
-    }
-
-    Ok(value.to_owned())
-}
-
-fn home_dir_string() -> Result<String> {
-    env::var("HOME").map_err(|_| anyhow!("$HOME must be set to resolve zsh plugin paths"))
-}
-
-fn normalized_absolute_shell_match_path(path: &Path) -> Option<PathBuf> {
-    let path = path.to_string_lossy();
-
-    if let Some(stripped) = path.strip_prefix(r"\\?\UNC\") {
-        return Some(PathBuf::from(format!(r"\\{stripped}")));
-    }
-
-    path.strip_prefix(r"\\?\").map(PathBuf::from)
-}
-
-fn slash_normalized_match_path(path: &Path) -> Option<PathBuf> {
-    let path = path.to_string_lossy();
-    path.contains('\\')
-        .then(|| PathBuf::from(path.replace('\\', "/")))
-}
 pub(super) fn resolve_project_check_settings(
     project_root: &ProjectRoot,
     config_arguments: &ConfigArguments,
@@ -828,525 +394,36 @@ pub(super) fn resolve_project_check_settings(
     cli_zsh_plugins: &ZshPluginArgs,
 ) -> Result<ResolvedCheckSettings> {
     let config = load_project_config(&project_root.storage_root, config_arguments)?;
-    let rule_layers = [
-        parse_config_rule_selection_layer(&config)?,
-        parse_cli_rule_selection_layer(cli_rule_selection),
-    ];
-    let zsh_layers = [
-        parse_lint_zsh_plugin_layer(&config.lint),
-        parse_cli_zsh_plugin_layer(cli_zsh_plugins),
-    ];
-    let rule_options = linter_rule_options_for_lint_config(&config.lint)?;
+    let overrides = [SettingsOverride::Parsed(Box::new(ParsedOverride {
+        rules: parse_cli_rule_selection_layer(cli_rule_selection),
+        zsh_plugins: parse_cli_zsh_plugin_layer(cli_zsh_plugins),
+    }))];
+    let resolved =
+        SettingsResolver::new(&project_root.canonical_root, &config, ResolvePolicy::Strict)
+            .with_overrides(&overrides)
+            .resolve_lint()?;
 
-    let mut enabled_rules = LinterSettings::default_rules();
-    let mut fixable_rules = RuleSet::all();
-    let mut per_file_ignores = Vec::new();
-    let mut per_file_shell = Vec::new();
-    let mut zsh_plugin_resolution_enabled = true;
-    let mut zsh_plugin_roots = BTreeMap::new();
-    let mut zsh_plugin_loads = Vec::new();
-    let mut zsh_theme_loads = Vec::new();
-    let mut zsh_entrypoints = Vec::new();
-
-    for layer in rule_layers {
-        enabled_rules = apply_rule_selector_layer(
-            enabled_rules,
-            layer.select.as_deref(),
-            &layer.extend_select,
-            &layer.ignore,
-        );
-        fixable_rules = apply_rule_selector_layer(
-            fixable_rules,
-            layer.fixable.as_deref(),
-            &layer.extend_fixable,
-            &layer.unfixable,
-        );
-        per_file_ignores = apply_per_file_ignore_layer(
-            per_file_ignores,
-            layer.per_file_ignores,
-            layer.extend_per_file_ignores,
-        );
-        per_file_shell = apply_per_file_shell_layer(
-            per_file_shell,
-            layer.per_file_shell,
-            layer.extend_per_file_shell,
-        );
-    }
-    for layer in zsh_layers {
-        if let Some(enabled) = layer.resolution {
-            zsh_plugin_resolution_enabled = enabled;
-        }
-        zsh_plugin_roots = apply_root_map_layer(zsh_plugin_roots, layer.roots, layer.extend_roots);
-        zsh_plugin_loads = apply_extend_layer(
-            zsh_plugin_loads,
-            layer.plugin_loads,
-            layer.extend_plugin_loads,
-        );
-        zsh_theme_loads =
-            apply_extend_layer(zsh_theme_loads, layer.theme_loads, layer.extend_theme_loads);
-        zsh_entrypoints =
-            apply_extend_layer(zsh_entrypoints, layer.entrypoints, layer.extend_entrypoints);
-    }
-
-    let compiled_per_file_ignores = CompiledPerFileIgnoreList::resolve(
-        project_root.canonical_root.clone(),
-        per_file_ignores.clone(),
-    )?;
-    let compiled_per_file_shell = CompiledPerFileShellList::resolve(
-        project_root.canonical_root.clone(),
-        per_file_shell.clone(),
-    )?;
-    let ambient_contracts = Arc::new(resolve_ambient_contracts(
-        project_root.canonical_root.as_path(),
-        config.lint.contracts.as_ref(),
-    )?);
-    let resolved_zsh_plugins = ResolvedZshPluginSettings::resolve(
-        project_root.canonical_root.clone(),
-        zsh_plugin_resolution_enabled,
-        Arc::clone(&ambient_contracts),
-        zsh_plugin_roots,
-        zsh_plugin_loads,
-        zsh_theme_loads,
-        zsh_entrypoints,
-    )?;
-    let embedded_enabled = config.check.embedded.unwrap_or(true);
-    let source_paths = config.lint.source_paths.clone().unwrap_or_default();
-    let lint_sources = config.lint.lint_sources.unwrap_or(true);
     let effective = EffectiveCheckSettings::new(
-        enabled_rules,
-        &per_file_ignores,
-        &per_file_shell,
-        &rule_options,
-        ambient_contracts.as_ref(),
-        &resolved_zsh_plugins,
-        source_paths.clone(),
-        lint_sources,
-        embedded_enabled,
+        resolved.linter.rules,
+        &resolved.per_file_ignores,
+        &resolved.per_file_shell,
+        &resolved.linter.rule_options,
+        resolved.linter.ambient_contracts.as_ref(),
+        &resolved.zsh_plugins,
+        resolved.source_paths.clone(),
+        resolved.lint_sources,
+        resolved.embedded,
     );
-    let mut linter_settings = LinterSettings::for_rules(enabled_rules.iter());
-    linter_settings.ambient_contracts = Arc::clone(&ambient_contracts);
-    linter_settings.per_file_ignores = Arc::new(compiled_per_file_ignores);
-    linter_settings.rule_options = rule_options;
 
     Ok(ResolvedCheckSettings {
-        linter_settings,
-        per_file_shell: Arc::new(compiled_per_file_shell),
-        zsh_plugins: Arc::new(resolved_zsh_plugins),
-        fixable_rules,
-        source_paths,
-        lint_sources,
+        linter_settings: resolved.linter,
+        per_file_shell: resolved.compiled_per_file_shell,
+        zsh_plugins: resolved.zsh_plugins,
+        fixable_rules: resolved.fixable_rules,
+        source_paths: resolved.source_paths,
+        lint_sources: resolved.lint_sources,
         effective,
-        embedded_enabled,
-    })
-}
-
-fn linter_rule_options_for_lint_config(
-    lint: &LintConfig,
-) -> Result<shuck_linter::LinterRuleOptions> {
-    let mut rule_options = shuck_linter::LinterRuleOptions::default();
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.c001.as_ref())
-        .and_then(|c001| c001.treat_indirect_expansion_targets_as_used)
-    {
-        rule_options.c001.treat_indirect_expansion_targets_as_used = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.c063.as_ref())
-        .and_then(|c063| c063.report_unreached_nested_definitions)
-    {
-        rule_options.c063.report_unreached_nested_definitions = value;
-    }
-    if let Some(kinds) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s082.as_ref())
-        .and_then(|s082| s082.kinds.as_ref())
-    {
-        rule_options.s082.kinds.clone_from(kinds);
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s082.as_ref())
-        .and_then(|s082| s082.require_owner)
-    {
-        rule_options.s082.require_owner = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s082.as_ref())
-        .and_then(|s082| s082.require_message)
-    {
-        rule_options.s082.require_message = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s078.as_ref())
-        .and_then(|s078| s078.allowed_shells.as_ref())
-    {
-        rule_options.s078.allowed_shells.clone_from(value);
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s079.as_ref())
-        .and_then(|s079| s079.allowed_forms.as_ref())
-    {
-        rule_options.s079.allowed_forms.clone_from(value);
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s079.as_ref())
-        .and_then(|s079| s079.allowed_paths.as_ref())
-    {
-        rule_options.s079.allowed_paths.clone_from(value);
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s080.as_ref())
-        .and_then(|s080| s080.max_lines)
-    {
-        rule_options.s080.max_lines = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s080.as_ref())
-        .and_then(|s080| s080.count.as_ref())
-    {
-        validate_s080_count_mode(value)?;
-        rule_options.s080.count.clone_from(value);
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s081.as_ref())
-        .and_then(|s081| s081.ignore_shebang_only_files)
-    {
-        rule_options.s081.ignore_shebang_only_files = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s084.as_ref())
-        .and_then(|s084| s084.require_globals)
-    {
-        rule_options.s084.require_globals = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s084.as_ref())
-        .and_then(|s084| s084.require_arguments)
-    {
-        rule_options.s084.require_arguments = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s084.as_ref())
-        .and_then(|s084| s084.require_outputs)
-    {
-        rule_options.s084.require_outputs = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s084.as_ref())
-        .and_then(|s084| s084.require_returns)
-    {
-        rule_options.s084.require_returns = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s083.as_ref())
-        .and_then(|s083| s083.require_for)
-    {
-        rule_options.s083.require_for = match value {
-            shuck_config::S083RequireForConfig::All => {
-                shuck_linter::S083FunctionDocRequirement::All
-            }
-            shuck_config::S083RequireForConfig::Exported => {
-                shuck_linter::S083FunctionDocRequirement::Exported
-            }
-            shuck_config::S083RequireForConfig::Long => {
-                shuck_linter::S083FunctionDocRequirement::Long
-            }
-            shuck_config::S083RequireForConfig::Parameterized => {
-                shuck_linter::S083FunctionDocRequirement::Parameterized
-            }
-        };
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s083.as_ref())
-        .and_then(|s083| s083.long_function_line_threshold)
-    {
-        rule_options.s083.long_function_line_threshold = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s085.as_ref())
-        .and_then(|s085| s085.non_trivial_line_threshold)
-    {
-        rule_options.s085.non_trivial_line_threshold = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s085.as_ref())
-        .and_then(|s085| s085.non_trivial_function_count)
-    {
-        rule_options.s085.non_trivial_function_count = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s085.as_ref())
-        .and_then(|s085| s085.main_name.as_ref())
-    {
-        rule_options.s085.main_name.clone_from(value);
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.c158.as_ref())
-        .and_then(|c158| c158.treat_readonly_as_documented)
-    {
-        rule_options.c158.treat_readonly_as_documented = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.c158.as_ref())
-        .and_then(|c158| c158.treat_export_as_intentional)
-    {
-        rule_options.c158.treat_export_as_intentional = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.c159.as_ref())
-        .and_then(|c159| c159.allow_conditional_init)
-    {
-        rule_options.c159.allow_conditional_init = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.c160.as_ref())
-        .and_then(|c160| c160.allowed_anchors.as_ref())
-    {
-        rule_options.c160.allowed_anchors = value.clone();
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.c161.as_ref())
-        .and_then(|c161| c161.ignore_after_source)
-    {
-        rule_options.c161.ignore_after_source = value;
-    }
-
-    Ok(rule_options)
-}
-
-fn validate_s080_count_mode(value: &str) -> Result<()> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "physical" | "non-comment-non-blank" => Ok(()),
-        _ => Err(anyhow!(
-            "unsupported `[lint.rule-options.s080].count` value `{}`; expected one of: physical, non-comment-non-blank",
-            value
-        )),
-    }
-}
-
-fn resolve_ambient_contracts(
-    project_root: &Path,
-    config: Option<&LintContractsConfig>,
-) -> Result<ResolvedAmbientContracts> {
-    let Some(config) = config else {
-        return Ok(ResolvedAmbientContracts::default());
-    };
-
-    let mut ambient = AmbientContractConfig {
-        well_known: config.well_known.unwrap_or(true),
-        disabled: config.disabled.clone().unwrap_or_default(),
-        custom: Vec::new(),
-    };
-
-    for contract in config.custom.as_deref().unwrap_or(&[]) {
-        ambient
-            .custom
-            .push(ambient_contract_spec_from_config(contract)?);
-    }
-
-    ResolvedAmbientContracts::resolve(project_root.to_path_buf(), ambient)
-}
-
-fn ambient_contract_spec_from_config(
-    contract: &LintCustomContractConfig,
-) -> Result<AmbientContractSpec> {
-    Ok(AmbientContractSpec {
-        id: contract.id.clone(),
-        replaces: contract.replaces.clone().unwrap_or_default(),
-        when: ambient_contract_activation_from_config(&contract.when)?,
-        files: contract.files.clone().unwrap_or_default(),
-        effects: AmbientContractEffects {
-            reads: contract.reads.clone().unwrap_or_default(),
-            consumes_names: contract
-                .consumes
-                .as_ref()
-                .and_then(|consumes| consumes.names.clone())
-                .unwrap_or_default(),
-            consumes_prefixes: contract
-                .consumes
-                .as_ref()
-                .and_then(|consumes| consumes.prefixes.clone())
-                .unwrap_or_default(),
-            consumes_all: contract
-                .consumes
-                .as_ref()
-                .and_then(|consumes| consumes.all)
-                .unwrap_or(false),
-            provides_variables: contract
-                .provides
-                .as_ref()
-                .and_then(|provides| provides.variables.clone())
-                .unwrap_or_default(),
-            provides_functions: contract
-                .provides
-                .as_ref()
-                .and_then(|provides| provides.functions.clone())
-                .unwrap_or_default(),
-            functions: contract
-                .functions
-                .clone()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|function| AmbientFunctionContractSpec {
-                    name: function.name,
-                    reads: function.reads.unwrap_or_default(),
-                    sets: function.sets.unwrap_or_default(),
-                })
-                .collect(),
-        },
-    })
-}
-
-fn ambient_contract_activation_from_config(
-    when: &LintContractWhenConfig,
-) -> Result<AmbientContractActivation> {
-    match when {
-        LintContractWhenConfig::Always(value) => {
-            if value == "always" {
-                Ok(AmbientContractActivation::Always)
-            } else {
-                Err(anyhow!(
-                    "unsupported ambient contract activation {value:?}; expected \"always\" or a typed activation"
-                ))
-            }
-        }
-        LintContractWhenConfig::Activation(activation) => match activation.activation_type {
-            LintContractActivationTypeConfig::ZshPlugin => {
-                Ok(AmbientContractActivation::ZshPlugin {
-                    framework: activation.framework.clone().ok_or_else(|| {
-                        anyhow!("ambient zsh_plugin contract is missing `framework`")
-                    })?,
-                    plugin: activation.plugin.clone().ok_or_else(|| {
-                        anyhow!("ambient zsh_plugin contract is missing `plugin`")
-                    })?,
-                })
-            }
-            LintContractActivationTypeConfig::ZshTheme => Ok(AmbientContractActivation::ZshTheme {
-                framework: activation
-                    .framework
-                    .clone()
-                    .ok_or_else(|| anyhow!("ambient zsh_theme contract is missing `framework`"))?,
-                theme: activation
-                    .theme
-                    .clone()
-                    .ok_or_else(|| anyhow!("ambient zsh_theme contract is missing `theme`"))?,
-            }),
-        },
-    }
-}
-
-fn parse_config_rule_selection_layer(config: &ShuckConfig) -> Result<RuleSelectionLayer> {
-    let lint = &config.lint;
-    let per_file_shell = match config.per_file_shell.as_ref() {
-        Some(patterns) => Some(parse_per_file_shell_map(patterns, "per-file-shell")?),
-        None => lint
-            .per_file_shell
-            .as_ref()
-            .map(|patterns| parse_per_file_shell_map(patterns, "lint.per-file-shell"))
-            .transpose()?,
-    };
-
-    Ok(RuleSelectionLayer {
-        select: lint
-            .select
-            .as_ref()
-            .map(|selectors| parse_rule_selectors(selectors, "lint.select"))
-            .transpose()?,
-        ignore: lint
-            .ignore
-            .as_ref()
-            .map(|selectors| parse_rule_selectors(selectors, "lint.ignore"))
-            .transpose()?
-            .unwrap_or_default(),
-        extend_select: lint
-            .extend_select
-            .as_ref()
-            .map(|selectors| parse_rule_selectors(selectors, "lint.extend-select"))
-            .transpose()?
-            .unwrap_or_default(),
-        per_file_ignores: lint
-            .per_file_ignores
-            .as_ref()
-            .map(|patterns| parse_per_file_ignore_map(patterns, "lint.per-file-ignores"))
-            .transpose()?,
-        extend_per_file_ignores: lint
-            .extend_per_file_ignores
-            .as_ref()
-            .map(|patterns| parse_per_file_ignore_map(patterns, "lint.extend-per-file-ignores"))
-            .transpose()?
-            .unwrap_or_default(),
-        per_file_shell,
-        extend_per_file_shell: lint
-            .extend_per_file_shell
-            .as_ref()
-            .map(|patterns| parse_per_file_shell_map(patterns, "lint.extend-per-file-shell"))
-            .transpose()?
-            .unwrap_or_default(),
-        fixable: lint
-            .fixable
-            .as_ref()
-            .map(|selectors| parse_rule_selectors(selectors, "lint.fixable"))
-            .transpose()?,
-        unfixable: lint
-            .unfixable
-            .as_ref()
-            .map(|selectors| parse_rule_selectors(selectors, "lint.unfixable"))
-            .transpose()?
-            .unwrap_or_default(),
-        extend_fixable: lint
-            .extend_fixable
-            .as_ref()
-            .map(|selectors| parse_rule_selectors(selectors, "lint.extend-fixable"))
-            .transpose()?
-            .unwrap_or_default(),
+        embedded_enabled: resolved.embedded,
     })
 }
 
@@ -1375,33 +452,6 @@ fn parse_cli_rule_selection_layer(args: &RuleSelectionArgs) -> RuleSelectionLaye
     }
 }
 
-fn parse_lint_zsh_plugin_layer(lint: &LintConfig) -> ZshPluginLayer {
-    let Some(plugins) = lint.zsh.as_ref().and_then(|zsh| zsh.plugins.as_ref()) else {
-        return ZshPluginLayer::default();
-    };
-
-    ZshPluginLayer {
-        resolution: plugins.resolution,
-        roots: plugins.roots.clone(),
-        extend_roots: BTreeMap::new(),
-        plugin_loads: plugins
-            .plugin_loads
-            .as_ref()
-            .map(|loads| loads.iter().map(zsh_plugin_load_spec_from_config).collect()),
-        extend_plugin_loads: Vec::new(),
-        theme_loads: plugins
-            .theme_loads
-            .as_ref()
-            .map(|loads| loads.iter().map(zsh_theme_load_spec_from_config).collect()),
-        extend_theme_loads: Vec::new(),
-        entrypoints: plugins
-            .entrypoints
-            .as_ref()
-            .map(|loads| loads.iter().map(zsh_entrypoint_spec_from_config).collect()),
-        extend_entrypoints: Vec::new(),
-    }
-}
-
 fn parse_cli_zsh_plugin_layer(args: &ZshPluginArgs) -> ZshPluginLayer {
     ZshPluginLayer {
         resolution: args.resolution(),
@@ -1419,20 +469,20 @@ fn parse_cli_zsh_plugin_layer(args: &ZshPluginArgs) -> ZshPluginLayer {
         plugin_loads: args
             .zsh_plugin
             .as_ref()
-            .map(|loads| loads.iter().map(zsh_plugin_load_spec_from_cli).collect()),
+            .map(|loads| loads.iter().map(zsh_load_spec_from_cli).collect()),
         extend_plugin_loads: args
             .extend_zsh_plugin
             .iter()
-            .map(zsh_plugin_load_spec_from_cli)
+            .map(zsh_load_spec_from_cli)
             .collect(),
         theme_loads: args
             .zsh_theme
             .as_ref()
-            .map(|loads| loads.iter().map(zsh_theme_load_spec_from_cli).collect()),
+            .map(|loads| loads.iter().map(zsh_load_spec_from_cli).collect()),
         extend_theme_loads: args
             .extend_zsh_theme
             .iter()
-            .map(zsh_theme_load_spec_from_cli)
+            .map(zsh_load_spec_from_cli)
             .collect(),
         entrypoints: args
             .zsh_plugin_entrypoint
@@ -1446,39 +496,8 @@ fn parse_cli_zsh_plugin_layer(args: &ZshPluginArgs) -> ZshPluginLayer {
     }
 }
 
-fn zsh_plugin_load_spec_from_config(load: &ZshPluginLoadConfig) -> ZshPluginLoadSpec {
-    ZshPluginLoadSpec {
-        pattern: load.pattern.clone(),
-        framework: load.framework.clone(),
-        name: load.name.clone(),
-    }
-}
-
-fn zsh_theme_load_spec_from_config(load: &ZshThemeLoadConfig) -> ZshThemeLoadSpec {
-    ZshThemeLoadSpec {
-        pattern: load.pattern.clone(),
-        framework: load.framework.clone(),
-        name: load.name.clone(),
-    }
-}
-
-fn zsh_entrypoint_spec_from_config(load: &ZshPluginEntrypointConfig) -> ZshPluginEntrypointSpec {
-    ZshPluginEntrypointSpec {
-        pattern: load.pattern.clone(),
-        paths: load.paths.clone(),
-    }
-}
-
-fn zsh_plugin_load_spec_from_cli(load: &PatternFrameworkNameTriple) -> ZshPluginLoadSpec {
-    ZshPluginLoadSpec {
-        pattern: load.pattern.clone(),
-        framework: load.framework.clone(),
-        name: load.name.clone(),
-    }
-}
-
-fn zsh_theme_load_spec_from_cli(load: &PatternFrameworkNameTriple) -> ZshThemeLoadSpec {
-    ZshThemeLoadSpec {
+fn zsh_load_spec_from_cli(load: &PatternFrameworkNameTriple) -> ZshLoadSpec {
+    ZshLoadSpec {
         pattern: load.pattern.clone(),
         framework: load.framework.clone(),
         name: load.name.clone(),
@@ -1490,69 +509,6 @@ fn zsh_entrypoint_spec_from_cli(load: &PatternPathPair) -> ZshPluginEntrypointSp
         pattern: load.pattern.clone(),
         paths: vec![load.path.clone()],
     }
-}
-
-fn apply_root_map_layer(
-    current: BTreeMap<String, String>,
-    replace: Option<BTreeMap<String, String>>,
-    extend: BTreeMap<String, String>,
-) -> BTreeMap<String, String> {
-    let mut merged = replace.unwrap_or(current);
-    merged.extend(extend);
-    merged
-}
-
-fn apply_extend_layer<T>(current: Vec<T>, replace: Option<Vec<T>>, extend: Vec<T>) -> Vec<T> {
-    let mut merged = replace.unwrap_or(current);
-    merged.extend(extend);
-    merged
-}
-
-pub(super) fn parse_rule_selectors(selectors: &[String], scope: &str) -> Result<Vec<RuleSelector>> {
-    selectors
-        .iter()
-        .map(|selector| {
-            let selector = selector.trim();
-            if selector.is_empty() {
-                return Err(anyhow!(
-                    "invalid {scope} selector: selector cannot be empty"
-                ));
-            }
-
-            selector
-                .parse::<RuleSelector>()
-                .map_err(|err| anyhow!("invalid {scope} selector `{selector}`: {err}"))
-        })
-        .collect()
-}
-
-fn parse_per_file_ignore_map(
-    patterns: &BTreeMap<String, Vec<String>>,
-    scope: &str,
-) -> Result<Vec<PerFileIgnoreSpec>> {
-    patterns
-        .iter()
-        .map(|(pattern, selectors)| {
-            Ok(PerFileIgnoreSpec {
-                pattern: pattern.clone(),
-                selectors: parse_rule_selectors(selectors, scope)?,
-            })
-        })
-        .collect()
-}
-
-fn parse_per_file_shell_map(
-    patterns: &BTreeMap<String, String>,
-    scope: &str,
-) -> Result<Vec<PerFileShell>> {
-    patterns
-        .iter()
-        .map(|(pattern, shell)| {
-            let shell = parse_shell_dialect(shell)
-                .map_err(|err| anyhow!("invalid {scope} shell `{shell}`: {err}"))?;
-            Ok(PerFileShell::new(pattern.clone(), shell))
-        })
-        .collect()
 }
 
 fn group_per_file_ignore_pairs(pairs: &[PatternRuleSelectorPair]) -> Vec<PerFileIgnoreSpec> {
@@ -1572,122 +528,6 @@ fn group_per_file_ignore_pairs(pairs: &[PatternRuleSelectorPair]) -> Vec<PerFile
 
 fn per_file_shell_from_pair(pair: &PatternShellPair) -> PerFileShell {
     PerFileShell::new(pair.pattern.clone(), pair.shell)
-}
-
-fn parse_shell_dialect(value: &str) -> Result<ShellDialect> {
-    let shell = ShellDialect::from_name(value);
-    if shell == ShellDialect::Unknown {
-        return Err(anyhow!(
-            "expected shell dialect to be one of sh, bash, dash, ksh, mksh, zsh"
-        ));
-    }
-
-    Ok(shell)
-}
-
-fn shell_name(shell: ShellDialect) -> &'static str {
-    match shell {
-        ShellDialect::Unknown => "unknown",
-        ShellDialect::Sh => "sh",
-        ShellDialect::Bash => "bash",
-        ShellDialect::Dash => "dash",
-        ShellDialect::Ksh => "ksh",
-        ShellDialect::Mksh => "mksh",
-        ShellDialect::Zsh => "zsh",
-    }
-}
-
-fn apply_rule_selector_layer(
-    current: RuleSet,
-    select: Option<&[RuleSelector]>,
-    extend_select: &[RuleSelector],
-    ignore: &[RuleSelector],
-) -> RuleSet {
-    let mut specificities = select
-        .into_iter()
-        .flatten()
-        .chain(extend_select.iter())
-        .chain(ignore.iter())
-        .map(selector_specificity)
-        .collect::<Vec<_>>();
-    specificities.sort_unstable();
-    specificities.dedup();
-
-    let mut updates = HashMap::<Rule, bool>::new();
-    for specificity in specificities {
-        for selector in select
-            .into_iter()
-            .flatten()
-            .chain(extend_select.iter())
-            .filter(|selector| selector_specificity(selector) == specificity)
-        {
-            for rule in selector.into_rule_set().iter() {
-                updates.insert(rule, true);
-            }
-        }
-        for selector in ignore
-            .iter()
-            .filter(|selector| selector_specificity(selector) == specificity)
-        {
-            for rule in selector.into_rule_set().iter() {
-                updates.insert(rule, false);
-            }
-        }
-    }
-
-    if select.is_some() {
-        updates
-            .into_iter()
-            .filter_map(|(rule, enabled)| enabled.then_some(rule))
-            .collect()
-    } else {
-        let mut rules = current;
-        for (rule, enabled) in updates {
-            rules.set(rule, enabled);
-        }
-        rules
-    }
-}
-
-fn selector_specificity(selector: &RuleSelector) -> usize {
-    match selector {
-        RuleSelector::All => 0,
-        RuleSelector::Category(_) => 1,
-        RuleSelector::Named(_) => 1,
-        RuleSelector::Prefix(prefix) => 2 + prefix.len(),
-        RuleSelector::Rule(_) => usize::MAX,
-    }
-}
-
-fn apply_per_file_ignore_layer(
-    current: Vec<PerFileIgnore>,
-    per_file_ignores: Option<Vec<PerFileIgnoreSpec>>,
-    extend_per_file_ignores: Vec<PerFileIgnoreSpec>,
-) -> Vec<PerFileIgnore> {
-    let mut per_file_ignores = per_file_ignores
-        .map(|per_file_ignores| {
-            per_file_ignores
-                .into_iter()
-                .map(PerFileIgnoreSpec::into_ignore)
-                .collect()
-        })
-        .unwrap_or(current);
-    per_file_ignores.extend(
-        extend_per_file_ignores
-            .into_iter()
-            .map(PerFileIgnoreSpec::into_ignore),
-    );
-    per_file_ignores
-}
-
-fn apply_per_file_shell_layer(
-    current: Vec<PerFileShell>,
-    per_file_shell: Option<Vec<PerFileShell>>,
-    extend_per_file_shell: Vec<PerFileShell>,
-) -> Vec<PerFileShell> {
-    let mut per_file_shell = per_file_shell.unwrap_or(current);
-    per_file_shell.extend(extend_per_file_shell);
-    per_file_shell
 }
 
 #[cfg(test)]
@@ -1740,15 +580,12 @@ mod tests {
     };
     use crate::commands::project_runner::PendingProjectFile;
     use crate::discover::{FileKind, ProjectRoot, normalize_path};
+    use shuck_config::resolve::resolve_ambient_contracts;
     use shuck_config::{
         ConfigArguments, LintContractActivationConfig, LintContractActivationTypeConfig,
         LintContractConsumesConfig, LintContractWhenConfig, LintContractsConfig,
         LintCustomContractConfig,
     };
-
-    fn default_ambient_contracts() -> Arc<ResolvedAmbientContracts> {
-        Arc::new(ResolvedAmbientContracts::default())
-    }
 
     #[test]
     fn select_replaces_default_rules() {
@@ -2001,34 +838,6 @@ mod tests {
     }
 
     #[test]
-    fn named_group_can_be_trimmed_by_exact_rule_ignore() {
-        let rules = apply_rule_selector_layer(
-            RuleSet::EMPTY,
-            Some(&[RuleSelector::Named(NamedGroup::Google)]),
-            &[],
-            &[RuleSelector::Rule(Rule::UnusedAssignment)],
-        );
-
-        assert!(!rules.contains(Rule::UnusedAssignment));
-        assert!(rules.contains(Rule::UnquotedExpansion));
-    }
-
-    #[test]
-    fn named_group_can_be_trimmed_by_prefix_ignore() {
-        let rules = apply_rule_selector_layer(
-            RuleSet::EMPTY,
-            Some(&[RuleSelector::Named(NamedGroup::Google)]),
-            &[],
-            &[RuleSelector::Prefix("S00".to_owned())],
-        );
-
-        assert!(!rules.contains(Rule::UnquotedExpansion));
-        assert!(!rules.contains(Rule::ReadWithoutRaw));
-        assert!(rules.contains(Rule::ExportCommandSubstitution));
-        assert!(rules.contains(Rule::UnusedAssignment));
-    }
-
-    #[test]
     fn per_file_ignores_suppress_matching_rules_only() {
         let tempdir = tempdir().unwrap();
         fs::write(
@@ -2121,522 +930,6 @@ mod tests {
     }
 
     #[test]
-    fn disabled_zsh_plugin_resolution_ignores_invalid_plugin_settings() {
-        let settings = ResolvedZshPluginSettings::resolve(
-            PathBuf::from("/workspace"),
-            false,
-            default_ambient_contracts(),
-            BTreeMap::from([("oh-my-zsh".to_owned(), "~/.oh-my-zsh".to_owned())]),
-            vec![ZshPluginLoadSpec {
-                pattern: "[".to_owned(),
-                framework: "oh-my-zsh".to_owned(),
-                name: "git".to_owned(),
-            }],
-            vec![ZshThemeLoadSpec {
-                pattern: "[".to_owned(),
-                framework: "oh-my-zsh".to_owned(),
-                name: "agnoster".to_owned(),
-            }],
-            vec![ZshPluginEntrypointSpec {
-                pattern: "[".to_owned(),
-                paths: vec!["./vendor/prompt.plugin.zsh".to_owned()],
-            }],
-        )
-        .unwrap();
-
-        assert!(!settings.enabled);
-        assert!(settings.roots.is_empty());
-        assert!(settings.plugin_loads.is_empty());
-        assert!(settings.theme_loads.is_empty());
-        assert!(settings.entrypoints.is_empty());
-    }
-
-    #[test]
-    fn oh_my_zsh_source_suffix_rewrites_framework_paths_only() {
-        let settings = ResolvedZshPluginSettings::resolve(
-            PathBuf::from("/workspace"),
-            true,
-            default_ambient_contracts(),
-            BTreeMap::from([("oh-my-zsh".to_owned(), "/workspace/.oh-my-zsh".to_owned())]),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            settings.resolve_source_path(
-                Path::new("/workspace/.oh-my-zsh/oh-my-zsh.sh"),
-                "/opt/app/plugins/git/git.plugin.zsh",
-            ),
-            vec![PathBuf::from(
-                "/workspace/.oh-my-zsh/plugins/git/git.plugin.zsh"
-            )]
-        );
-        assert_eq!(
-            settings.resolve_source_path(
-                Path::new("/workspace/script.zsh"),
-                "/tmp/.oh-my-zsh/plugins/git/git.plugin.zsh",
-            ),
-            vec![PathBuf::from(
-                "/workspace/.oh-my-zsh/plugins/git/git.plugin.zsh"
-            )]
-        );
-        assert_eq!(
-            settings.resolve_source_path(
-                Path::new("/workspace/script.zsh"),
-                "/opt/app/plugins/git/git.plugin.zsh",
-            ),
-            Vec::<PathBuf>::new()
-        );
-    }
-
-    #[test]
-    fn oh_my_zsh_source_suffix_still_resolves_framework_entrypoint() {
-        let settings = ResolvedZshPluginSettings::resolve(
-            PathBuf::from("/workspace"),
-            true,
-            default_ambient_contracts(),
-            BTreeMap::from([("oh-my-zsh".to_owned(), "/workspace/.oh-my-zsh".to_owned())]),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            settings.resolve_source_path(
-                Path::new("/workspace/script.zsh"),
-                "/not-installed/.oh-my-zsh/oh-my-zsh.sh",
-            ),
-            vec![PathBuf::from("/workspace/.oh-my-zsh/oh-my-zsh.sh")]
-        );
-    }
-
-    #[test]
-    fn zinit_source_suffix_rewrites_framework_bootstrap_paths_only() {
-        let settings = ResolvedZshPluginSettings::resolve(
-            PathBuf::from("/workspace"),
-            true,
-            default_ambient_contracts(),
-            BTreeMap::from([("zinit".to_owned(), "/workspace/zinit".to_owned())]),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            settings.resolve_source_path(
-                Path::new("/workspace/script.zsh"),
-                "/not-installed/.zinit/bin/zinit.zsh",
-            ),
-            vec![PathBuf::from("/workspace/zinit/zinit.zsh")]
-        );
-        assert_eq!(
-            settings.resolve_source_path(
-                Path::new("/workspace/zinit/zinit.zsh"),
-                "/opt/app/share/zinit-autoload.zsh",
-            ),
-            vec![PathBuf::from("/workspace/zinit/share/zinit-autoload.zsh")]
-        );
-        assert_eq!(
-            settings.resolve_source_path(
-                Path::new("/workspace/script.zsh"),
-                "/opt/app/share/zinit-autoload.zsh",
-            ),
-            Vec::<PathBuf>::new()
-        );
-    }
-
-    #[test]
-    fn zinit_plugin_root_resolves_bootstrap_source_paths() {
-        let settings = ResolvedZshPluginSettings::resolve(
-            PathBuf::from("/workspace"),
-            true,
-            default_ambient_contracts(),
-            BTreeMap::from([("zinit".to_owned(), "/workspace/zinit".to_owned())]),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            settings.resolve_source_path(
-                Path::new("/workspace/app/.zshrc"),
-                "/not-installed/.zinit/bin/zinit.zsh",
-            ),
-            vec![PathBuf::from("/workspace/zinit/zinit.zsh")]
-        );
-    }
-
-    #[test]
-    fn zinit_plugin_root_resolves_zi_alias_bootstrap_source_paths() {
-        let settings = ResolvedZshPluginSettings::resolve(
-            PathBuf::from("/workspace"),
-            true,
-            default_ambient_contracts(),
-            BTreeMap::from([("zi".to_owned(), "/workspace/zi".to_owned())]),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        )
-        .unwrap();
-
-        assert_eq!(
-            settings.resolve_source_path(
-                Path::new("/workspace/app/.zshrc"),
-                "/not-installed/.zi/bin/zinit.zsh",
-            ),
-            vec![PathBuf::from("/workspace/zi/zinit.zsh")]
-        );
-    }
-
-    #[test]
-    fn zinit_plugin_root_does_not_use_oh_my_zsh_plugin_layout() {
-        let settings = ResolvedZshPluginSettings::resolve(
-            PathBuf::from("/workspace"),
-            true,
-            default_ambient_contracts(),
-            BTreeMap::from([("zinit".to_owned(), "/workspace/zinit".to_owned())]),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        )
-        .unwrap();
-        let request = PluginRequest {
-            framework: PluginFramework::Zinit,
-            kind: PluginRequestKind::Plugin,
-            name: "owner/repo".to_owned(),
-            span: shuck_ast::Span::new(),
-            explicit: true,
-            root_hint: None,
-        };
-
-        assert_eq!(
-            settings.resolve_plugin_request(Path::new("/workspace/app/.zshrc"), &request),
-            PluginResolution::default()
-        );
-    }
-
-    #[test]
-    fn custom_plugin_root_uses_default_plugin_and_theme_layouts() {
-        let settings = ResolvedZshPluginSettings::resolve(
-            PathBuf::from("/workspace"),
-            true,
-            default_ambient_contracts(),
-            BTreeMap::from([("custom".to_owned(), "/workspace/custom".to_owned())]),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        )
-        .unwrap();
-        let plugin_request = PluginRequest {
-            framework: PluginFramework::Other("custom".to_owned()),
-            kind: PluginRequestKind::Plugin,
-            name: "prompt-tools".to_owned(),
-            span: shuck_ast::Span::new(),
-            explicit: true,
-            root_hint: None,
-        };
-        let theme_request = PluginRequest {
-            framework: PluginFramework::Other("custom".to_owned()),
-            kind: PluginRequestKind::Theme,
-            name: "minimal".to_owned(),
-            span: shuck_ast::Span::new(),
-            explicit: true,
-            root_hint: None,
-        };
-
-        assert_eq!(
-            settings.resolve_plugin_request(Path::new("/workspace/app/.zshrc"), &plugin_request),
-            PluginResolution {
-                entrypoints: vec![PathBuf::from(
-                    "/workspace/custom/plugins/prompt-tools/prompt-tools.plugin.zsh"
-                )],
-                file_entry_contracts: Vec::new(),
-                requesting_file_contract: FileContract::default(),
-            }
-        );
-        assert_eq!(
-            settings.resolve_plugin_request(Path::new("/workspace/app/.zshrc"), &theme_request),
-            PluginResolution {
-                entrypoints: vec![PathBuf::from("/workspace/custom/themes/minimal.zsh-theme")],
-                file_entry_contracts: Vec::new(),
-                requesting_file_contract: FileContract::default(),
-            }
-        );
-    }
-
-    #[test]
-    fn built_in_tmux_plugin_contract_marks_requesting_file_consumption() {
-        let settings = ResolvedZshPluginSettings::resolve(
-            PathBuf::from("/workspace"),
-            true,
-            default_ambient_contracts(),
-            BTreeMap::from([("oh-my-zsh".to_owned(), "/workspace/.oh-my-zsh".to_owned())]),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        )
-        .unwrap();
-        let request = PluginRequest {
-            framework: PluginFramework::OhMyZsh,
-            kind: PluginRequestKind::Plugin,
-            name: "tmux".to_owned(),
-            span: shuck_ast::Span::new(),
-            explicit: true,
-            root_hint: None,
-        };
-
-        let resolution = settings.resolve_plugin_request(Path::new("/workspace/.zshrc"), &request);
-
-        assert!(
-            resolution
-                .requesting_file_contract
-                .externally_consumed_binding_prefixes
-                .iter()
-                .any(|prefix| prefix.as_str() == "ZSH_TMUX_")
-        );
-    }
-
-    #[test]
-    fn built_in_tmux_plugin_contract_applies_without_resolved_plugin_root() {
-        let settings = ResolvedZshPluginSettings::resolve(
-            PathBuf::from("/workspace"),
-            true,
-            default_ambient_contracts(),
-            BTreeMap::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        )
-        .unwrap();
-        let request = PluginRequest {
-            framework: PluginFramework::OhMyZsh,
-            kind: PluginRequestKind::Plugin,
-            name: "tmux".to_owned(),
-            span: shuck_ast::Span::new(),
-            explicit: true,
-            root_hint: None,
-        };
-
-        let resolution = settings.resolve_plugin_request(Path::new("/workspace/.zshrc"), &request);
-
-        assert!(resolution.entrypoints.is_empty());
-        assert!(
-            resolution
-                .requesting_file_contract
-                .externally_consumed_binding_prefixes
-                .iter()
-                .any(|prefix| prefix.as_str() == "ZSH_TMUX_")
-        );
-    }
-
-    #[test]
-    fn disabled_built_in_tmux_selector_skips_generated_contract() {
-        let contracts = ResolvedAmbientContracts::resolve(
-            PathBuf::from("/workspace"),
-            AmbientContractConfig {
-                well_known: true,
-                disabled: vec!["zsh/oh-my-zsh/plugin/tmux".to_owned()],
-                custom: Vec::new(),
-            },
-        )
-        .unwrap();
-        let request = PluginRequest {
-            framework: PluginFramework::OhMyZsh,
-            kind: PluginRequestKind::Plugin,
-            name: "tmux".to_owned(),
-            span: shuck_ast::Span::new(),
-            explicit: true,
-            root_hint: None,
-        };
-
-        let resolved =
-            contracts.request_contracts_for_plugin(Path::new("/workspace/.zshrc"), &request);
-
-        assert!(
-            resolved
-                .requesting_file_contract
-                .externally_consumed_binding_prefixes
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn invalid_built_in_contract_selector_is_rejected() {
-        let error = ResolvedAmbientContracts::resolve(
-            PathBuf::from("/workspace"),
-            AmbientContractConfig {
-                well_known: true,
-                disabled: vec!["unknown/selector".to_owned()],
-                custom: Vec::new(),
-            },
-        )
-        .unwrap_err();
-
-        assert!(
-            error
-                .to_string()
-                .contains("unknown ambient contract selector")
-        );
-    }
-
-    #[test]
-    fn custom_only_contracts_ignore_built_in_selector_validation() {
-        ResolvedAmbientContracts::resolve(
-            PathBuf::from("/workspace"),
-            AmbientContractConfig {
-                well_known: false,
-                disabled: vec!["unknown/selector".to_owned()],
-                custom: vec![AmbientContractSpec {
-                    id: "custom".to_owned(),
-                    replaces: vec!["legacy/built-in".to_owned()],
-                    when: AmbientContractActivation::Always,
-                    files: Vec::new(),
-                    effects: AmbientContractEffects::default(),
-                }],
-            },
-        )
-        .unwrap();
-    }
-
-    #[test]
-    fn duplicate_custom_contract_ids_are_rejected() {
-        let error = ResolvedAmbientContracts::resolve(
-            PathBuf::from("/workspace"),
-            AmbientContractConfig {
-                well_known: false,
-                disabled: Vec::new(),
-                custom: vec![
-                    AmbientContractSpec {
-                        id: "duplicate".to_owned(),
-                        replaces: Vec::new(),
-                        when: AmbientContractActivation::Always,
-                        files: Vec::new(),
-                        effects: AmbientContractEffects::default(),
-                    },
-                    AmbientContractSpec {
-                        id: "duplicate".to_owned(),
-                        replaces: Vec::new(),
-                        when: AmbientContractActivation::Always,
-                        files: Vec::new(),
-                        effects: AmbientContractEffects::default(),
-                    },
-                ],
-            },
-        )
-        .unwrap_err();
-
-        assert!(error.to_string().contains("duplicate ambient contract id"));
-    }
-
-    #[test]
-    fn resolve_ambient_contracts_builds_custom_plugin_contracts_from_config() {
-        let config = LintContractsConfig {
-            well_known: Some(false),
-            disabled: None,
-            custom: Some(vec![LintCustomContractConfig {
-                id: "custom-tmux".to_owned(),
-                replaces: None,
-                when: LintContractWhenConfig::Activation(LintContractActivationConfig {
-                    activation_type: LintContractActivationTypeConfig::ZshPlugin,
-                    framework: Some("oh-my-zsh".to_owned()),
-                    plugin: Some("tmux".to_owned()),
-                    theme: None,
-                }),
-                files: Some(vec!["**/.zshrc".to_owned()]),
-                reads: None,
-                consumes: Some(LintContractConsumesConfig {
-                    names: None,
-                    prefixes: Some(vec!["LOCAL_TMUX_".to_owned()]),
-                    all: None,
-                }),
-                provides: None,
-                functions: None,
-            }]),
-        };
-        let request = PluginRequest {
-            framework: PluginFramework::OhMyZsh,
-            kind: PluginRequestKind::Plugin,
-            name: "tmux".to_owned(),
-            span: shuck_ast::Span::new(),
-            explicit: true,
-            root_hint: None,
-        };
-
-        let resolved = resolve_ambient_contracts(Path::new("/workspace"), Some(&config)).unwrap();
-        let contracts =
-            resolved.request_contracts_for_plugin(Path::new("/workspace/config/.zshrc"), &request);
-
-        assert!(
-            contracts
-                .requesting_file_contract
-                .externally_consumed_binding_prefixes
-                .iter()
-                .any(|prefix| prefix.as_str() == "LOCAL_TMUX_")
-        );
-        assert!(contracts.imported_contracts.is_empty());
-    }
-
-    #[test]
-    fn resolve_ambient_contracts_treats_negated_file_patterns_as_exclusions() {
-        let config = LintContractsConfig {
-            well_known: Some(false),
-            disabled: None,
-            custom: Some(vec![LintCustomContractConfig {
-                id: "custom-tmux".to_owned(),
-                replaces: None,
-                when: LintContractWhenConfig::Activation(LintContractActivationConfig {
-                    activation_type: LintContractActivationTypeConfig::ZshPlugin,
-                    framework: Some("oh-my-zsh".to_owned()),
-                    plugin: Some("tmux".to_owned()),
-                    theme: None,
-                }),
-                files: Some(vec!["**/.zshrc".to_owned(), "!vendor/**".to_owned()]),
-                reads: None,
-                consumes: Some(LintContractConsumesConfig {
-                    names: None,
-                    prefixes: Some(vec!["LOCAL_TMUX_".to_owned()]),
-                    all: None,
-                }),
-                provides: None,
-                functions: None,
-            }]),
-        };
-        let request = PluginRequest {
-            framework: PluginFramework::OhMyZsh,
-            kind: PluginRequestKind::Plugin,
-            name: "tmux".to_owned(),
-            span: shuck_ast::Span::new(),
-            explicit: true,
-            root_hint: None,
-        };
-
-        let resolved = resolve_ambient_contracts(Path::new("/workspace"), Some(&config)).unwrap();
-        let included =
-            resolved.request_contracts_for_plugin(Path::new("/workspace/config/.zshrc"), &request);
-        let excluded =
-            resolved.request_contracts_for_plugin(Path::new("/workspace/vendor/.zshrc"), &request);
-
-        assert!(
-            included
-                .requesting_file_contract
-                .externally_consumed_binding_prefixes
-                .iter()
-                .any(|prefix| prefix.as_str() == "LOCAL_TMUX_")
-        );
-        assert!(
-            excluded
-                .requesting_file_contract
-                .externally_consumed_binding_prefixes
-                .is_empty()
-        );
-    }
-
-    #[test]
     fn effective_ambient_contract_settings_change_when_contract_effects_change() {
         let request_contracts = |prefix: &str| LintContractsConfig {
             well_known: Some(false),
@@ -2676,128 +969,108 @@ mod tests {
     }
 
     #[test]
-    fn prezto_plugin_root_resolves_module_entrypoint() {
-        let settings = ResolvedZshPluginSettings::resolve(
-            PathBuf::from("/workspace"),
-            true,
-            default_ambient_contracts(),
-            BTreeMap::from([("prezto".to_owned(), "/workspace/prezto".to_owned())]),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        )
-        .unwrap();
-        let request = PluginRequest {
-            framework: PluginFramework::Prezto,
-            kind: PluginRequestKind::Plugin,
-            name: "editor".to_owned(),
-            span: shuck_ast::Span::new(),
-            explicit: false,
-            root_hint: None,
-        };
+    fn cli_and_language_server_resolve_identical_linter_settings() {
+        let tempdir = tempdir().unwrap();
+        let root = fs::canonicalize(tempdir.path()).unwrap();
+        fs::write(
+            root.join(".shuck.toml"),
+            r#"
+[per-file-shell]
+"*.zsh" = "zsh"
+"portable.sh" = "dash"
 
-        assert_eq!(
-            settings.resolve_plugin_request(Path::new("/workspace/app/.zshrc"), &request),
-            PluginResolution {
-                entrypoints: vec![PathBuf::from("/workspace/prezto/modules/editor/init.zsh")],
-                file_entry_contracts: Vec::new(),
-                requesting_file_contract: FileContract::default(),
-            }
-        );
-    }
+[lint]
+select = ["C", "S080", "S082", "C158"]
+ignore = ["C006"]
+extend-select = ["S085"]
+per-file-ignores = { "vendor/*.sh" = ["C001"] }
+extend-per-file-ignores = { "portable.sh" = ["C063"] }
 
-    #[test]
-    fn prezto_theme_requests_do_not_use_oh_my_zsh_theme_layout() {
-        let settings = ResolvedZshPluginSettings::resolve(
-            PathBuf::from("/workspace"),
-            true,
-            default_ambient_contracts(),
-            BTreeMap::from([("prezto".to_owned(), "/workspace/prezto".to_owned())]),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        )
-        .unwrap();
-        let request = PluginRequest {
-            framework: PluginFramework::Prezto,
-            kind: PluginRequestKind::Theme,
-            name: "sorin".to_owned(),
-            span: shuck_ast::Span::new(),
-            explicit: false,
-            root_hint: None,
-        };
+[lint.rule-options.c001]
+treat-indirect-expansion-targets-as-used = true
 
-        assert_eq!(
-            settings.resolve_plugin_request(Path::new("/workspace/app/.zshrc"), &request),
-            PluginResolution::default()
-        );
-    }
+[lint.rule-options.s080]
+max-lines = 120
+count = "non-comment-non-blank"
 
-    #[test]
-    fn zdot_plugin_root_resolves_module_entrypoint() {
-        let settings = ResolvedZshPluginSettings::resolve(
-            PathBuf::from("/workspace"),
-            true,
-            default_ambient_contracts(),
-            BTreeMap::from([("zdot".to_owned(), "/workspace/zdot".to_owned())]),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        )
-        .unwrap();
-        let request = PluginRequest {
-            framework: PluginFramework::Zdot,
-            kind: PluginRequestKind::Plugin,
-            name: "fzf".to_owned(),
-            span: shuck_ast::Span::new(),
-            explicit: false,
-            root_hint: None,
-        };
+[lint.rule-options.s082]
+kinds = ["TODO"]
+require-owner = true
 
-        assert_eq!(
-            settings.resolve_plugin_request(Path::new("/workspace/app/.zshrc"), &request),
-            PluginResolution {
-                entrypoints: vec![PathBuf::from("/workspace/zdot/modules/fzf/fzf.zsh")],
-                file_entry_contracts: Vec::new(),
-                requesting_file_contract: FileContract::default(),
-            }
-        );
-    }
+[lint.rule-options.s085]
+non-trivial-line-threshold = 20
+main-name = "run"
 
-    #[test]
-    fn zdot_source_suffix_rewrites_framework_paths_only() {
-        let settings = ResolvedZshPluginSettings::resolve(
-            PathBuf::from("/workspace"),
-            true,
-            default_ambient_contracts(),
-            BTreeMap::from([("zdot".to_owned(), "/workspace/zdot".to_owned())]),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
+[lint.rule-options.c158]
+treat-export-as-intentional = true
+
+[lint.contracts]
+well-known = false
+
+[[lint.contracts.custom]]
+id = "project-env"
+when = "always"
+files = ["**/*.sh"]
+provides = { variables = ["PROJECT_HOME"] }
+consumes = { prefixes = ["PROJECT_"] }
+"#,
         )
         .unwrap();
 
-        assert_eq!(
-            settings.resolve_source_path(
-                Path::new("/workspace/zdot/zdot.zsh"),
-                "/not-installed/zdot/core/hooks.zsh",
-            ),
-            vec![PathBuf::from("/workspace/zdot/core/hooks.zsh")]
+        let cli = resolve_project_check_settings(
+            &ProjectRoot {
+                storage_root: root.clone(),
+                canonical_root: root.clone(),
+            },
+            &ConfigArguments::default(),
+            &RuleSelectionArgs::default(),
+            &ZshPluginArgs::default(),
+        )
+        .unwrap();
+
+        for file in ["portable.sh", "vendor/tool.sh", "prompt.zsh", "other.bash"] {
+            let path = root.join(file);
+            let mut cli_linter = cli.linter_settings.clone();
+            cli_linter.shell = cli
+                .per_file_shell
+                .shell_for_path(&path)
+                .unwrap_or(ShellDialect::Unknown);
+            let lsp_linter = shuck_server::resolve_linter_settings_for_file(
+                &path,
+                std::slice::from_ref(&root),
+                &shuck_server::ClientOptions::default(),
+            );
+
+            assert_eq!(cli_linter, lsp_linter, "settings diverged for {file}");
+        }
+
+        let portable = root.join("portable.sh");
+        let lsp_linter = shuck_server::resolve_linter_settings_for_file(
+            &portable,
+            std::slice::from_ref(&root),
+            &shuck_server::ClientOptions::default(),
         );
-        assert_eq!(
-            settings.resolve_source_path(
-                Path::new("/workspace/zdot/zdot.zsh"),
-                "/not-installed/zdot/modules/fzf/fzf.zsh",
-            ),
-            vec![PathBuf::from("/workspace/zdot/modules/fzf/fzf.zsh")]
+        assert_eq!(lsp_linter.shell, ShellDialect::Dash);
+        assert!(
+            lsp_linter
+                .rule_options
+                .c001
+                .treat_indirect_expansion_targets_as_used
         );
-        assert_eq!(
-            settings.resolve_source_path(
-                Path::new("/workspace/app/.zshrc"),
-                "/tmp/other/core/hooks.zsh",
-            ),
-            Vec::<PathBuf>::new()
+        assert_eq!(lsp_linter.rule_options.s080.max_lines, 120);
+        assert!(lsp_linter.rule_options.s082.require_owner);
+        assert!(lsp_linter.rule_options.c158.treat_export_as_intentional);
+        assert_ne!(
+            lsp_linter.ambient_contracts.as_ref(),
+            &ResolvedAmbientContracts::default()
         );
+        assert!(
+            lsp_linter
+                .per_file_ignores
+                .ignored_rules(&root.join("vendor/tool.sh"))
+                .contains(Rule::UnusedAssignment)
+        );
+        assert!(!lsp_linter.rules.contains(Rule::UndefinedVariable));
     }
 
     #[test]

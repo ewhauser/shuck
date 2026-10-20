@@ -5,7 +5,8 @@
 //! This crate owns the TOML shapes used by `.shuck.toml`, command-line
 //! `--config` overrides, project-root discovery, an optional user-level global
 //! config file, and the small metadata model used to render configuration
-//! reference docs.
+//! reference docs. The [`resolve`] module turns a loaded config plus override
+//! layers into the compiled linter and formatter settings.
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
@@ -19,8 +20,11 @@ use clap::builder::{TypedValueParser, ValueParserFactory};
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
-use shuck_formatter::{IndentStyle, ShellDialect};
+pub use shuck_formatter::FormatSettingsPatch;
+use shuck_formatter::IndentStyle;
 use shuck_run::RunConfig;
+
+pub mod resolve;
 
 const CONFIG_FILENAMES: [&str; 2] = [".shuck.toml", "shuck.toml"];
 /// Environment variable that overrides the directory searched for the global
@@ -826,33 +830,6 @@ impl C161RuleOptionsConfig {
             self.ignore_after_source = overrides.ignore_after_source;
         }
     }
-}
-
-/// Partial formatter settings supplied by CLI flags or config files.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct FormatSettingsPatch {
-    /// Optional dialect override.
-    pub dialect: Option<ShellDialect>,
-    /// Optional indentation style override.
-    pub indent_style: Option<IndentStyle>,
-    /// Optional indentation width override.
-    pub indent_width: Option<u8>,
-    /// Optional binary-next-line override.
-    pub binary_next_line: Option<bool>,
-    /// Optional switch-case indentation override.
-    pub switch_case_indent: Option<bool>,
-    /// Optional spaced-redirection override.
-    pub space_redirects: Option<bool>,
-    /// Optional padding-preservation override.
-    pub keep_padding: Option<bool>,
-    /// Optional function-next-line override.
-    pub function_next_line: Option<bool>,
-    /// Optional never-split override.
-    pub never_split: Option<bool>,
-    /// Optional simplification override.
-    pub simplify: Option<bool>,
-    /// Optional minification override.
-    pub minify: Option<bool>,
 }
 
 /// Documentation metadata for a configuration section.
@@ -2591,7 +2568,7 @@ pub fn global_config_candidate_paths() -> Vec<PathBuf> {
         .collect()
 }
 
-fn normalize_path(path: &Path) -> PathBuf {
+pub(crate) fn normalize_path(path: &Path) -> PathBuf {
     path.components().collect()
 }
 

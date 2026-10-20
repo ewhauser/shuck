@@ -1,17 +1,16 @@
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::Arc;
 
+use shuck_config::resolve::{
+    ResolvePolicy, ResolvedFormatSettings, ResolvedLintSettings, ResolvedZshPluginSettings,
+    SettingsOverride, SettingsResolver,
+};
 use shuck_config::{
-    ConfigArguments, FormatExclusions, FormatSettingsPatch, LintConfig, ShuckConfig,
-    apply_config_overrides, load_project_config, resolve_project_root_for_file,
+    ConfigArguments, FormatExclusions, ShuckConfig, load_project_config,
+    resolve_project_root_for_file,
 };
-use shuck_formatter::{ShellDialect as FormatDialect, ShellFormatOptions};
-use shuck_linter::{
-    CompiledPerFileIgnoreList, CompiledPerFileShellList, LinterRuleOptions, LinterSettings,
-    PerFileIgnore, PerFileShell, RuleSelector, RuleSet, ShellDialect as LinterShellDialect,
-};
+use shuck_formatter::ShellFormatOptions;
+use shuck_linter::{LinterSettings, RuleSet};
 
 use crate::session::{
     ClientOptions, CompletionFeatureOptions, RenameFeatureOptions, WorkspaceSymbolFeatureOptions,
@@ -29,6 +28,7 @@ pub(crate) struct ClientSettings {
 #[derive(Clone, Debug)]
 pub struct ShuckSettings {
     linter: LinterSettings,
+    zsh_plugins: Arc<ResolvedZshPluginSettings>,
     formatter: ShellFormatOptions,
     format_dialect_error: Option<String>,
     format_exclusions: FormatExclusions,
@@ -44,17 +44,9 @@ pub(crate) struct SettingsResolveContext {
 
 #[derive(Clone, Debug)]
 pub(crate) struct ResolvedProjectSettings {
-    linter: ResolvedLinterSettings,
-    formatter: ShellFormatOptions,
-    format_exclusions: FormatExclusions,
-    fixable_rules: RuleSet,
+    lint: ResolvedLintSettings,
+    format: ResolvedFormatSettings,
     project_root: Option<PathBuf>,
-}
-
-#[derive(Clone, Debug)]
-struct ResolvedLinterSettings {
-    base: LinterSettings,
-    per_file_shell: CompiledPerFileShellList,
 }
 
 pub struct GlobalClientSettings {
@@ -135,6 +127,10 @@ impl ShuckSettings {
         &self.linter
     }
 
+    pub(crate) fn zsh_plugins(&self) -> &ResolvedZshPluginSettings {
+        &self.zsh_plugins
+    }
+
     pub(crate) fn formatter(&self) -> &ShellFormatOptions {
         &self.formatter
     }
@@ -158,12 +154,14 @@ impl ShuckSettings {
 
 impl Default for ShuckSettings {
     fn default() -> Self {
+        let lint = ResolvedLintSettings::default();
         Self {
-            linter: LinterSettings::default(),
+            linter: lint.linter,
+            zsh_plugins: lint.zsh_plugins,
             formatter: ShellFormatOptions::default(),
             format_dialect_error: None,
             format_exclusions: FormatExclusions::default(),
-            fixable_rules: RuleSet::all(),
+            fixable_rules: lint.fixable_rules,
             project_root: None,
         }
     }
@@ -218,79 +216,52 @@ impl ResolvedProjectSettings {
                 )
             })
             .unwrap_or_default();
-        let format_config = format_config_for_layers(&project_config, option_layers);
-        let format_exclusions = format_config
-            .compile_exclusions(context.config_root())
-            .unwrap_or_else(|error| {
-                tracing::warn!("Failed to compile formatter exclusions: {error}");
-                FormatExclusions::default()
-            });
+        let overrides = option_layers
+            .iter()
+            .map(|options| SettingsOverride::Config(Box::new(options.to_config_overrides())))
+            .collect::<Vec<_>>();
+        let mut resolver = SettingsResolver::new(
+            context.config_root(),
+            &project_config,
+            ResolvePolicy::Lenient,
+        )
+        .with_overrides(&overrides);
+        let lint = resolver.resolve_lint().unwrap_or_else(|error| {
+            tracing::warn!("Failed to resolve shuck lint settings: {error:#}");
+            ResolvedLintSettings::default()
+        });
+        let format = resolver.resolve_format().unwrap_or_else(|error| {
+            tracing::warn!("Failed to resolve shuck format settings: {error:#}");
+            ResolvedFormatSettings::default()
+        });
+        for warning in resolver.warnings() {
+            tracing::warn!("Ignoring invalid shuck setting: {warning}");
+        }
 
         Self {
-            linter: resolved_linter_settings_for_layers(
-                context.config_root(),
-                &project_config,
-                option_layers,
-            ),
-            formatter: formatter_settings_for_config(&format_config),
-            format_exclusions,
-            fixable_rules: fixable_rules_for_layers(&project_config, option_layers),
+            lint,
+            format,
             project_root: context.project_root.clone(),
         }
     }
 
     pub(crate) fn for_file(&self, file_path: Option<&Path>) -> ShuckSettings {
-        let (formatter, format_dialect_error) = self.formatter_for_file(file_path);
+        let (formatter, format_dialect_error) = match file_path {
+            Some(file_path) => match self.format.options_for_path(file_path) {
+                Ok(options) => (options, None),
+                Err(error) => (self.format.options.clone(), Some(error.to_string())),
+            },
+            None => (self.format.options.clone(), None),
+        };
         ShuckSettings {
-            linter: self.linter.for_file(file_path),
+            linter: self.lint.linter_for_path(file_path),
+            zsh_plugins: Arc::clone(&self.lint.zsh_plugins),
             formatter,
             format_dialect_error,
-            format_exclusions: self.format_exclusions.clone(),
-            fixable_rules: self.fixable_rules,
+            format_exclusions: self.format.exclusions.clone(),
+            fixable_rules: self.lint.fixable_rules,
             project_root: self.project_root.clone(),
         }
-    }
-
-    fn formatter_for_file(&self, file_path: Option<&Path>) -> (ShellFormatOptions, Option<String>) {
-        if self.formatter.dialect() != FormatDialect::Auto {
-            return (self.formatter.clone(), None);
-        }
-
-        let Some(file_path) = file_path else {
-            return (self.formatter.clone(), None);
-        };
-        let shell = match self.linter.per_file_shell.shell_for_path_checked(file_path) {
-            Ok(shell) => shell,
-            Err(error) => return (self.formatter.clone(), Some(error.to_string())),
-        };
-        let Some(shell) = shell else {
-            return (self.formatter.clone(), None);
-        };
-        let Some(dialect) = format_dialect(shell) else {
-            return (
-                self.formatter.clone(),
-                Some(format!(
-                    "per-file shell `{}` is not supported by the formatter",
-                    shell_name(shell)
-                )),
-            );
-        };
-
-        (self.formatter.clone().with_dialect(dialect), None)
-    }
-}
-
-impl ResolvedLinterSettings {
-    fn shell_for_file(&self, file_path: Option<&Path>) -> Option<LinterShellDialect> {
-        file_path.and_then(|file_path| self.per_file_shell.shell_for_path(file_path))
-    }
-
-    fn for_file(&self, file_path: Option<&Path>) -> LinterSettings {
-        let mut linter = self.base.clone();
-        linter.shell = self
-            .shell_for_file(file_path)
-            .unwrap_or(LinterShellDialect::Unknown);
-        linter
     }
 }
 
@@ -324,463 +295,12 @@ fn containing_workspace_root(path: &Path, workspace_roots: &[PathBuf]) -> Option
         .cloned()
 }
 
-#[derive(Debug, Clone, Default)]
-struct RuleSelectionLayer {
-    select: Option<Vec<RuleSelector>>,
-    ignore: Vec<RuleSelector>,
-    extend_select: Vec<RuleSelector>,
-    per_file_ignores: Option<Vec<PerFileIgnoreSpec>>,
-    extend_per_file_ignores: Vec<PerFileIgnoreSpec>,
-    per_file_shell: Option<Vec<PerFileShell>>,
-    extend_per_file_shell: Vec<PerFileShell>,
-    fixable: Option<Vec<RuleSelector>>,
-    unfixable: Vec<RuleSelector>,
-    extend_fixable: Vec<RuleSelector>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct PerFileIgnoreSpec {
-    pattern: String,
-    selectors: Vec<RuleSelector>,
-}
-
-impl PerFileIgnoreSpec {
-    fn into_ignore(self) -> PerFileIgnore {
-        PerFileIgnore::new(
-            self.pattern,
-            selectors_to_rule_set_from_parsed(&self.selectors),
-        )
-    }
-}
-
-fn lint_layers<'a>(
-    project_config: &'a ShuckConfig,
-    option_layers: &'a [&'a ClientOptions],
-) -> impl Iterator<Item = RuleSelectionLayer> + 'a {
-    std::iter::once(parse_config_rule_selection_layer(project_config)).chain(
-        option_layers
-            .iter()
-            .map(|options| parse_client_rule_selection_layer(options)),
-    )
-}
-
-fn resolved_linter_settings_for_layers(
-    project_root: &Path,
-    project_config: &ShuckConfig,
-    option_layers: &[&ClientOptions],
-) -> ResolvedLinterSettings {
-    let mut rules = LinterSettings::default_rules();
-    let mut per_file_ignores = Vec::new();
-    let mut per_file_shell = Vec::new();
-    let mut rule_options = LinterRuleOptions::default();
-
-    for layer in lint_layers(project_config, option_layers) {
-        rules = apply_rule_selector_layer(
-            rules,
-            layer.select.as_deref(),
-            &layer.extend_select,
-            &layer.ignore,
-        );
-        per_file_ignores = apply_per_file_ignore_layer(
-            per_file_ignores,
-            layer.per_file_ignores,
-            layer.extend_per_file_ignores,
-        );
-        per_file_shell = apply_per_file_shell_layer(
-            per_file_shell,
-            layer.per_file_shell,
-            layer.extend_per_file_shell,
-        );
-    }
-    for lint in std::iter::once(&project_config.lint).chain(
-        option_layers
-            .iter()
-            .filter_map(|options| options.lint.as_ref()),
-    ) {
-        apply_linter_rule_options_for_lint_config(&mut rule_options, lint);
-    }
-
-    let compiled_per_file_ignores =
-        CompiledPerFileIgnoreList::resolve(project_root.to_path_buf(), per_file_ignores)
-            .unwrap_or_default();
-    let compiled_per_file_shell =
-        CompiledPerFileShellList::resolve(project_root.to_path_buf(), per_file_shell)
-            .unwrap_or_else(|error| {
-                tracing::warn!("Failed to compile per-file shell settings: {error}");
-                CompiledPerFileShellList::default()
-            });
-
-    let mut base = LinterSettings::for_rules(rules.iter());
-    base.shell = LinterShellDialect::Unknown;
-    base.per_file_ignores = Arc::new(compiled_per_file_ignores);
-    base.rule_options = rule_options;
-
-    ResolvedLinterSettings {
-        base,
-        per_file_shell: compiled_per_file_shell,
-    }
-}
-
-fn format_config_for_layers(
-    project_config: &ShuckConfig,
-    option_layers: &[&ClientOptions],
-) -> shuck_config::FormatConfig {
-    let mut config = ShuckConfig {
-        format: project_config.format.clone(),
-        ..ShuckConfig::default()
-    };
-    for options in option_layers {
-        apply_config_overrides(&mut config, options.to_config_overrides());
-    }
-
-    config.format
-}
-
-fn formatter_settings_for_config(config: &shuck_config::FormatConfig) -> ShellFormatOptions {
-    let patch = config.to_patch().unwrap_or(FormatSettingsPatch {
-        ..FormatSettingsPatch::default()
-    });
-    let mut options = ShellFormatOptions::default();
-    if let Some(indent_style) = patch.indent_style {
-        options = options.with_indent_style(indent_style);
-    }
-    if let Some(indent_width) = patch.indent_width {
-        options = options.with_indent_width(indent_width);
-    }
-    if let Some(binary_next_line) = patch.binary_next_line {
-        options = options.with_binary_next_line(binary_next_line);
-    }
-    if let Some(switch_case_indent) = patch.switch_case_indent {
-        options = options.with_switch_case_indent(switch_case_indent);
-    }
-    if let Some(space_redirects) = patch.space_redirects {
-        options = options.with_space_redirects(space_redirects);
-    }
-    if let Some(keep_padding) = patch.keep_padding {
-        options = options.with_keep_padding(keep_padding);
-    }
-    if let Some(function_next_line) = patch.function_next_line {
-        options = options.with_function_next_line(function_next_line);
-    }
-    if let Some(never_split) = patch.never_split {
-        options = options.with_never_split(never_split);
-    }
-    if let Some(simplify) = patch.simplify {
-        options = options.with_simplify(simplify);
-    }
-    if let Some(minify) = patch.minify {
-        options = options.with_minify(minify);
-    }
-    if let Some(dialect) = patch.dialect {
-        options = options.with_dialect(match dialect {
-            FormatDialect::Auto => FormatDialect::Auto,
-            FormatDialect::Bash => FormatDialect::Bash,
-            FormatDialect::Posix => FormatDialect::Posix,
-            FormatDialect::Mksh => FormatDialect::Mksh,
-            FormatDialect::Zsh => FormatDialect::Zsh,
-        });
-    }
-    options
-}
-
-const fn format_dialect(shell: LinterShellDialect) -> Option<FormatDialect> {
-    match shell {
-        LinterShellDialect::Sh | LinterShellDialect::Dash => Some(FormatDialect::Posix),
-        LinterShellDialect::Bash => Some(FormatDialect::Bash),
-        LinterShellDialect::Mksh => Some(FormatDialect::Mksh),
-        LinterShellDialect::Zsh => Some(FormatDialect::Zsh),
-        LinterShellDialect::Unknown | LinterShellDialect::Ksh => None,
-    }
-}
-
-const fn shell_name(shell: LinterShellDialect) -> &'static str {
-    match shell {
-        LinterShellDialect::Unknown => "unknown",
-        LinterShellDialect::Sh => "sh",
-        LinterShellDialect::Bash => "bash",
-        LinterShellDialect::Dash => "dash",
-        LinterShellDialect::Ksh => "ksh",
-        LinterShellDialect::Mksh => "mksh",
-        LinterShellDialect::Zsh => "zsh",
-    }
-}
-
-fn fixable_rules_for_layers(
-    project_config: &ShuckConfig,
-    option_layers: &[&ClientOptions],
-) -> RuleSet {
-    let mut fixable_rules = RuleSet::all();
-
-    for layer in lint_layers(project_config, option_layers) {
-        fixable_rules = apply_rule_selector_layer(
-            fixable_rules,
-            layer.fixable.as_deref(),
-            &layer.extend_fixable,
-            &layer.unfixable,
-        );
-    }
-
-    fixable_rules
-}
-
-fn selectors_to_rule_set_from_parsed(selectors: &[RuleSelector]) -> RuleSet {
-    selectors.iter().fold(RuleSet::EMPTY, |rules, selector| {
-        rules.union(&selector.into_rule_set())
-    })
-}
-
-fn parse_lint_config_layer(lint: &LintConfig) -> RuleSelectionLayer {
-    RuleSelectionLayer {
-        select: parse_selector_list(lint.select.as_deref(), "lint.select"),
-        ignore: parse_selector_list(lint.ignore.as_deref(), "lint.ignore").unwrap_or_default(),
-        extend_select: parse_selector_list(lint.extend_select.as_deref(), "lint.extend-select")
-            .unwrap_or_default(),
-        per_file_ignores: lint
-            .per_file_ignores
-            .as_ref()
-            .map(|entries| parse_per_file_ignore_specs(entries, "lint.per-file-ignores")),
-        extend_per_file_ignores: lint
-            .extend_per_file_ignores
-            .as_ref()
-            .map(|entries| parse_per_file_ignore_specs(entries, "lint.extend-per-file-ignores"))
-            .unwrap_or_default(),
-        per_file_shell: lint
-            .per_file_shell
-            .as_ref()
-            .map(|entries| parse_per_file_shell_map(entries, "lint.per-file-shell")),
-        extend_per_file_shell: lint
-            .extend_per_file_shell
-            .as_ref()
-            .map(|entries| parse_per_file_shell_map(entries, "lint.extend-per-file-shell"))
-            .unwrap_or_default(),
-        fixable: parse_selector_list(lint.fixable.as_deref(), "lint.fixable"),
-        unfixable: parse_selector_list(lint.unfixable.as_deref(), "lint.unfixable")
-            .unwrap_or_default(),
-        extend_fixable: parse_selector_list(lint.extend_fixable.as_deref(), "lint.extend-fixable")
-            .unwrap_or_default(),
-    }
-}
-
-fn parse_config_rule_selection_layer(config: &ShuckConfig) -> RuleSelectionLayer {
-    let mut layer = parse_lint_config_layer(&config.lint);
-    if let Some(entries) = config.per_file_shell.as_ref() {
-        layer.per_file_shell = Some(parse_per_file_shell_map(entries, "per-file-shell"));
-    }
-    layer
-}
-
-fn parse_client_rule_selection_layer(options: &ClientOptions) -> RuleSelectionLayer {
-    let mut layer = options
-        .lint
-        .as_ref()
-        .map(parse_lint_config_layer)
-        .unwrap_or_default();
-    if let Some(entries) = options.per_file_shell.as_ref() {
-        layer.per_file_shell = Some(parse_per_file_shell_map(entries, "perFileShell"));
-    }
-    layer
-}
-
-fn parse_per_file_ignore_specs(
-    entries: &BTreeMap<String, Vec<String>>,
-    scope: &str,
-) -> Vec<PerFileIgnoreSpec> {
-    entries
-        .iter()
-        .filter_map(|(pattern, selectors)| match parse_selectors(selectors) {
-            Ok(parsed) => Some(PerFileIgnoreSpec {
-                pattern: pattern.clone(),
-                selectors: parsed,
-            }),
-            Err(error) => {
-                tracing::warn!("Ignoring invalid {scope} entry for {pattern:?}: {error}");
-                None
-            }
-        })
-        .collect()
-}
-
-fn parse_selectors(selectors: &[String]) -> anyhow::Result<Vec<RuleSelector>> {
-    selectors
-        .iter()
-        .map(|selector| RuleSelector::from_str(selector).map_err(anyhow::Error::new))
-        .collect()
-}
-
-fn parse_selector_list(selectors: Option<&[String]>, scope: &str) -> Option<Vec<RuleSelector>> {
-    let selectors = selectors?;
-    match parse_selectors(selectors) {
-        Ok(parsed) => Some(parsed),
-        Err(error) => {
-            tracing::warn!("Ignoring invalid {scope} selectors: {error}");
-            None
-        }
-    }
-}
-
-fn apply_rule_selector_layer(
-    current: RuleSet,
-    select: Option<&[RuleSelector]>,
-    extend_select: &[RuleSelector],
-    ignore: &[RuleSelector],
-) -> RuleSet {
-    let mut specificities = select
-        .into_iter()
-        .flatten()
-        .chain(extend_select.iter())
-        .chain(ignore.iter())
-        .map(selector_specificity)
-        .collect::<Vec<_>>();
-    specificities.sort_unstable();
-    specificities.dedup();
-
-    let mut updates = std::collections::HashMap::<shuck_linter::Rule, bool>::new();
-    for specificity in specificities {
-        for selector in select
-            .into_iter()
-            .flatten()
-            .chain(extend_select.iter())
-            .filter(|selector| selector_specificity(selector) == specificity)
-        {
-            for rule in selector.into_rule_set().iter() {
-                updates.insert(rule, true);
-            }
-        }
-        for selector in ignore
-            .iter()
-            .filter(|selector| selector_specificity(selector) == specificity)
-        {
-            for rule in selector.into_rule_set().iter() {
-                updates.insert(rule, false);
-            }
-        }
-    }
-
-    if select.is_some() {
-        updates
-            .into_iter()
-            .filter_map(|(rule, enabled)| enabled.then_some(rule))
-            .collect()
-    } else {
-        let mut rules = current;
-        for (rule, enabled) in updates {
-            rules.set(rule, enabled);
-        }
-        rules
-    }
-}
-
-fn selector_specificity(selector: &RuleSelector) -> usize {
-    match selector {
-        RuleSelector::All => 0,
-        RuleSelector::Category(_) => 1,
-        RuleSelector::Named(_) => 1,
-        RuleSelector::Prefix(prefix) => 2 + prefix.len(),
-        RuleSelector::Rule(_) => usize::MAX,
-    }
-}
-
-fn apply_per_file_ignore_layer(
-    current: Vec<PerFileIgnore>,
-    per_file_ignores: Option<Vec<PerFileIgnoreSpec>>,
-    extend_per_file_ignores: Vec<PerFileIgnoreSpec>,
-) -> Vec<PerFileIgnore> {
-    let mut per_file_ignores = per_file_ignores
-        .map(|per_file_ignores| {
-            per_file_ignores
-                .into_iter()
-                .map(PerFileIgnoreSpec::into_ignore)
-                .collect()
-        })
-        .unwrap_or(current);
-    per_file_ignores.extend(
-        extend_per_file_ignores
-            .into_iter()
-            .map(PerFileIgnoreSpec::into_ignore),
-    );
-    per_file_ignores
-}
-
-fn linter_rule_options_for_lint_config(lint: &LintConfig) -> LinterRuleOptions {
-    let mut rule_options = LinterRuleOptions::default();
-    apply_linter_rule_options_for_lint_config(&mut rule_options, lint);
-    rule_options
-}
-
-fn apply_linter_rule_options_for_lint_config(
-    rule_options: &mut LinterRuleOptions,
-    lint: &LintConfig,
-) {
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.c001.as_ref())
-        .and_then(|c001| c001.treat_indirect_expansion_targets_as_used)
-    {
-        rule_options.c001.treat_indirect_expansion_targets_as_used = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.c063.as_ref())
-        .and_then(|c063| c063.report_unreached_nested_definitions)
-    {
-        rule_options.c063.report_unreached_nested_definitions = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s085.as_ref())
-        .and_then(|s085| s085.non_trivial_line_threshold)
-    {
-        rule_options.s085.non_trivial_line_threshold = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s085.as_ref())
-        .and_then(|s085| s085.non_trivial_function_count)
-    {
-        rule_options.s085.non_trivial_function_count = value;
-    }
-    if let Some(value) = lint
-        .rule_options
-        .as_ref()
-        .and_then(|options| options.s085.as_ref())
-        .and_then(|s085| s085.main_name.as_ref())
-    {
-        rule_options.s085.main_name.clone_from(value);
-    }
-}
-
-fn parse_per_file_shell_map(entries: &BTreeMap<String, String>, scope: &str) -> Vec<PerFileShell> {
-    entries
-        .iter()
-        .filter_map(|(pattern, shell_name)| {
-            let shell = LinterShellDialect::from_name(shell_name);
-            if shell == LinterShellDialect::Unknown {
-                tracing::warn!("Ignoring invalid {scope} entry for {pattern:?}: {shell_name:?}");
-                return None;
-            }
-
-            Some(PerFileShell::new(pattern.clone(), shell))
-        })
-        .collect()
-}
-
-fn apply_per_file_shell_layer(
-    current: Vec<PerFileShell>,
-    per_file_shell: Option<Vec<PerFileShell>>,
-    extend_per_file_shell: Vec<PerFileShell>,
-) -> Vec<PerFileShell> {
-    let mut per_file_shell = per_file_shell.unwrap_or(current);
-    per_file_shell.extend(extend_per_file_shell);
-    per_file_shell
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+
+    use shuck_formatter::ShellDialect as FormatDialect;
+    use shuck_linter::ShellDialect as LinterShellDialect;
 
     use super::*;
 

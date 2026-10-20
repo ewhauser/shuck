@@ -1,22 +1,22 @@
-use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use shuck_cache::{CacheKey, CacheKeyHasher};
-use shuck_config::{
-    ConfigArguments, FormatExclusions, FormatSettingsPatch, ShuckConfig, load_project_config,
-};
+#[cfg(test)]
+use shuck_config::resolve::CONFIG_INDENT_WIDTH_ERROR;
+use shuck_config::resolve::{ResolvePolicy, SettingsResolver, format_options_for_path};
+use shuck_config::{ConfigArguments, FormatExclusions, FormatSettingsPatch, load_project_config};
 use shuck_formatter::{IndentStyle, ShellDialect as FormatDialect, ShellFormatOptions};
-use shuck_linter::{CompiledPerFileShellList, PerFileShell, ShellDialect as LinterShellDialect};
+use shuck_linter::CompiledPerFileShellList;
 
 const CLI_INDENT_WIDTH_ERROR: &str = "`--indent-width` must be at least 1";
-const CONFIG_INDENT_WIDTH_ERROR: &str = "`[format].indent-width` must be at least 1";
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ResolvedFormatSettings {
     options: ShellFormatOptions,
     exclusions: FormatExclusions,
-    per_file_shell: CompiledPerFileShellList,
+    per_file_shell: Arc<CompiledPerFileShellList>,
     effective_per_file_shell: Vec<EffectivePerFileShell>,
 }
 
@@ -58,14 +58,7 @@ impl ResolvedFormatSettings {
     }
 
     pub(crate) fn shell_format_options_for_path(&self, path: &Path) -> Result<ShellFormatOptions> {
-        if self.options.dialect() != FormatDialect::Auto {
-            return Ok(self.options.clone());
-        }
-
-        let Some(shell) = self.per_file_shell.shell_for_path_checked(path)? else {
-            return Ok(self.options.clone());
-        };
-        Ok(self.options.clone().with_dialect(format_dialect(shell)?))
+        format_options_for_path(&self.options, &self.per_file_shell, path)
     }
 
     pub(crate) fn is_file_excluded(&self, path: &Path) -> bool {
@@ -73,46 +66,10 @@ impl ResolvedFormatSettings {
     }
 
     fn apply_patch(&mut self, patch: FormatSettingsPatch, indent_width_error: &str) -> Result<()> {
-        let mut options = self.options.clone();
-
-        if let Some(dialect) = patch.dialect {
-            options = options.with_dialect(dialect);
+        if patch.indent_width == Some(0) {
+            return Err(anyhow!(indent_width_error.to_owned()));
         }
-        if let Some(indent_style) = patch.indent_style {
-            options = options.with_indent_style(indent_style);
-        }
-        if let Some(indent_width) = patch.indent_width {
-            if indent_width == 0 {
-                return Err(anyhow!(indent_width_error.to_owned()));
-            }
-            options = options.with_indent_width(indent_width);
-        }
-        if let Some(binary_next_line) = patch.binary_next_line {
-            options = options.with_binary_next_line(binary_next_line);
-        }
-        if let Some(switch_case_indent) = patch.switch_case_indent {
-            options = options.with_switch_case_indent(switch_case_indent);
-        }
-        if let Some(space_redirects) = patch.space_redirects {
-            options = options.with_space_redirects(space_redirects);
-        }
-        if let Some(keep_padding) = patch.keep_padding {
-            options = options.with_keep_padding(keep_padding);
-        }
-        if let Some(function_next_line) = patch.function_next_line {
-            options = options.with_function_next_line(function_next_line);
-        }
-        if let Some(never_split) = patch.never_split {
-            options = options.with_never_split(never_split);
-        }
-        if let Some(simplify) = patch.simplify {
-            options = options.with_simplify(simplify);
-        }
-        if let Some(minify) = patch.minify {
-            options = options.with_minify(minify);
-        }
-
-        self.options = options;
+        self.options = self.options.clone().with_patch(&patch);
         Ok(())
     }
 }
@@ -123,25 +80,23 @@ pub(crate) fn resolve_project_format_settings(
     cli_patch: FormatSettingsPatch,
 ) -> Result<ResolvedFormatSettings> {
     let config = load_project_config(project_root, config_arguments)?;
-    let config_patch = config.format.to_patch()?;
-    let exclusions = config.format.compile_exclusions(project_root)?;
-    let per_file_shell = parse_config_per_file_shell(&config)?;
-    let effective_per_file_shell = per_file_shell
+    let resolved =
+        SettingsResolver::new(project_root, &config, ResolvePolicy::Strict).resolve_format()?;
+    let effective_per_file_shell = resolved
+        .per_file_shell
         .iter()
         .map(|entry| EffectivePerFileShell {
             pattern: entry.pattern().to_owned(),
-            shell: shell_name(entry.shell()).to_owned(),
+            shell: entry.shell().as_str().to_owned(),
         })
         .collect();
-    let per_file_shell = CompiledPerFileShellList::resolve(project_root, per_file_shell)?;
 
     let mut settings = ResolvedFormatSettings {
-        exclusions,
-        per_file_shell,
+        options: resolved.options,
+        exclusions: resolved.exclusions,
+        per_file_shell: resolved.compiled_per_file_shell,
         effective_per_file_shell,
-        ..ResolvedFormatSettings::default()
     };
-    settings.apply_patch(config_patch, CONFIG_INDENT_WIDTH_ERROR)?;
     settings.apply_patch(cli_patch, CLI_INDENT_WIDTH_ERROR)?;
     Ok(settings)
 }
@@ -160,71 +115,6 @@ const fn shell_dialect_key(dialect: FormatDialect) -> u8 {
         FormatDialect::Posix => 2,
         FormatDialect::Mksh => 3,
         FormatDialect::Zsh => 4,
-    }
-}
-
-fn parse_config_per_file_shell(config: &ShuckConfig) -> Result<Vec<PerFileShell>> {
-    let mut entries = match config.per_file_shell.as_ref() {
-        Some(patterns) => parse_per_file_shell_map(patterns, "per-file-shell")?,
-        None => config
-            .lint
-            .per_file_shell
-            .as_ref()
-            .map(|patterns| parse_per_file_shell_map(patterns, "lint.per-file-shell"))
-            .transpose()?
-            .unwrap_or_default(),
-    };
-
-    if let Some(patterns) = config.lint.extend_per_file_shell.as_ref() {
-        entries.extend(parse_per_file_shell_map(
-            patterns,
-            "lint.extend-per-file-shell",
-        )?);
-    }
-
-    Ok(entries)
-}
-
-fn parse_per_file_shell_map(
-    patterns: &BTreeMap<String, String>,
-    scope: &str,
-) -> Result<Vec<PerFileShell>> {
-    patterns
-        .iter()
-        .map(|(pattern, shell_name)| {
-            let shell = LinterShellDialect::from_name(shell_name);
-            if shell == LinterShellDialect::Unknown {
-                return Err(anyhow!(
-                    "invalid {scope} shell `{shell_name}`: expected one of sh, bash, dash, ksh, mksh, zsh"
-                ));
-            }
-            Ok(PerFileShell::new(pattern.clone(), shell))
-        })
-        .collect()
-}
-
-fn format_dialect(shell: LinterShellDialect) -> Result<FormatDialect> {
-    match shell {
-        LinterShellDialect::Sh | LinterShellDialect::Dash => Ok(FormatDialect::Posix),
-        LinterShellDialect::Bash => Ok(FormatDialect::Bash),
-        LinterShellDialect::Mksh => Ok(FormatDialect::Mksh),
-        LinterShellDialect::Zsh => Ok(FormatDialect::Zsh),
-        LinterShellDialect::Ksh => Err(anyhow!(
-            "per-file shell `ksh` is not supported by the formatter; use `mksh` for mksh files"
-        )),
-        LinterShellDialect::Unknown => Err(anyhow!("unknown per-file shell dialect")),
-    }
-}
-
-const fn shell_name(shell: LinterShellDialect) -> &'static str {
-    match shell {
-        LinterShellDialect::Unknown => "unknown",
-        LinterShellDialect::Sh => "sh",
-        LinterShellDialect::Bash => "bash",
-        LinterShellDialect::Dash => "dash",
-        LinterShellDialect::Ksh => "ksh",
-        LinterShellDialect::Mksh => "mksh",
-        LinterShellDialect::Zsh => "zsh",
     }
 }
 
