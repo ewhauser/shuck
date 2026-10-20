@@ -331,6 +331,7 @@ check-release-security:
 
 check-scripts:
 	cargo run -q -p shuck-cli -- check --no-cache scripts
+	bash scripts/check-agents-crates.sh
 check:
 	cargo fmt -- --check
 	cargo clippy --workspace --all-targets --all-features -- -D warnings

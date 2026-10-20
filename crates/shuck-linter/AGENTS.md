@@ -15,8 +15,8 @@ lowest layer that gets the answer right; do not duplicate that work higher up.
    the source/AST. Cheap query surface.
 4. **Semantic model** (`crates/shuck-semantic`) — bindings, references,
    scopes, declarations, source closure, call graph, CFG, dataflow.
-5. **Linter facts** (`crates/shuck-linter/src/facts.rs` and
-   `src/facts/`) — linter-owned structural summaries built once per file:
+5. **Linter facts** (`crates/shuck-linter/src/facts/`, entry point
+   `facts/mod.rs`) — linter-owned structural summaries built once per file:
    normalized commands, wrapper chains, option-shape summaries, word/expansion
    facts, pipeline/loop/list facts, redirect/substitution facts, surface
    fragment facts, test/conditional facts.
@@ -161,9 +161,9 @@ belongs in facts, not in the rule.
 
 When a rule needs information that no fact exposes:
 
-1. Add the new field/method to the appropriate fact in `src/facts.rs` or one
-   of the submodules under `src/facts/`. Build it inside `LinterFacts::build`
-   (or the relevant builder) so it is computed once per file.
+1. Add the new field/method to the appropriate fact in the appropriate
+   submodule under `src/facts/`. Build it inside `LinterFactsBuilder::build`
+   in `src/facts/builder.rs` (or the relevant builder) so it is computed once per file.
 2. Re-export rule-facing types from the crate root if rules need to name them.
 3. Update the rule to consume the new fact field.
 4. Add or update unit tests at the fact layer alongside the rule's tests.

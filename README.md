@@ -82,6 +82,9 @@ Shuck's main workflows are split across subcommands:
 | Lint files, directories, and supported embedded shell | `shuck check` |
 | Format shell files | `shuck format` |
 | Run the editor language server over stdio | `shuck server` |
+| Run a script with a managed shell interpreter | `shuck run` |
+| Pre-install a managed shell interpreter, or list available versions | `shuck install` |
+| Start an interactive session with a managed shell interpreter | `shuck shell` |
 | Remove project cache entries | `shuck clean` |
 
 ### Lint
@@ -120,23 +123,21 @@ shuck --cache-dir .tmp/shuck-cache check .
 
 ### Format
 
-The formatter CLI is currently experimental, so set `SHUCK_EXPERIMENTAL=1` when invoking `shuck format`:
-
 ```sh
 # Format files in place
-SHUCK_EXPERIMENTAL=1 shuck format .
+shuck format .
 
 # Check formatting without modifying files
-SHUCK_EXPERIMENTAL=1 shuck format --check .
+shuck format --check .
 
 # Show unified diffs for files that would change
-SHUCK_EXPERIMENTAL=1 shuck format --diff .
+shuck format --diff .
 
 # Format stdin and infer the dialect from a filename
-printf 'foo(){\necho hi\n}\n' | SHUCK_EXPERIMENTAL=1 shuck format --stdin-filename script.bash -
+printf 'foo(){\necho hi\n}\n' | shuck format --stdin-filename script.bash -
 
 # Override formatting options for a single run
-SHUCK_EXPERIMENTAL=1 shuck format --indent-style space --indent-width 2 --function-next-line .
+shuck format --indent-style space --indent-width 2 --function-next-line .
 ```
 
 `shuck format` uses the same file discovery, exclusion, gitignore, project-root, and cache behavior as `shuck check`, but it only rewrites standalone shell files. Embedded GitHub Actions `run:` blocks are linted by `shuck check`; they are not rewritten by the formatter.
