@@ -266,6 +266,9 @@ pub(crate) struct RecordedCommand {
     pub(crate) nested_regions: RecordedRegionRange,
     pub(crate) command_info: Option<RecordedCommandInfoId>,
     pub(crate) kind: RecordedCommandKind,
+    /// Whether the statement runs asynchronously (`cmd &`), so control flow
+    /// inside it cannot terminate or return from the enclosing shell.
+    pub(crate) backgrounded: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -454,6 +457,17 @@ impl RecordedProgram {
 
     pub(crate) fn command_mut(&mut self, id: CommandId) -> &mut RecordedCommand {
         &mut self.commands[id.index()]
+    }
+
+    /// Downgrades every recorded `exit` to an ordinary command. Used when a
+    /// user-defined `exit` function shadows the builtin, so an `exit` call
+    /// cannot be assumed to terminate the script.
+    pub(crate) fn treat_exit_as_ordinary_command(&mut self) {
+        for command in &mut self.commands {
+            if matches!(command.kind, RecordedCommandKind::Exit) {
+                command.kind = RecordedCommandKind::Linear;
+            }
+        }
     }
 
     pub(crate) fn command_info(&self, id: RecordedCommandInfoId) -> &RecordedCommandInfo {

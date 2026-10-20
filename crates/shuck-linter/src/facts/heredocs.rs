@@ -46,13 +46,13 @@ pub(crate) fn build_heredoc_fact_summary(
                 continue;
             }
 
-            if let Some(span) = heredoc_end_space_span(
+            if let Some(fact) = heredoc_end_space_fact(
                 heredoc.body.span,
                 delimiter,
                 heredoc.delimiter.strip_tabs,
                 locator,
             ) {
-                summary.heredoc_end_space_spans.push(span);
+                summary.heredoc_end_space_facts.push(fact);
             }
 
             if redirect.kind == RedirectKind::HereDocStrip {
@@ -103,7 +103,8 @@ fn redirect_uses_tab_stripping_heredoc(redirect: &Redirect) -> bool {
 pub(crate) fn build_indented_heredoc_close_facts(
     commands: &[CommandFact<'_>],
     locator: Locator<'_>,
-) -> Vec<(Span, Span)> {
+    file_end: usize,
+) -> Vec<HeredocCloserLineFact> {
     let mut facts = Vec::new();
 
     for command in commands {
@@ -118,11 +119,22 @@ pub(crate) fn build_indented_heredoc_close_facts(
             if delimiter.is_empty() || redirect_uses_tab_stripping_heredoc(redirect) {
                 continue;
             }
+            // A body that stops before the end of the file was closed by an
+            // exact terminator, so indented look-alikes are body text. In an
+            // unterminated body only the first look-alike can become the
+            // terminator; later ones would turn into commands.
+            let closed = heredoc.body.span.end.offset() != file_end;
+            let start = facts.len();
             facts.extend(indented_heredoc_close_facts(
                 heredoc.body.span,
                 delimiter,
                 locator,
             ));
+            for (index, fact) in facts[start..].iter_mut().enumerate() {
+                if closed || index > 0 {
+                    fact.edit_span = None;
+                }
+            }
         }
     }
 
@@ -176,12 +188,35 @@ pub(crate) fn has_misquoted_heredoc_close(
         .any(|candidate_line| is_quoted_delimiter_variant(candidate_line, delimiter))
 }
 
-pub(crate) fn heredoc_end_space_span(
+/// A here-document line that looks like a terminator but needs an edit to
+/// become one, such as `EOF ` or `  EOF`.
+#[derive(Debug, Clone, Copy)]
+pub struct HeredocCloserLineFact {
+    span: Span,
+    edit_span: Option<Span>,
+}
+
+impl HeredocCloserLineFact {
+    /// Diagnostic anchor for the look-alike line.
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    /// Text to delete so the line becomes the terminator. `None` when the
+    /// shell already closes the here-document at a later exact terminator
+    /// line, because the look-alike is then ordinary body text and editing it
+    /// would truncate the here-document.
+    pub fn edit_span(&self) -> Option<Span> {
+        self.edit_span
+    }
+}
+
+pub(crate) fn heredoc_end_space_fact(
     body_span: Span,
     delimiter: &str,
     strip_tabs: bool,
     locator: Locator<'_>,
-) -> Option<Span> {
+) -> Option<HeredocCloserLineFact> {
     let source = locator.source();
     let line_start_offset = body_span.end.offset();
     let remainder = source.get(line_start_offset..)?;
@@ -194,7 +229,32 @@ pub(crate) fn heredoc_end_space_span(
 
     let trailing_start_offset = line_start_offset + tab_prefix_len + delimiter.len();
     let start = locator.position_at_offset(trailing_start_offset)?;
-    Some(Span::from_positions(start, start))
+    let next_line_offset = line_start_offset + raw_line.len();
+    let edit_span = if has_exact_closer_line_from(source, next_line_offset, delimiter, strip_tabs) {
+        None
+    } else {
+        let end = locator.position_at_offset(trailing_start_offset + trailing.len())?;
+        Some(Span::from_positions(start, end))
+    };
+    Some(HeredocCloserLineFact {
+        span: Span::from_positions(start, start),
+        edit_span,
+    })
+}
+
+/// Whether any line at or after `offset` exactly matches the terminator, which
+/// is where the shell would really end the here-document.
+fn has_exact_closer_line_from(
+    source: &str,
+    offset: usize,
+    delimiter: &str,
+    strip_tabs: bool,
+) -> bool {
+    source
+        .get(offset..)
+        .unwrap_or_default()
+        .split_inclusive('\n')
+        .any(|raw_line| normalized_heredoc_line(raw_line, strip_tabs).0 == delimiter)
 }
 
 pub(crate) fn spaced_tabstrip_close_spans(
@@ -222,7 +282,7 @@ fn indented_heredoc_close_facts(
     body_span: Span,
     delimiter: &str,
     locator: Locator<'_>,
-) -> Vec<(Span, Span)> {
+) -> Vec<HeredocCloserLineFact> {
     let source = locator.source();
     let mut facts = Vec::new();
     let mut line_start_offset = body_span.start.offset();
@@ -235,10 +295,10 @@ fn indented_heredoc_close_facts(
             && let Some(start) = locator.position_at_offset(line_start_offset)
             && let Some(indent_end) = locator.position_at_offset(line_start_offset + indent_len)
         {
-            facts.push((
-                Span::from_positions(start, start),
-                Span::from_positions(start, indent_end),
-            ));
+            facts.push(HeredocCloserLineFact {
+                span: Span::from_positions(start, start),
+                edit_span: Some(Span::from_positions(start, indent_end)),
+            });
         }
         line_start_offset += raw_line.len();
     }

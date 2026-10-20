@@ -865,7 +865,7 @@
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
     "fixStatus": "implemented",
-    "fixAvailability": "always",
+    "fixAvailability": "sometimes",
     "fixSafety": "unsafe",
     "fixDescription": "Remove the leading indentation from the reported here-doc terminator line so it starts at column 1.",
     "examples": [
@@ -3402,7 +3402,7 @@
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
     "fixStatus": "implemented",
-    "fixAvailability": "always",
+    "fixAvailability": "sometimes",
     "fixSafety": "safe",
     "fixDescription": "Delete the unreachable statement or definition.",
     "examples": [
@@ -5174,7 +5174,7 @@
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
     "fixStatus": "implemented",
-    "fixAvailability": "always",
+    "fixAvailability": "sometimes",
     "fixSafety": "unsafe",
     "fixDescription": "Delete the trailing spaces or tabs after the reported here-doc delimiter line.",
     "examples": [
@@ -5606,7 +5606,7 @@
     "severity": "Warning",
     "fixStatus": "implemented",
     "fixAvailability": "always",
-    "fixSafety": "safe",
+    "fixSafety": "unsafe",
     "fixDescription": "Remove the redundant `$` prefix or `${...}` wrapper from arithmetic variable references.",
     "examples": [
       {

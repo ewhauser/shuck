@@ -134,7 +134,7 @@ fn command_can_return_before(
     before_offset: usize,
 ) -> bool {
     let command = program.command(command_id);
-    if command.span.start.offset() >= before_offset {
+    if command.span.start.offset() >= before_offset || command.backgrounded {
         return false;
     }
 
@@ -303,6 +303,9 @@ fn command_exit_effect(
     terminating_call_spans: &FxHashSet<SpanKey>,
 ) -> ExitEffect {
     let command = program.command(command_id);
+    if command.backgrounded {
+        return ExitEffect::continuing();
+    }
 
     match command.kind {
         RecordedCommandKind::Linear => {

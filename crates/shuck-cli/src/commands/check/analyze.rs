@@ -113,10 +113,16 @@ fn analyze_shell_file(
             .cloned()
             .collect::<Vec<_>>();
         let applied = shuck_linter::apply_fixes(&source, &fixable_diagnostics, applicability);
-        if applied.fixes_applied > 0 {
+        let fixed_parse_result = (applied.fixes_applied > 0)
+            .then(|| Parser::with_dialect(&applied.code, parse_dialect).parse());
+        if let Some(fixed_parse_result) = &fixed_parse_result
+            && fixes_introduce_parse_error(&parse_result, fixed_parse_result)
+        {
+            warn_fixes_introduce_parse_error(&pending.file.display_path, applied.fixes_applied);
+        } else if let Some(fixed_parse_result) = fixed_parse_result {
             source = Arc::<str>::from(applied.code);
             crate::fs_write::write_atomic(&pending.file.absolute_path, source.as_bytes())?;
-            parse_result = Parser::with_dialect(&source, parse_dialect).parse();
+            parse_result = fixed_parse_result;
             analysis = collect_lint_diagnostics(
                 &source,
                 &parse_result,
@@ -182,6 +188,25 @@ fn analyze_shell_file(
         fixes_applied,
         parse_failed,
     })
+}
+
+/// Whether applying fixes turned a parseable file into one with new parse
+/// errors. Fixes are meant to be syntax-preserving, so this indicates a fix
+/// bug; the caller keeps the original source instead of writing the result.
+pub(super) fn fixes_introduce_parse_error(original: &ParseResult, fixed: &ParseResult) -> bool {
+    fixed.is_err()
+        && (original.is_ok()
+            || fixed.terminal_error.is_some() && original.terminal_error.is_none()
+            || fixed.diagnostics.len() > original.diagnostics.len())
+}
+
+pub(super) fn warn_fixes_introduce_parse_error(path: &Path, fixes: usize) {
+    eprintln!(
+        "warning: skipped {fixes} fix{} for {}: the fixed source no longer parses. \
+         This is a bug in shuck; please report it.",
+        if fixes == 1 { "" } else { "es" },
+        path.display()
+    );
 }
 
 #[derive(Debug, Default)]
@@ -488,5 +513,35 @@ mod tests {
             .as_ref()
             .expect("full output should retain source");
         assert!(Arc::ptr_eq(diagnostic_source, &source));
+    }
+}
+
+#[cfg(test)]
+mod fix_guard_tests {
+    use shuck_parser::parser::Parser;
+
+    use super::fixes_introduce_parse_error;
+
+    fn introduces_error(original: &str, fixed: &str) -> bool {
+        fixes_introduce_parse_error(&Parser::new(original).parse(), &Parser::new(fixed).parse())
+    }
+
+    #[test]
+    fn rejects_fixes_that_break_a_clean_parse() {
+        assert!(introduces_error("echo a || echo b\n", "echo a ||\n"));
+        assert!(introduces_error(
+            "if true; then echo dead; fi\n",
+            "if true; then fi\n"
+        ));
+    }
+
+    #[test]
+    fn accepts_fixes_that_keep_the_parse_clean() {
+        assert!(!introduces_error("exit 0\necho dead\n", "exit 0\n"));
+    }
+
+    #[test]
+    fn accepts_fixes_on_files_that_already_failed_to_parse() {
+        assert!(!introduces_error("echo a |\n", "echo b |\n"));
     }
 }
