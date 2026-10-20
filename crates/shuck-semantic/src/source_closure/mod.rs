@@ -9,6 +9,7 @@
 use std::cell::RefCell;
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -158,8 +159,7 @@ pub(crate) fn collect_source_closure_contracts(
     source_path: &Path,
     config: SourceClosureResolverConfig<'_>,
 ) -> SourceClosureContracts {
-    let mut summaries = FxHashMap::default();
-    let mut active = FxHashSet::default();
+    let mut summaries = HelperSummaries::default();
     let context = SourceClosureLookupContext {
         source_path_resolver: config.source_path_resolver,
         plugin_resolver: config.plugin_resolver,
@@ -175,7 +175,6 @@ pub(crate) fn collect_source_closure_contracts(
         source,
         source_path,
         &mut summaries,
-        &mut active,
         &context,
     )
 }
@@ -255,8 +254,7 @@ fn collect_source_closure_contracts_with_cache(
     file: &File,
     source: &str,
     source_path: &Path,
-    summaries: &mut FxHashMap<HelperSummaryKey, FileContract>,
-    active: &mut FxHashSet<HelperSummaryKey>,
+    summaries: &mut HelperSummaries,
     context: &SourceClosureLookupContext<'_>,
 ) -> SourceClosureContracts {
     let facts = collect_ast_facts(model);
@@ -290,7 +288,7 @@ fn collect_source_closure_contracts_with_cache(
         );
 
         let (contract, resolved, mut explicit) =
-            merge_contracts_for_candidates(source_path, candidates, summaries, active, context);
+            merge_contracts_for_candidates(source_path, candidates, summaries, context);
         let has_current_source_anchor = template
             .as_ref()
             .is_some_and(template_has_current_source_anchor);
@@ -316,11 +314,12 @@ fn collect_source_closure_contracts_with_cache(
             template.as_ref(),
         ));
         if trust_provided_bindings {
+            let functions_by_name = provided_functions_by_name(&contract);
             for provided in contract.provided_bindings.iter().cloned() {
                 imported_bindings.push(ImportedBindingContractSite {
                     scope,
                     span: source_ref.span,
-                    origin_paths: binding_origin_paths(&contract, &provided),
+                    origin_paths: binding_origin_paths(&functions_by_name, &provided),
                     binding: provided,
                 });
             }
@@ -350,14 +349,15 @@ fn collect_source_closure_contracts_with_cache(
             ]);
             let mut contracts = resolution.file_entry_contracts;
             for entrypoint in resolution.entrypoints {
-                contracts.push(summarize_helper(&entrypoint, summaries, active, context));
+                contracts.push(summarize_helper(&entrypoint, summaries, context));
             }
             let contract = FileContract::merge_candidate_contracts(&contracts);
+            let functions_by_name = provided_functions_by_name(&contract);
             for provided in contract.provided_bindings.iter().cloned() {
                 imported_bindings.push(ImportedBindingContractSite {
                     scope,
                     span: request.span,
-                    origin_paths: binding_origin_paths(&contract, &provided),
+                    origin_paths: binding_origin_paths(&functions_by_name, &provided),
                     binding: provided,
                 });
             }
@@ -377,10 +377,11 @@ fn collect_source_closure_contracts_with_cache(
         }
     }
 
+    let imported_function_index = ImportedFunctionIndex::new(&imported_functions);
     for call in &facts.calls {
         let imported_function_site = visible_imported_function_contract(
             model,
-            &imported_functions,
+            &imported_function_index,
             &call.name,
             call.scope,
             call.span.start.offset(),
@@ -430,8 +431,13 @@ fn collect_source_closure_contracts_with_cache(
         let Some(candidate) = local_helper_command_candidate(&call.name) else {
             continue;
         };
-        let (contract, _, _) =
-            merge_contracts_for_candidates(source_path, [candidate], summaries, active, context);
+        let (contract, _, _) = merge_contracts_for_candidates_filtered(
+            source_path,
+            [candidate],
+            summaries,
+            context,
+            executed_helper_looks_like_shell_script,
+        );
         for name in contract.required_reads {
             synthetic_reads.push(SyntheticRead {
                 scope: call.scope,
@@ -456,9 +462,18 @@ fn collect_source_closure_contracts_with_cache(
 fn merge_contracts_for_candidates(
     source_path: &Path,
     candidates: impl IntoIterator<Item = String>,
-    summaries: &mut FxHashMap<HelperSummaryKey, FileContract>,
-    active: &mut FxHashSet<HelperSummaryKey>,
+    summaries: &mut HelperSummaries,
     context: &SourceClosureLookupContext<'_>,
+) -> (FileContract, bool, bool) {
+    merge_contracts_for_candidates_filtered(source_path, candidates, summaries, context, |_| true)
+}
+
+fn merge_contracts_for_candidates_filtered(
+    source_path: &Path,
+    candidates: impl IntoIterator<Item = String>,
+    summaries: &mut HelperSummaries,
+    context: &SourceClosureLookupContext<'_>,
+    mut should_summarize: impl FnMut(&Path) -> bool,
 ) -> (FileContract, bool, bool) {
     let mut contracts = Vec::new();
     let mut resolved = false;
@@ -472,7 +487,9 @@ fn merge_contracts_for_candidates(
                 .iter()
                 .any(|path| path_is_explicitly_analyzed(path, context.analyzed_paths));
         for resolved_path in resolution.paths {
-            contracts.push(summarize_helper(&resolved_path, summaries, active, context));
+            if should_summarize(&resolved_path) {
+                contracts.push(summarize_helper(&resolved_path, summaries, context));
+            }
         }
     }
     (
@@ -502,19 +519,15 @@ fn source_ref_metadata_for_candidates(
     (resolved, explicit)
 }
 
+/// Returns whether `path` names one of the analyzed inputs.
+///
+/// Analyzed path sets hold canonical paths, so the query is canonicalized once (which also
+/// resolves `..` and symlinks) and checked by hash lookup rather than canonicalizing every
+/// analyzed path.
 fn path_is_explicitly_analyzed(path: &Path, analyzed_paths: Option<&FxHashSet<PathBuf>>) -> bool {
     analyzed_paths.is_some_and(|paths| {
-        if paths.contains(path) {
-            return true;
-        }
-
-        let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        paths.contains(&canonical)
-            || paths.iter().any(|analyzed| {
-                fs::canonicalize(analyzed)
-                    .map(|analyzed| analyzed == canonical)
-                    .unwrap_or(false)
-            })
+        paths.contains(path)
+            || fs::canonicalize(path).is_ok_and(|canonical| paths.contains(&canonical))
     })
 }
 
@@ -662,6 +675,14 @@ fn imported_function_sites_for_contract(
     contract: &FileContract,
     trust_provided_bindings: bool,
 ) -> Vec<ImportedFunctionContractSite> {
+    let mut function_certainties = FxHashMap::default();
+    for binding in &contract.provided_bindings {
+        if binding.kind == ProvidedBindingKind::Function {
+            function_certainties
+                .entry(&binding.name)
+                .or_insert(binding.certainty);
+        }
+    }
     contract
         .provided_functions
         .iter()
@@ -669,31 +690,35 @@ fn imported_function_sites_for_contract(
         .map(|function| ImportedFunctionContractSite {
             scope,
             span,
-            certainty: function_contract_certainty(contract, &function.name),
+            certainty: function_certainties
+                .get(&function.name)
+                .copied()
+                .unwrap_or(ContractCertainty::Definite),
             trust_provided_bindings,
             contract: function,
         })
         .collect()
 }
 
-fn function_contract_certainty(contract: &FileContract, name: &Name) -> ContractCertainty {
-    contract
-        .provided_bindings
-        .iter()
-        .find(|binding| binding.kind == ProvidedBindingKind::Function && binding.name == *name)
-        .map(|binding| binding.certainty)
-        .unwrap_or(ContractCertainty::Definite)
+/// Indexes a contract's provided functions by name, keeping the first function per name.
+fn provided_functions_by_name(contract: &FileContract) -> FxHashMap<&Name, &FunctionContract> {
+    let mut functions = FxHashMap::default();
+    for function in &contract.provided_functions {
+        functions.entry(&function.name).or_insert(function);
+    }
+    functions
 }
 
-fn binding_origin_paths(contract: &FileContract, binding: &ProvidedBinding) -> Vec<PathBuf> {
+fn binding_origin_paths(
+    functions_by_name: &FxHashMap<&Name, &FunctionContract>,
+    binding: &ProvidedBinding,
+) -> Vec<PathBuf> {
     if binding.kind != ProvidedBindingKind::Function {
         return Vec::new();
     }
 
-    contract
-        .provided_functions
-        .iter()
-        .find(|function| function.name == binding.name)
+    functions_by_name
+        .get(&binding.name)
         .map(|function| function.origin_paths.clone())
         .unwrap_or_default()
 }
@@ -714,9 +739,27 @@ enum VisibleFunctionTarget<'a> {
     Imported(&'a ImportedFunctionContractSite),
 }
 
+/// Imported function sites grouped by the scope that imports them and the function name.
+struct ImportedFunctionIndex<'a> {
+    sites: FxHashMap<(ScopeId, &'a Name), Vec<&'a ImportedFunctionContractSite>>,
+}
+
+impl<'a> ImportedFunctionIndex<'a> {
+    fn new(imported_functions: &'a [ImportedFunctionContractSite]) -> Self {
+        let mut sites: FxHashMap<_, Vec<_>> = FxHashMap::default();
+        for site in imported_functions {
+            sites
+                .entry((site.scope, &site.contract.name))
+                .or_default()
+                .push(site);
+        }
+        Self { sites }
+    }
+}
+
 fn visible_imported_function_contract<'a>(
     model: &SemanticModel,
-    imported_functions: &'a [ImportedFunctionContractSite],
+    imported_functions: &ImportedFunctionIndex<'a>,
     name: &Name,
     scope: ScopeId,
     offset: usize,
@@ -767,15 +810,17 @@ fn visible_imported_function_contract<'a>(
 }
 
 fn visible_imported_function_in_scope<'a>(
-    imported_functions: &'a [ImportedFunctionContractSite],
+    imported_functions: &ImportedFunctionIndex<'a>,
     name: &Name,
     target_scope: ScopeId,
     call_scope: ScopeId,
     offset: usize,
 ) -> Option<&'a ImportedFunctionContractSite> {
     imported_functions
+        .sites
+        .get(&(target_scope, name))?
         .iter()
-        .filter(|site| site.scope == target_scope && site.contract.name == *name)
+        .copied()
         .filter(|site| target_scope != call_scope || site.span.start.offset() <= offset)
         .max_by_key(|site| site.span.start.offset())
 }
@@ -1733,10 +1778,52 @@ fn lexical_normalize_path(path: &Path) -> PathBuf {
     normalized
 }
 
+/// Maximum nesting of helper summaries (`a.sh` sources `b.sh` sources ...). Each level builds a
+/// full semantic model on the stack, so deeper chains are cut off like cycles instead of
+/// risking a stack overflow on worker threads.
+const MAX_HELPER_SUMMARY_DEPTH: usize = 32;
+
+/// Largest helper file that source-closure analysis will read and summarize.
+const MAX_HELPER_SOURCE_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Bytes inspected when deciding whether an executed helper is a shell script.
+const HELPER_SNIFF_BYTES: u64 = 512;
+
+#[derive(Debug, Clone)]
+struct HelperSummary {
+    contract: FileContract,
+    /// False when computing this summary hit a cycle or the depth limit, which makes the
+    /// result depend on where the summary was first requested from.
+    complete: bool,
+}
+
+/// Helper summaries for one top-level file plus the state of the summaries in progress.
+#[derive(Debug, Default)]
+struct HelperSummaries {
+    summaries: FxHashMap<HelperSummaryKey, HelperSummary>,
+    /// Summaries currently being computed; its size is the current nesting depth.
+    active: FxHashSet<HelperSummaryKey>,
+    /// Set when the summary currently being computed observed a cut-off (directly or through a
+    /// cached incomplete summary).
+    truncated: bool,
+}
+
+impl HelperSummaries {
+    fn get(&mut self, key: &HelperSummaryKey) -> Option<FileContract> {
+        let summary = self.summaries.get(key)?;
+        self.truncated |= !summary.complete;
+        Some(summary.contract.clone())
+    }
+
+    fn insert(&mut self, key: HelperSummaryKey, contract: FileContract, complete: bool) {
+        self.summaries
+            .insert(key, HelperSummary { contract, complete });
+    }
+}
+
 fn summarize_helper(
     path: &Path,
-    summaries: &mut FxHashMap<HelperSummaryKey, FileContract>,
-    active: &mut FxHashSet<HelperSummaryKey>,
+    summaries: &mut HelperSummaries,
     context: &SourceClosureLookupContext<'_>,
 ) -> FileContract {
     let requested_path = path.to_path_buf();
@@ -1749,7 +1836,7 @@ fn summarize_helper(
         shell_profile: ShellProfileKey::from_profile(&context.shell_profile),
     };
     if let Some(summary) = summaries.get(&requested_key) {
-        return summary.clone();
+        return summary;
     }
 
     let canonical_path = fs::canonicalize(path).unwrap_or_else(|_| requested_path.clone());
@@ -1758,12 +1845,12 @@ fn summarize_helper(
         shell_profile: ShellProfileKey::from_profile(&context.shell_profile),
     };
     if let Some(summary) = summaries.get(&canonical_requested_key) {
-        let summary = summary.clone();
-        summaries.insert(requested_key, summary.clone());
+        let complete = summaries.summaries[&canonical_requested_key].complete;
+        summaries.insert(requested_key, summary.clone(), complete);
         return summary;
     }
 
-    let Ok(source) = fs::read_to_string(&canonical_path) else {
+    let Some(source) = read_helper_source(&canonical_path) else {
         return FileContract::default();
     };
     let shell_profile = helper_shell_profile(&source, &canonical_path, &context.shell_profile);
@@ -1772,36 +1859,90 @@ fn summarize_helper(
         shell_profile: ShellProfileKey::from_profile(&shell_profile),
     };
     if let Some(summary) = summaries.get(&key) {
-        let summary = summary.clone();
-        summaries.insert(canonical_requested_key, summary.clone());
-        summaries.insert(requested_key, summary.clone());
+        let complete = summaries.summaries[&key].complete;
+        summaries.insert(canonical_requested_key, summary.clone(), complete);
+        summaries.insert(requested_key, summary.clone(), complete);
         return summary;
     }
-    if !active.insert(key.clone()) {
+    if summaries.active.len() >= MAX_HELPER_SUMMARY_DEPTH || !summaries.active.insert(key.clone()) {
+        summaries.truncated = true;
         return FileContract::default();
     }
 
-    let summary = summarize_helper_uncached(
-        &canonical_path,
-        &source,
-        shell_profile,
-        summaries,
-        active,
-        context,
-    );
-    active.remove(&key);
-    summaries.insert(key, summary.clone());
-    summaries.insert(canonical_requested_key, summary.clone());
-    summaries.insert(requested_key, summary.clone());
+    let outer_truncated = std::mem::take(&mut summaries.truncated);
+    let summary =
+        summarize_helper_uncached(&canonical_path, &source, shell_profile, summaries, context);
+    let complete = !summaries.truncated;
+    summaries.truncated |= outer_truncated;
+    summaries.active.remove(&key);
+    summaries.insert(key, summary.clone(), complete);
+    summaries.insert(canonical_requested_key, summary.clone(), complete);
+    summaries.insert(requested_key, summary.clone(), complete);
     summary
+}
+
+/// Reads a helper for summarization, skipping files that are too large to be plausible shell
+/// libraries or that look binary.
+fn read_helper_source(path: &Path) -> Option<String> {
+    let file = fs::File::open(path).ok()?;
+    let mut bytes = Vec::new();
+    file.take(MAX_HELPER_SOURCE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() as u64 > MAX_HELPER_SOURCE_BYTES || bytes.contains(&0) {
+        return None;
+    }
+    String::from_utf8(bytes).ok()
+}
+
+#[cfg(test)]
+pub(crate) fn read_helper_source_for_tests(path: &Path) -> Option<String> {
+    read_helper_source(path)
+}
+
+#[cfg(test)]
+pub(crate) fn path_is_explicitly_analyzed_for_tests(
+    path: &Path,
+    analyzed_paths: Option<&FxHashSet<PathBuf>>,
+) -> bool {
+    path_is_explicitly_analyzed(path, analyzed_paths)
+}
+
+/// Returns whether a helper invoked as a command (`./build`, `/usr/bin/tool`, `run.sh`) should be
+/// summarized as a shell script: it must not look binary, and a shebang, when present, must name
+/// a shell interpreter.
+pub(crate) fn executed_helper_looks_like_shell_script(path: &Path) -> bool {
+    let Ok(file) = fs::File::open(path) else {
+        return false;
+    };
+    let mut head = Vec::new();
+    if file
+        .take(HELPER_SNIFF_BYTES)
+        .read_to_end(&mut head)
+        .is_err()
+        || head.contains(&0)
+    {
+        return false;
+    }
+    let Some(shebang) = head.strip_prefix(b"#!") else {
+        return true;
+    };
+    let line_end = shebang
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .unwrap_or(shebang.len());
+    let Ok(first_line) = std::str::from_utf8(&head[..line_end + 2]) else {
+        return false;
+    };
+    crate::infer_explicit_parse_dialect_from_source(first_line.trim_end_matches('\r'), None)
+        .is_some()
 }
 
 fn summarize_helper_uncached(
     path: &Path,
     source: &str,
     shell_profile: ShellProfile,
-    summaries: &mut FxHashMap<HelperSummaryKey, FileContract>,
-    active: &mut FxHashSet<HelperSummaryKey>,
+    summaries: &mut HelperSummaries,
     context: &SourceClosureLookupContext<'_>,
 ) -> FileContract {
     let output = Parser::with_profile(source, shell_profile.clone()).parse();
@@ -1836,7 +1977,6 @@ fn summarize_helper_uncached(
         source,
         path,
         summaries,
-        active,
         &SourceClosureLookupContext {
             source_path_resolver: context.source_path_resolver,
             plugin_resolver: context.plugin_resolver,
@@ -1849,38 +1989,27 @@ fn summarize_helper_uncached(
     );
     semantic.apply_source_contracts(collected.clone());
     let analysis = semantic.analysis();
-    let include_root_provided_bindings =
-        scope_has_provided_binding_candidates(&semantic, ScopeId(0));
+    let body_index = ScopeBodyIndex::new(&semantic, &collected.synthetic_reads);
     let include_root_provided_functions =
         scope_has_provided_function_candidates(&semantic, ScopeId(0));
 
-    let mut contract = summarize_scope_body_contract(
-        &semantic,
-        &analysis,
-        ScopeId(0),
-        &collected.synthetic_reads,
-        include_root_provided_bindings,
-    );
+    let mut contract = body_index.summarize(&analysis, ScopeId(0));
     let provided_functions = if include_root_provided_functions {
         analysis.summarize_scope_provided_functions(ScopeId(0))
     } else {
         Vec::new()
     };
-    for binding in &provided_functions {
-        contract.add_provided_binding(binding.clone());
-    }
+    contract.extend_provided_bindings(provided_functions.iter().cloned());
     if !provided_functions.is_empty() {
-        for function in build_scope_function_contracts(
+        contract.extend_provided_functions(build_scope_function_contracts(
             path,
             &semantic,
             &analysis,
+            &body_index,
             ScopeId(0),
-            &collected.synthetic_reads,
             &collected.imported_functions,
             &provided_functions,
-        ) {
-            contract.add_provided_function(function);
-        }
+        ));
     }
     if semantic.shell_profile().dialect == ParseShellDialect::Zsh {
         let facts = collect_ast_facts(&semantic);
@@ -1925,19 +2054,98 @@ fn summarize_scope_body_contract(
         }
     }
     if include_provided_bindings {
-        for binding in analysis.summarize_scope_provided_bindings(scope) {
-            contract.add_provided_binding(binding);
-        }
+        contract.extend_provided_bindings(analysis.summarize_scope_provided_bindings(scope));
     }
     contract
 }
 
-fn scope_has_provided_binding_candidates(semantic: &SemanticModel, scope: ScopeId) -> bool {
-    semantic.bindings().iter().any(|binding| {
-        binding.scope == scope
-            && !binding.attributes.contains(BindingAttributes::LOCAL)
-            && binding_initializes_name(binding).is_some()
-    })
+/// Precomputed per-model data for summarizing scope bodies: a function or file scope together
+/// with its nested non-function scopes (subshells, pipelines, ...).
+///
+/// Summarizing every function of a large helper scope by scope would rescan all references,
+/// synthetic reads, and bindings once per function; this groups them by owning body once.
+struct ScopeBodyIndex {
+    /// Required reads per body scope, deduplicated in first-seen order (unresolved references
+    /// first, then synthetic reads), matching [`summarize_scope_body_contract`].
+    required_reads: FxHashMap<ScopeId, Vec<Name>>,
+    /// Scopes that directly own non-local bindings that may be provided to callers.
+    provided_binding_candidate_scopes: FxHashSet<ScopeId>,
+}
+
+impl ScopeBodyIndex {
+    fn new(semantic: &SemanticModel, synthetic_reads: &[SyntheticRead]) -> Self {
+        let scopes = semantic.scopes();
+        let mut body_owner: Vec<Option<ScopeId>> = vec![None; scopes.len()];
+        let mut chain = Vec::new();
+        for scope in scopes {
+            let mut current = scope.id;
+            let owner = loop {
+                if let Some(owner) = body_owner[current.index()] {
+                    break owner;
+                }
+                let current_scope = &scopes[current.index()];
+                match current_scope.parent {
+                    Some(parent) if !matches!(current_scope.kind, ScopeKind::Function(_)) => {
+                        chain.push(current);
+                        current = parent;
+                    }
+                    _ => {
+                        body_owner[current.index()] = Some(current);
+                        break current;
+                    }
+                }
+            };
+            for member in chain.drain(..) {
+                body_owner[member.index()] = Some(owner);
+            }
+        }
+        let owner_of = |scope: ScopeId| body_owner[scope.index()].unwrap_or(scope);
+
+        let mut required_reads: FxHashMap<ScopeId, Vec<Name>> = FxHashMap::default();
+        let mut seen = FxHashSet::default();
+        let names = semantic
+            .unresolved_references()
+            .iter()
+            .map(|reference| {
+                let reference = semantic.reference(*reference);
+                (reference.scope, &reference.name)
+            })
+            .chain(synthetic_reads.iter().map(|read| (read.scope, &read.name)));
+        for (scope, name) in names {
+            let owner = owner_of(scope);
+            if seen.insert((owner, name)) {
+                required_reads.entry(owner).or_default().push(name.clone());
+            }
+        }
+
+        let provided_binding_candidate_scopes = semantic
+            .bindings()
+            .iter()
+            .filter(|binding| {
+                !binding.attributes.contains(BindingAttributes::LOCAL)
+                    && binding_initializes_name(binding).is_some()
+            })
+            .map(|binding| binding.scope)
+            .collect();
+
+        Self {
+            required_reads,
+            provided_binding_candidate_scopes,
+        }
+    }
+
+    /// Summarizes a function or file scope body, equivalent to [`summarize_scope_body_contract`]
+    /// with provided bindings included when the scope has candidates.
+    fn summarize(&self, analysis: &crate::SemanticAnalysis<'_>, scope: ScopeId) -> FileContract {
+        let mut contract = FileContract {
+            required_reads: self.required_reads.get(&scope).cloned().unwrap_or_default(),
+            ..FileContract::default()
+        };
+        if self.provided_binding_candidate_scopes.contains(&scope) {
+            contract.extend_provided_bindings(analysis.summarize_scope_provided_bindings(scope));
+        }
+        contract
+    }
 }
 
 fn scope_has_provided_function_candidates(semantic: &SemanticModel, scope: ScopeId) -> bool {
@@ -1951,8 +2159,8 @@ fn build_scope_function_contracts(
     origin_path: &Path,
     semantic: &SemanticModel,
     analysis: &crate::SemanticAnalysis<'_>,
+    body_index: &ScopeBodyIndex,
     scope: ScopeId,
-    synthetic_reads: &[SyntheticRead],
     imported_functions: &[ImportedFunctionContractSite],
     provided_functions: &[ProvidedBinding],
 ) -> Vec<FunctionContract> {
@@ -1977,15 +2185,7 @@ fn build_scope_function_contracts(
     for (function_scope, names) in function_scopes {
         let body_contract = local_contracts_by_scope
             .entry(function_scope)
-            .or_insert_with(|| {
-                summarize_scope_body_contract(
-                    semantic,
-                    analysis,
-                    function_scope,
-                    synthetic_reads,
-                    scope_has_provided_binding_candidates(semantic, function_scope),
-                )
-            })
+            .or_insert_with(|| body_index.summarize(analysis, function_scope))
             .clone();
         for name in names {
             let mut function_contract = FunctionContract::new(name.clone());
@@ -2023,16 +2223,23 @@ fn build_scope_function_contracts(
 }
 
 fn scope_members_excluding_functions(scopes: &[crate::Scope], root: ScopeId) -> FxHashSet<ScopeId> {
+    let mut children: FxHashMap<ScopeId, Vec<ScopeId>> = FxHashMap::default();
+    for scope in scopes {
+        if let Some(parent) = scope.parent
+            && !matches!(scope.kind, ScopeKind::Function(_))
+        {
+            children.entry(parent).or_default().push(scope.id);
+        }
+    }
+
     let mut members = FxHashSet::default();
     let mut stack = vec![root];
     while let Some(scope_id) = stack.pop() {
         if !members.insert(scope_id) {
             continue;
         }
-        for scope in scopes {
-            if scope.parent == Some(scope_id) && !matches!(scope.kind, ScopeKind::Function(_)) {
-                stack.push(scope.id);
-            }
+        if let Some(children) = children.get(&scope_id) {
+            stack.extend(children.iter().copied());
         }
     }
     members
@@ -2232,10 +2439,9 @@ noglob source \"$3\"
             resolved_helper_paths: RefCell::new(FxHashMap::default()),
             dependency_paths: RefCell::new(FxHashSet::default()),
         };
-        let mut summaries = FxHashMap::default();
-        let mut active = FxHashSet::default();
+        let mut summaries = HelperSummaries::default();
 
-        let first = summarize_helper(&canonical_helper, &mut summaries, &mut active, &context);
+        let first = summarize_helper(&canonical_helper, &mut summaries, &context);
         assert!(first.provided_bindings.iter().any(|binding| {
             binding.name.as_str() == "loaded_value"
                 && binding.kind == ProvidedBindingKind::Variable
@@ -2244,7 +2450,7 @@ noglob source \"$3\"
 
         std::fs::remove_file(&helper).unwrap();
 
-        let second = summarize_helper(&canonical_helper, &mut summaries, &mut active, &context);
+        let second = summarize_helper(&canonical_helper, &mut summaries, &context);
         assert_eq!(second, first);
     }
 
@@ -2264,10 +2470,9 @@ noglob source \"$3\"
             resolved_helper_paths: RefCell::new(FxHashMap::default()),
             dependency_paths: RefCell::new(FxHashSet::default()),
         };
-        let mut summaries = FxHashMap::default();
-        let mut active = FxHashSet::default();
+        let mut summaries = HelperSummaries::default();
 
-        let summary = summarize_helper(&canonical_helper, &mut summaries, &mut active, &context);
+        let summary = summarize_helper(&canonical_helper, &mut summaries, &context);
 
         assert_eq!(summary.required_reads, vec![Name::from("flag")]);
         assert!(summary.provided_bindings.is_empty());
@@ -2300,10 +2505,9 @@ set_flag() {
             resolved_helper_paths: RefCell::new(FxHashMap::default()),
             dependency_paths: RefCell::new(FxHashSet::default()),
         };
-        let mut summaries = FxHashMap::default();
-        let mut active = FxHashSet::default();
+        let mut summaries = HelperSummaries::default();
 
-        let summary = summarize_helper(&canonical_outer, &mut summaries, &mut active, &context);
+        let summary = summarize_helper(&canonical_outer, &mut summaries, &context);
 
         assert!(summary.provided_bindings.iter().any(|binding| {
             binding.name.as_str() == "set_flag"
@@ -2340,10 +2544,9 @@ set_flag() {
             resolved_helper_paths: RefCell::new(FxHashMap::default()),
             dependency_paths: RefCell::new(FxHashSet::default()),
         };
-        let mut summaries = FxHashMap::default();
-        let mut active = FxHashSet::default();
+        let mut summaries = HelperSummaries::default();
 
-        summarize_helper(&helper_link, &mut summaries, &mut active, &context);
+        summarize_helper(&helper_link, &mut summaries, &context);
 
         let dependency_paths = context.dependency_paths.borrow();
         assert!(dependency_paths.contains(&helper_link));

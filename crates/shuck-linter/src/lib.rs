@@ -972,9 +972,10 @@ fn build_linter_semantic_artifacts<'a>(
             .collector(request.source, request.source_path, shell);
     let file_entry_contract_collector_factory =
         request.settings.ambient_contracts.collector_factory();
-    let analyzed_paths_fallback = request
-        .source_path
-        .map(|path| FxHashSet::from_iter([path.to_path_buf()]));
+    // Analyzed path sets hold canonical paths (see `LinterSettings::analyzed_path_set`).
+    let analyzed_paths_fallback = request.source_path.map(|path| {
+        FxHashSet::from_iter([std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())])
+    });
     let analyzed_paths = request
         .settings
         .analyzed_paths
