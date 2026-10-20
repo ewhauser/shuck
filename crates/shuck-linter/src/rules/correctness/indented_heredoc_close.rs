@@ -1,11 +1,9 @@
-use shuck_ast::Span;
-
 use crate::{Checker, Edit, Fix, FixAvailability, Rule, ShellDialect, Violation};
 
 pub struct IndentedHeredocClose;
 
 impl Violation for IndentedHeredocClose {
-    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
 
     fn rule() -> Rule {
         Rule::IndentedHeredocClose
@@ -30,17 +28,20 @@ pub fn indented_heredoc_close(checker: &mut Checker) {
         .source_facts()
         .indented_heredoc_close_facts()
         .iter()
-        .map(|&(span, indent_span)| diagnostic_for_indented_heredoc_close(span, indent_span))
+        .map(|fact| {
+            let diagnostic = crate::Diagnostic::new(IndentedHeredocClose, fact.span());
+            match fact.edit_span() {
+                Some(indent_span) => {
+                    diagnostic.with_fix(Fix::unsafe_edit(Edit::deletion(indent_span)))
+                }
+                None => diagnostic,
+            }
+        })
         .collect::<Vec<_>>();
 
     for diagnostic in diagnostics {
         checker.report_diagnostic_dedup(diagnostic);
     }
-}
-
-fn diagnostic_for_indented_heredoc_close(span: Span, indent_span: Span) -> crate::Diagnostic {
-    crate::Diagnostic::new(IndentedHeredocClose, span)
-        .with_fix(Fix::unsafe_edit(Edit::deletion(indent_span)))
 }
 
 #[cfg(test)]
@@ -163,6 +164,39 @@ cat <<EOF
 hi
 EOF
 "
+        );
+    }
+
+    #[test]
+    fn omits_fix_when_an_exact_terminator_closes_the_heredoc() {
+        let source = "#!/bin/bash\ncat <<EOF2\nbody\n EOF2\nEOF2\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::IndentedHeredocClose),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.diagnostics.len(), 1);
+        assert!(result.diagnostics[0].fix.is_none());
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+    }
+
+    #[test]
+    fn fixes_only_the_first_look_alike_in_an_unterminated_heredoc() {
+        let source = "#!/bin/bash\ncat <<EOF2\nbody\n EOF2\n  EOF2\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::IndentedHeredocClose),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.diagnostics.len(), 2);
+        assert!(result.diagnostics[0].fix.is_some());
+        assert!(result.diagnostics[1].fix.is_none());
+        assert_eq!(
+            result.fixed_source,
+            "#!/bin/bash\ncat <<EOF2\nbody\nEOF2\n  EOF2\n"
         );
     }
 }

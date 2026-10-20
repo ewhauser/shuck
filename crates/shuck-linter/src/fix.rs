@@ -178,6 +178,13 @@ pub fn apply_fixes(
     let mut applied_fixes = 0;
     let mut applied_edits = Vec::new();
     for candidate in candidate_fixes {
+        if !candidate
+            .edits
+            .iter()
+            .all(|edit| edit_fits_source(edit, source))
+        {
+            continue;
+        }
         if has_internal_conflicts(&candidate.edits) {
             continue;
         }
@@ -205,11 +212,6 @@ pub fn apply_fixes(
     for edit in applied_edits {
         let start = edit.start_offset();
         let end = edit.end_offset();
-        debug_assert!(start <= end);
-        debug_assert!(end <= source.len());
-        debug_assert!(source.is_char_boundary(start));
-        debug_assert!(source.is_char_boundary(end));
-
         output.push_str(&source[cursor..start]);
         output.push_str(edit.content());
         cursor = end;
@@ -220,6 +222,17 @@ pub fn apply_fixes(
         code: output,
         fixes_applied: applied_fixes,
     }
+}
+
+/// Rejects edits whose range falls outside `source` or splits a UTF-8
+/// character, so a malformed fix is skipped instead of panicking on a slice.
+fn edit_fits_source(edit: &Edit, source: &str) -> bool {
+    let start = edit.start_offset();
+    let end = edit.end_offset();
+    start <= end
+        && end <= source.len()
+        && source.is_char_boundary(start)
+        && source.is_char_boundary(end)
 }
 
 fn prepare_fix(fix: &Fix) -> CandidateFix {
@@ -352,6 +365,24 @@ mod tests {
         let fixed = apply_fixes(source, &diagnostics, Applicability::Safe);
 
         assert_eq!(fixed.code, "aYcde\n");
+        assert_eq!(fixed.fixes_applied, 1);
+    }
+
+    #[test]
+    fn skips_edits_that_split_characters_or_overrun_the_source() {
+        let source = "é;b\n";
+        let diagnostics = vec![
+            diagnostic_with_fix(
+                "splits a character",
+                Fix::safe_edit(Edit::deletion_at(1, 2)),
+            ),
+            diagnostic_with_fix("past the end", Fix::safe_edit(Edit::deletion_at(3, 99))),
+            diagnostic_with_fix("valid", Fix::safe_edit(Edit::deletion_at(2, 3))),
+        ];
+
+        let fixed = apply_fixes(source, &diagnostics, Applicability::Safe);
+
+        assert_eq!(fixed.code, "éb\n");
         assert_eq!(fixed.fixes_applied, 1);
     }
 }

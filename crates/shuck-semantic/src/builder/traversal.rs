@@ -30,6 +30,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             nested_regions,
             command_info: None,
             kind,
+            backgrounded: false,
         })
     }
 
@@ -180,6 +181,8 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             Some(CommandKind::from_command(&stmt.command));
         self.recorded_program.command_mut(recorded).scope = Some(scope);
         self.recorded_program.command_mut(recorded).flow_context = Some(context);
+        self.recorded_program.command_mut(recorded).backgrounded =
+            matches!(stmt.terminator, Some(StmtTerminator::Background(_)));
         let pending_normalized = self.pending_simple_normalized.take();
         let info = match (&stmt.command, pending_normalized) {
             (Command::Simple(simple), Some((span, normalized))) if span == simple.span => {

@@ -13,7 +13,7 @@ pub struct UnreachableAfterExit {
 }
 
 impl Violation for UnreachableAfterExit {
-    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
 
     fn rule() -> Rule {
         Rule::UnreachableAfterExit
@@ -39,7 +39,7 @@ pub fn unreachable_after_exit(checker: &mut Checker) {
     let commands = checker.facts().commands();
     let semantic_analysis = checker.semantic_analysis();
     let unreached_function_spans = unreached_function_definition_spans(checker);
-    let mut diagnostics = Vec::new();
+    let mut unreachable = Vec::new();
     for dead_code in semantic_analysis
         .dead_code()
         .iter()
@@ -62,24 +62,63 @@ pub fn unreachable_after_exit(checker: &mut Checker) {
                 })
                 .collect(),
         );
-        for span in unreachable_spans
-            .into_iter()
-            .map(|span| trim_trailing_terminator(span, source))
-        {
-            diagnostics.push(
-                Diagnostic::new(
-                    UnreachableAfterExit {
-                        script_terminating_function_call,
-                    },
-                    span,
-                )
-                .with_fix(Fix::safe_edit(Edit::deletion(span))),
-            );
-        }
+        unreachable.extend(
+            unreachable_spans
+                .into_iter()
+                .map(|span| (span, script_terminating_function_call)),
+        );
+    }
+
+    let deletions = unreachable
+        .iter()
+        .map(|(span, _)| checker.facts().command_facts().statement_deletion(*span))
+        .collect::<Vec<_>>();
+    // Deleting every statement of a non-file body (`then ...; fi`, `{ ...; }`,
+    // `do ...; done`) would leave invalid syntax, so such bodies keep their
+    // diagnostics but get no fix.
+    let mut unreachable_per_body = FxHashMap::<(usize, usize), usize>::default();
+    for slot in deletions
+        .iter()
+        .flatten()
+        .filter_map(|deletion| deletion.sequence())
+    {
+        *unreachable_per_body
+            .entry(span_key(slot.body_span()))
+            .or_default() += 1;
+    }
+
+    let mut diagnostics = Vec::new();
+    for ((span, script_terminating_function_call), deletion) in
+        unreachable.into_iter().zip(deletions)
+    {
+        let diagnostic = Diagnostic::new(
+            UnreachableAfterExit {
+                script_terminating_function_call,
+            },
+            trim_trailing_terminator(span, source),
+        );
+        let deletion = deletion.filter(|deletion| {
+            deletion.sequence().is_none_or(|slot| {
+                slot.may_be_empty()
+                    || unreachable_per_body
+                        .get(&span_key(slot.body_span()))
+                        .is_none_or(|count| *count < slot.statement_count())
+            })
+        });
+        diagnostics.push(match deletion {
+            Some(deletion) => {
+                diagnostic.with_fix(Fix::safe_edit(Edit::deletion(deletion.delete_span())))
+            }
+            None => diagnostic,
+        });
     }
     for diagnostic in diagnostics {
         checker.report_diagnostic(diagnostic);
     }
+}
+
+fn span_key(span: Span) -> (usize, usize) {
+    (span.start.offset(), span.end.offset())
 }
 
 fn unreached_function_definition_spans(checker: &Checker<'_>) -> Vec<Span> {
@@ -480,5 +519,95 @@ main
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].message, "code is unreachable");
+    }
+
+    fn fixed_source(source: &str) -> String {
+        test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::UnreachableAfterExit),
+            Applicability::Safe,
+        )
+        .fixed_source
+    }
+
+    fn assert_fixed_source_parses(fixed: &str) {
+        assert!(
+            shuck_parser::parser::Parser::new(fixed).parse().is_ok(),
+            "fixed source should parse cleanly:\n{fixed}"
+        );
+    }
+
+    #[test]
+    fn safe_fix_keeps_list_and_sequence_syntax_valid() {
+        let cases = [
+            (
+                "main() { exit 0; }\nmain \"$@\" || echo failed\n",
+                "main() { exit 0; }\nmain \"$@\"\n",
+            ),
+            ("exit 0 && echo ok\n", "exit 0\n"),
+            (
+                "main() { exit 0; }\nmain || echo a || echo b\n",
+                "main() { exit 0; }\nmain\n",
+            ),
+            (
+                "if true; then exit 0; echo dead; fi\n",
+                "if true; then exit 0; fi\n",
+            ),
+            (
+                "while true; do exit 1; echo dead; done\n",
+                "while true; do exit 1; done\n",
+            ),
+            ("exit 0; echo a & echo b\n", "exit 0; \n"),
+            ("exit 0; echo a; echo b\n", "exit 0; \n"),
+            (
+                "case x in a) exit 1; echo dead;; esac\n",
+                "case x in a) exit 1; ;; esac\n",
+            ),
+            ("exit 0\necho a\necho b\n", "exit 0\n\n\n"),
+        ];
+        for (source, expected) in cases {
+            let fixed = fixed_source(source);
+            assert_eq!(fixed, expected, "source:\n{source}");
+            assert_fixed_source_parses(&fixed);
+        }
+    }
+
+    #[test]
+    fn omits_fix_when_deletion_would_empty_a_body() {
+        let source = "while exit 1; do echo dead; done\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::UnreachableAfterExit),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.diagnostics.len(), 1);
+        assert!(result.diagnostics[0].fix.is_none());
+        assert_eq!(result.fixed_source, source);
+    }
+
+    #[test]
+    fn omits_fix_when_deletion_would_orphan_a_heredoc_body() {
+        let source = "exit 0\ncat <<EOF\nhello\nEOF\necho after\n";
+        let fixed = fixed_source(source);
+
+        assert_eq!(fixed, "exit 0\ncat <<EOF\nhello\nEOF\n\n");
+        assert_fixed_source_parses(&fixed);
+    }
+
+    #[test]
+    fn backgrounded_exits_do_not_make_later_code_unreachable() {
+        for source in [
+            "exit 1 &\necho still-running\n",
+            "die() { exit 1; }\ndie &\necho still-running\n",
+            "{ exit 2; } &\necho still-running\n",
+            "exit() { echo shadowed; }\nexit 1\necho still-running\n",
+        ] {
+            let diagnostics = test_snippet(
+                source,
+                &LinterSettings::for_rule(Rule::UnreachableAfterExit),
+            );
+            assert!(diagnostics.is_empty(), "source:\n{source}\n{diagnostics:?}");
+        }
     }
 }

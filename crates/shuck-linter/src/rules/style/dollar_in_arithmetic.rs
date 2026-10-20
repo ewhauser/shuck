@@ -47,7 +47,12 @@ fn dollar_in_arithmetic_fix(span: Span, source: &str) -> Option<(Span, Fix)> {
     } else {
         text.strip_prefix('$')?
     };
-    Some((span, Fix::safe_edit(Edit::replacement(replacement, span))))
+    // `$x` splices the value into the expression text while a bare `x` is
+    // evaluated as its own sub-expression, so `x='1+2'; $(( $x * 2 ))` is 5
+    // but `$(( x * 2 ))` is 6. An empty value also stops being a syntax error.
+    // The rewrite is only behavior-preserving for plain numeric values, which
+    // this rule cannot prove, so it is offered as an unsafe fix.
+    Some((span, Fix::unsafe_edit(Edit::replacement(replacement, span))))
 }
 
 #[cfg(test)]
@@ -83,12 +88,27 @@ mod tests {
     }
 
     #[test]
-    fn applies_safe_fix_to_dollar_prefixed_arithmetic_variables() {
-        let source = "#!/bin/bash\nx=1\nprintf '%s\\n' \"$(( $x + ${x} ))\"\n";
+    fn does_not_apply_fix_in_safe_mode() {
+        // With x='1+2', `$(( $x * 2 ))` is 5 but `$(( x * 2 ))` is 6.
+        let source = "#!/bin/bash\nx='1+2'\necho \"$(( $x * 2 ))\"\n";
         let result = test_snippet_with_fix(
             source,
             &LinterSettings::for_rule(Rule::DollarInArithmetic),
             Applicability::Safe,
+        );
+
+        assert_eq!(result.diagnostics.len(), 1);
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_dollar_prefixed_arithmetic_variables() {
+        let source = "#!/bin/bash\nx=1\nprintf '%s\\n' \"$(( $x + ${x} ))\"\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::DollarInArithmetic),
+            Applicability::Unsafe,
         );
 
         assert_eq!(result.fixes_applied, 2);

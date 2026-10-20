@@ -236,6 +236,46 @@ impl<'a> GraphBuilder<'a> {
         loops: &[LoopTarget],
         force_command_header: bool,
     ) -> SequenceResult {
+        if self.program.command(command_id).backgrounded {
+            return self.build_backgrounded_command(command_id, loops, force_command_header);
+        }
+        self.build_foreground_command(command_id, loops, force_command_header)
+    }
+
+    /// A backgrounded command runs in an asynchronous subshell, so an `exit`,
+    /// `return`, or script-terminating call inside it only ends that job. The
+    /// enclosing sequence always continues after it.
+    fn build_backgrounded_command(
+        &mut self,
+        command_id: CommandId,
+        loops: &[LoopTarget],
+        force_command_header: bool,
+    ) -> SequenceResult {
+        let terminators_before = self.script_terminators.len();
+        let mut sequence = self.build_foreground_command(command_id, loops, force_command_header);
+        self.script_terminators.truncate(terminators_before);
+        sequence.terminal_cause = None;
+        // The job's own exits may sit behind an `exit` inside it, so the
+        // foreground continuation joins directly from the job's entry.
+        if let Some(entry) = sequence.entry {
+            let join = self.empty_block();
+            self.add_edge(entry, join, EdgeKind::Sequential);
+            for exit in std::mem::take(&mut sequence.exits) {
+                if exit != entry {
+                    self.add_edge(exit, join, EdgeKind::Sequential);
+                }
+            }
+            sequence.exits = smallvec![join];
+        }
+        sequence
+    }
+
+    fn build_foreground_command(
+        &mut self,
+        command_id: CommandId,
+        loops: &[LoopTarget],
+        force_command_header: bool,
+    ) -> SequenceResult {
         let command = self.program.command(command_id);
         match &command.kind {
             RecordedCommandKind::Linear => {

@@ -522,6 +522,54 @@ fn check_exit_non_zero_on_fix_returns_failure_when_fix_is_applied() {
 }
 
 #[test]
+fn check_fix_deletes_unreachable_code_without_breaking_syntax() {
+    let tempdir = tempdir().unwrap();
+    let list_tail = tempdir.path().join("list.sh");
+    fs::write(
+        &list_tail,
+        "#!/bin/bash\nmain() { exit 0; }\nmain \"$@\" || echo failed\n",
+    )
+    .unwrap();
+    let branch_tail = tempdir.path().join("branch.sh");
+    fs::write(
+        &branch_tail,
+        "#!/bin/bash\nif true; then exit 0; echo dead; fi\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--fix", "--select", "C124"]);
+    cmd.assert().success().stdout("");
+
+    assert_eq!(
+        fs::read_to_string(list_tail).unwrap(),
+        "#!/bin/bash\nmain() { exit 0; }\nmain \"$@\"\n"
+    );
+    assert_eq!(
+        fs::read_to_string(branch_tail).unwrap(),
+        "#!/bin/bash\nif true; then exit 0; fi\n"
+    );
+}
+
+#[test]
+fn check_fix_keeps_code_after_backgrounded_exit() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("bg.sh");
+    let source = "#!/bin/bash\nexit 1 &\necho still-running\n";
+    fs::write(&script, source).unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--fix", "--select", "C124"]);
+    cmd.assert().success().stdout("");
+
+    assert_eq!(fs::read_to_string(script).unwrap(), source);
+}
+
+#[test]
 fn check_unsafe_fixes_applies_safe_s074_fix() {
     let tempdir = tempdir().unwrap();
     let script = tempdir.path().join("warn.sh");
