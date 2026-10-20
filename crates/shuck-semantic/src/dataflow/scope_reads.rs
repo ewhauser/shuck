@@ -107,33 +107,43 @@ pub(super) struct CompatibilityReadSets {
     pub(super) future_reads: Vec<ScopeFutureReads>,
 }
 
+/// Groups, per scope, the names of non-local bindings that may be provided to callers of the
+/// scope (the candidates [`summarize_scope_provided_bindings`] reports on).
+pub(crate) fn provided_binding_candidates_by_scope(
+    bindings: &[Binding],
+    scope_count: usize,
+) -> Vec<FxHashSet<Name>> {
+    let mut candidates = vec![FxHashSet::default(); scope_count];
+    for binding in bindings {
+        if !binding.attributes.contains(BindingAttributes::LOCAL)
+            && binding_initializes_name(binding).is_some()
+        {
+            candidates[binding.scope.index()].insert(binding.name.clone());
+        }
+    }
+    candidates
+}
+
 pub(crate) fn summarize_scope_provided_bindings(
     context: &DataflowContext<'_>,
     exact: &ExactVariableDataflow,
     scope: ScopeId,
+    eligible_names: &FxHashSet<Name>,
 ) -> Vec<ProvidedBinding> {
-    let exit_blocks = exit_blocks_for_scope(context.cfg, exact.scope_components(context), scope);
+    if eligible_names.is_empty() {
+        return Vec::new();
+    }
+    let exit_blocks = exit_blocks_for_scope(context.cfg, scope);
     if exit_blocks.is_empty() {
         return Vec::new();
     }
-
-    let eligible_names = context
-        .bindings
-        .iter()
-        .filter(|binding| {
-            binding.scope == scope
-                && !binding.attributes.contains(BindingAttributes::LOCAL)
-                && binding_initializes_name(binding).is_some()
-        })
-        .map(|binding| binding.name.clone())
-        .collect::<FxHashSet<_>>();
 
     let initialized_states = exact.initialized_name_states(context);
     let mut maybe_counts = FxHashMap::<Name, usize>::default();
     let mut definite_counts = FxHashMap::<Name, usize>::default();
 
     for exit_block in &exit_blocks {
-        for name in &eligible_names {
+        for name in eligible_names {
             let Some(name_id) = exact.names.get(name) else {
                 continue;
             };
@@ -185,7 +195,7 @@ pub(crate) fn summarize_scope_provided_functions(
     scope: ScopeId,
 ) -> Vec<ProvidedBinding> {
     let reaching_definitions = exact.reaching_definitions(context);
-    let exit_blocks = exit_blocks_for_scope(context.cfg, exact.scope_components(context), scope);
+    let exit_blocks = exit_blocks_for_scope(context.cfg, scope);
     if exit_blocks.is_empty() {
         return Vec::new();
     }
@@ -262,22 +272,23 @@ pub(crate) fn summarize_scope_provided_functions(
     provided
 }
 
-fn exit_blocks_for_scope(
-    cfg: &ControlFlowGraph,
-    scope_components: &[ExactScopeComponent],
-    scope: ScopeId,
-) -> Vec<BlockId> {
-    let component = &scope_components[scope.index()];
+/// Returns the blocks through which control leaves `scope`: the recorded exits for file and
+/// function scopes, or else the exits of the blocks reachable from the scope's entry. The
+/// reachable component is only computed for the scope being asked about.
+fn exit_blocks_for_scope(cfg: &ControlFlowGraph, scope: ScopeId) -> Vec<BlockId> {
     if let Some(scope_exits) = cfg.scope_exits(scope) {
         return scope_exits.to_vec();
     }
+    let Some(entry) = cfg.scope_entry(scope) else {
+        return Vec::new();
+    };
 
+    let component = reachable_blocks_dense(cfg, entry, cfg.blocks().len());
     component
-        .blocks
         .iter_ones()
         .filter_map(|block_index| {
             let block_id = BlockId(block_index as u32);
-            block_exits_component(cfg, &component.blocks, block_id).then_some(block_id)
+            block_exits_component(cfg, &component, block_id).then_some(block_id)
         })
         .collect()
 }
@@ -388,26 +399,27 @@ pub(super) fn compute_transitive_read_sets(
     name_count: usize,
 ) -> DenseBitMatrix {
     let nested_child_scopes = nested_non_function_child_scopes(scopes);
+    let dependencies = read_plans
+        .iter()
+        .enumerate()
+        .map(|(scope_index, plan)| {
+            nested_child_scopes[scope_index]
+                .iter()
+                .copied()
+                .chain(plan.calls.iter().map(|call| call.callee_scope))
+                .map(ScopeId::index)
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
     let mut transitive_reads = DenseBitMatrix::zeros(read_plans.len(), name_count);
     let mut reads = DenseBitSet::new(name_count);
-    loop {
-        let mut changed = false;
-        for (scope_index, plan) in read_plans.iter().enumerate() {
-            reads.copy_from(&plan.direct_reads);
-            for &child_scope in &nested_child_scopes[scope_index] {
-                reads.union_with_words(transitive_reads.row(child_scope.index()));
-            }
-            for call in &plan.calls {
-                reads.union_with_words(transitive_reads.row(call.callee_scope.index()));
-            }
-            if transitive_reads.replace_row_if_changed(scope_index, reads.as_words()) {
-                changed = true;
-            }
+    solve_scope_row_fixpoint(&dependencies, |scope_index| {
+        reads.copy_from(&read_plans[scope_index].direct_reads);
+        for &dependency in &dependencies[scope_index] {
+            reads.union_with_words(transitive_reads.row(dependency));
         }
-        if !changed {
-            break;
-        }
-    }
+        transitive_reads.replace_row_if_changed(scope_index, reads.as_words())
+    });
 
     transitive_reads
 }
@@ -421,36 +433,99 @@ pub(super) fn compute_compatibility_read_sets(
     let future_reads = build_future_read_summaries(read_plans, transitive_reads, bound_names);
     let mut escape_reads = DenseBitMatrix::zeros(read_plans.len(), bound_names.len());
     let mut reads = DenseBitSet::new(bound_names.len());
-    loop {
-        let mut changed = false;
-        for (scope_index, plan) in read_plans.iter().enumerate() {
+    // A function's escape reads include its function callers' escape reads.
+    let dependencies = read_plans
+        .iter()
+        .enumerate()
+        .map(|(scope_index, plan)| {
             if !plan.is_function {
-                continue;
+                return Vec::new();
             }
+            callers_by_callee[scope_index]
+                .iter()
+                .map(|caller| caller.caller_scope.index())
+                .filter(|caller| read_plans[*caller].is_function)
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    solve_scope_row_fixpoint(&dependencies, |scope_index| {
+        if !read_plans[scope_index].is_function {
+            return false;
+        }
 
-            reads.clear();
-            for caller in &callers_by_callee[scope_index] {
-                future_reads_union_after(
-                    &mut reads,
-                    caller.caller_scope,
-                    caller.offset,
-                    read_plans,
-                    &future_reads,
-                    &escape_reads,
-                );
-            }
-            if escape_reads.replace_row_if_changed(scope_index, reads.as_words()) {
-                changed = true;
-            }
+        reads.clear();
+        for caller in &callers_by_callee[scope_index] {
+            future_reads_union_after(
+                &mut reads,
+                caller.caller_scope,
+                caller.offset,
+                read_plans,
+                &future_reads,
+                &escape_reads,
+            );
         }
-        if !changed {
-            break;
-        }
-    }
+        escape_reads.replace_row_if_changed(scope_index, reads.as_words())
+    });
 
     CompatibilityReadSets {
         escape_reads,
         future_reads,
+    }
+}
+
+/// Solves a monotone per-scope fixpoint where `evaluate(scope)` recomputes one row from the rows
+/// listed in `dependencies[scope]` and reports whether it changed.
+///
+/// Scopes are first evaluated in dependency postorder, so an acyclic dependency graph settles in
+/// a single evaluation per scope; afterwards only the dependents of a changed row are revisited.
+/// This replaces whole-table sweeps that needed one sweep per link of a long call chain.
+fn solve_scope_row_fixpoint(dependencies: &[Vec<usize>], mut evaluate: impl FnMut(usize) -> bool) {
+    let count = dependencies.len();
+    let mut dependents = vec![Vec::new(); count];
+    for (scope, scope_dependencies) in dependencies.iter().enumerate() {
+        for &dependency in scope_dependencies {
+            dependents[dependency].push(scope);
+        }
+    }
+
+    let mut order = Vec::with_capacity(count);
+    let mut visited = DenseBitSet::new(count);
+    let mut stack = Vec::new();
+    for root in 0..count {
+        if visited.contains(root) {
+            continue;
+        }
+        visited.insert(root);
+        stack.push((root, 0usize));
+        while let Some((scope, next_dependency)) = stack.last_mut() {
+            if let Some(&dependency) = dependencies[*scope].get(*next_dependency) {
+                *next_dependency += 1;
+                if !visited.contains(dependency) {
+                    visited.insert(dependency);
+                    stack.push((dependency, 0));
+                }
+            } else {
+                order.push(*scope);
+                stack.pop();
+            }
+        }
+    }
+
+    let mut queued = DenseBitSet::new(count);
+    for &scope in &order {
+        queued.insert(scope);
+    }
+    let mut worklist = std::collections::VecDeque::from(order);
+    while let Some(scope) = worklist.pop_front() {
+        queued.remove(scope);
+        if evaluate(scope) {
+            for &dependent in &dependents[scope] {
+                if !queued.contains(dependent) {
+                    queued.insert(dependent);
+                    worklist.push_back(dependent);
+                }
+            }
+        }
     }
 }
 

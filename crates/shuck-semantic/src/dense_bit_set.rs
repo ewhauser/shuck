@@ -32,10 +32,6 @@ impl DenseBitSet {
             .is_some_and(|word| (word & (1usize << bit)) != 0)
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        self.words.iter().all(|word| *word == 0)
-    }
-
     pub(crate) fn clear(&mut self) {
         self.words.fill(0);
     }

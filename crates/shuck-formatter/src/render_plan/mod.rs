@@ -29,7 +29,7 @@ pub(crate) use if_case::{
 };
 pub(crate) use shape::{
     can_format_multiline_subshell_inline, can_inline_group, can_inline_source_line_subshell,
-    group_has_inline_source_shape,
+    can_inline_stmt, group_has_inline_source_shape, if_branch_closer_shares_body_line,
 };
 
 #[cfg(test)]

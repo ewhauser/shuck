@@ -87,8 +87,42 @@ pub(crate) fn can_inline_else_branch_close(
         return false;
     };
     let else_line = context.source_map().line_number_for_offset(else_offset);
-    let body_line = stmt_span(stmt).start.line();
-    else_line == body_line && body_line == fi_span.start.line()
+    else_line == stmt_span(stmt).start.line()
+        && if_branch_closer_shares_body_line(
+            context,
+            command,
+            command.elif_branches.len() + 1,
+            body,
+            fi_span,
+        )
+}
+
+/// shfmt keeps an `if` branch body on its keyword's line only when the keyword
+/// that ends the branch (`elif`, `else`, or `fi`) sits on the body's last line.
+pub(crate) fn if_branch_closer_shares_body_line(
+    context: RenderContext<'_, '_>,
+    command: &IfCommand,
+    branch_index: usize,
+    body: &StmtSeq,
+    fi_span: Span,
+) -> bool {
+    let Some(last) = body.last() else {
+        return false;
+    };
+    let closer_offset = context
+        .facts
+        .if_next_branch_region(command, branch_index)
+        .map_or(fi_span.start.offset(), |(_, keyword)| keyword);
+    // Statement spans can run past a trailing newline, so measure the last
+    // line that holds statement text.
+    let span = stmt_span(last);
+    let text = context
+        .source
+        .get(span.start.offset()..span.end.offset())
+        .unwrap_or_default();
+    let content_end = span.start.offset() + text.trim_end().len().saturating_sub(1);
+    context.source_map().line_number_for_offset(closer_offset)
+        == context.source_map().line_number_for_offset(content_end)
 }
 
 pub(crate) fn can_inline_if_chain(

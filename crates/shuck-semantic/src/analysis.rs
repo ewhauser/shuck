@@ -526,10 +526,18 @@ impl<'model> SemanticAnalysis<'model> {
             let context = self.model.dataflow_context(cfg);
             let mut provided_bindings_by_scope = Vec::with_capacity(self.model.scopes.len());
             let mut definite_provider_scopes_by_name = FxHashMap::<Name, Vec<ScopeId>>::default();
+            let candidates_by_scope = dataflow::provided_binding_candidates_by_scope(
+                &self.model.bindings,
+                self.model.scopes.len(),
+            );
 
             for scope in self.model.scopes.iter().map(|scope| scope.id) {
-                let provided_bindings =
-                    dataflow::summarize_scope_provided_bindings(&context, exact, scope);
+                let provided_bindings = dataflow::summarize_scope_provided_bindings(
+                    &context,
+                    exact,
+                    scope,
+                    &candidates_by_scope[scope.index()],
+                );
                 for binding in &provided_bindings {
                     if binding.certainty == ContractCertainty::Definite {
                         definite_provider_scopes_by_name

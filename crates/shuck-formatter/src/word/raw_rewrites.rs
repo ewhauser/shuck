@@ -1047,15 +1047,8 @@ pub(super) fn matching_raw_parameter_expansion_close(
 }
 
 pub(super) fn raw_parameter_replacement_needs_empty_delimiter(body: &str) -> bool {
-    let Some(after_operator) = raw_parameter_replacement_body_after_operator(body) else {
-        return false;
-    };
-    let (_, replacement) = split_raw_parameter_replacement(after_operator);
-    if replacement.is_empty() {
-        return !raw_has_final_replacement_delimiter(after_operator);
-    }
-
-    replacement_ends_with_ambiguous_quote(replacement)
+    raw_parameter_replacement_body_after_operator(body)
+        .is_some_and(|after_operator| raw_parameter_replacement_separator(after_operator).is_none())
 }
 
 pub(super) fn raw_parameter_replacement_body_after_operator(body: &str) -> Option<&str> {
@@ -1115,30 +1108,6 @@ pub(super) fn raw_parameter_subscript_end(body: &str, open: usize) -> Option<usi
         index += 1;
     }
     None
-}
-
-pub(super) fn raw_has_final_replacement_delimiter(after_operator: &str) -> bool {
-    let Some((last_index, _)) = after_operator.char_indices().next_back() else {
-        return false;
-    };
-    after_operator[last_index..].starts_with('/')
-        && !RawShellScanner::new(after_operator).is_escaped(last_index)
-}
-
-pub(super) fn replacement_ends_with_ambiguous_quote(replacement: &str) -> bool {
-    if replacement.ends_with('\'') {
-        return replacement[..replacement.len() - '\''.len_utf8()].ends_with('\\');
-    }
-    if replacement.ends_with('"') {
-        let quote_index = replacement.len() - '"'.len_utf8();
-        let backslashes = replacement[..quote_index]
-            .chars()
-            .rev()
-            .take_while(|ch| *ch == '\\')
-            .count();
-        return backslashes > 0 && backslashes % 2 == 0;
-    }
-    false
 }
 
 pub(super) fn normalize_raw_arithmetic_command_substitution_padding(raw: &str) -> Option<String> {

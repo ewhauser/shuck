@@ -12,7 +12,20 @@ use similar::TextDiff;
 
 const BENCHMARK_ORACLE_FILE_COUNT: usize = 6;
 const MAX_ORACLE_DIFF_LINES: usize = 200;
-const KNOWN_BENCHMARK_DIVERGENCES: &[&str] = &[];
+/// Benchmark scripts whose shuck output knowingly differs from shfmt. Each
+/// difference is layout only; none changes what the script does.
+const KNOWN_BENCHMARK_DIVERGENCES: &[&str] = &[
+    // Multi-line `$( ... )` bodies inside double quotes keep a different
+    // layout (leading `|` continuations, a `{ ...; } <<EOF` group), and
+    // `elif \` conditions ending in `\ ;` are joined instead of keeping shfmt's
+    // lone `;` line.
+    "nvm",
+    // Trailing comments on `case` items are aligned by source lines, while
+    // shfmt aligns the rendered lines, so items that expand to several lines
+    // align differently. A few arithmetic expansions in subscripts and
+    // parameter defaults stay as written, and one `\` continuation is joined.
+    "bashtop",
+];
 
 #[test]
 fn formatter_source_and_ast_paths_match_benchmark_corpus() {

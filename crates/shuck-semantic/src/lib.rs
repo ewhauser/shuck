@@ -2318,6 +2318,7 @@ impl SemanticModel {
             call_sites: &self.call_sites,
             unconditional_function_bindings: self.unconditional_function_bindings(),
             function_bindings_by_scope: self.function_binding_scope_index(),
+            entry_thresholds: Default::default(),
         }
     }
 
@@ -2928,5 +2929,7 @@ fn indirect_target_matches(hint: &IndirectTargetHint, binding: &Binding) -> bool
 
 #[cfg(test)]
 mod plugins;
+#[cfg(test)]
+mod scaling_tests;
 #[cfg(test)]
 mod tests;

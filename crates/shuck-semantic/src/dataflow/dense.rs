@@ -110,19 +110,6 @@ pub(super) struct DenseInitializedNameStates {
     pub(super) definite_out: DenseBitMatrix,
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct ExactScopeComponent {
-    pub(super) blocks: DenseBitSet,
-}
-
-impl ExactScopeComponent {
-    fn new(block_count: usize) -> Self {
-        Self {
-            blocks: DenseBitSet::new(block_count),
-        }
-    }
-}
-
 pub(super) fn build_name_table(
     bindings: &[Binding],
     references: &[Reference],
@@ -294,53 +281,66 @@ fn compute_block_order(cfg: &ControlFlowGraph, kind: BlockOrderKind) -> Box<[Blo
     order.into_boxed_slice()
 }
 
-fn run_forward_dataflow_worklist<F>(cfg: &ControlFlowGraph, rpo: &[BlockId], mut transfer: F)
+fn run_forward_dataflow_worklist<F>(cfg: &ControlFlowGraph, rpo: &[BlockId], transfer: F)
 where
     F: FnMut(BlockId) -> bool,
 {
-    let block_count = cfg.blocks().len();
-    let mut dirty = DenseBitSet::new(block_count);
-    for block in rpo {
-        dirty.insert(block.index());
-    }
-
-    while !dirty.is_empty() {
-        for &block in rpo {
-            if !dirty.contains(block.index()) {
-                continue;
-            }
-            dirty.remove(block.index());
-            if transfer(block) {
-                for (successor, _) in cfg.successors(block) {
-                    dirty.insert(successor.index());
-                }
-            }
-        }
-    }
+    run_round_robin_worklist(cfg, rpo, transfer, |block| {
+        cfg.successors(block)
+            .iter()
+            .map(|(successor, _)| *successor)
+    });
 }
 
 pub(super) fn run_backward_dataflow_worklist<F>(
     cfg: &ControlFlowGraph,
     postorder: &[BlockId],
-    mut transfer: F,
+    transfer: F,
 ) where
     F: FnMut(BlockId) -> bool,
 {
-    let block_count = cfg.blocks().len();
-    let mut dirty = DenseBitSet::new(block_count);
-    for block in postorder {
-        dirty.insert(block.index());
-    }
+    run_round_robin_worklist(cfg, postorder, transfer, |block| {
+        cfg.predecessors(block).iter().copied()
+    });
+}
 
-    while !dirty.is_empty() {
-        for &block in postorder {
-            if !dirty.contains(block.index()) {
-                continue;
-            }
-            dirty.remove(block.index());
-            if transfer(block) {
-                for predecessor in cfg.predecessors(block) {
-                    dirty.insert(predecessor.index());
+/// Runs `transfer` to a fixpoint, visiting dirty blocks in the same order as repeated passes
+/// over `order` would: each pass visits the dirty blocks in `order`, and a block dirtied at or
+/// before the current position waits for the next pass.
+///
+/// Dirty blocks are kept as a sorted set of positions in `order`, so each pass costs time
+/// proportional to the blocks it actually revisits rather than a scan of every block.
+fn run_round_robin_worklist<F, D, I>(
+    cfg: &ControlFlowGraph,
+    order: &[BlockId],
+    mut transfer: F,
+    mut dependents: D,
+) where
+    F: FnMut(BlockId) -> bool,
+    D: FnMut(BlockId) -> I,
+    I: Iterator<Item = BlockId>,
+{
+    let mut position_by_block = vec![u32::MAX; cfg.blocks().len()];
+    for (position, block) in order.iter().enumerate() {
+        position_by_block[block.index()] = position as u32;
+    }
+    let mut dirty = (0..order.len() as u32).collect::<std::collections::BTreeSet<_>>();
+    let mut cursor = 0u32;
+
+    while let Some(position) = dirty
+        .range(cursor..)
+        .next()
+        .or_else(|| dirty.first())
+        .copied()
+    {
+        dirty.remove(&position);
+        cursor = position + 1;
+        let block = order[position as usize];
+        if transfer(block) {
+            for dependent in dependents(block) {
+                let dependent_position = position_by_block[dependent.index()];
+                if dependent_position != u32::MAX {
+                    dirty.insert(dependent_position);
                 }
             }
         }
@@ -601,23 +601,6 @@ fn entry_binding_root_blocks(cfg: &ControlFlowGraph) -> FxHashSet<BlockId> {
                 .map(|block| block.id),
         )
         .collect()
-}
-
-pub(super) fn compute_scope_components_dense(
-    cfg: &ControlFlowGraph,
-    scope_count: usize,
-    block_count: usize,
-) -> Vec<ExactScopeComponent> {
-    let mut components = (0..scope_count)
-        .map(|_| ExactScopeComponent::new(block_count))
-        .collect::<Vec<_>>();
-
-    for (scope, entry) in &cfg.scope_entries {
-        let blocks = reachable_blocks_dense(cfg, *entry, block_count);
-        components[scope.index()] = ExactScopeComponent { blocks };
-    }
-
-    components
 }
 
 pub(super) fn block_exits_component(
