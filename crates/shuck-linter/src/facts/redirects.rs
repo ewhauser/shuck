@@ -683,7 +683,7 @@ pub(crate) fn build_redirect_facts<'a>(
         .map(|redirect| RedirectFact {
             redirect,
             brace_fd_redirection_span: brace_fd_redirection_span(redirect, source),
-            operator_span: redirect_operator_span(redirect),
+            operator_span: redirect_operator_span(redirect, source),
             target_span: redirect.word_target().map(|word| word.span),
             arithmetic_update_operator_spans: redirect
                 .word_target()
@@ -771,20 +771,31 @@ pub(crate) fn brace_fd_gap_allows_attachment(gap: &str) -> bool {
     true
 }
 
-pub(crate) fn redirect_operator_span(redirect: &Redirect) -> Span {
+pub(crate) fn redirect_operator_span(redirect: &Redirect, source: &str) -> Span {
     let operator_start = redirect
         .fd_var_span
         .map(|span| span.end)
-        .or_else(|| {
-            redirect
-                .fd
-                .filter(|fd| *fd >= 0)
-                .map(|fd| redirect.span.start.advanced_by(&fd.to_string()))
-        })
-        .unwrap_or(redirect.span.start);
+        .unwrap_or_else(|| redirect_fd_prefix_end(redirect, source));
     let operator_end = operator_start.advanced_by(redirect_operator_text(redirect.kind));
 
     Span::from_positions(operator_start, operator_end)
+}
+
+/// Position just past a descriptor prefix: the digits as written in the source
+/// (`2` in `2>`, `007` in `007>`), or the rendered descriptor when the source
+/// spells none.
+fn redirect_fd_prefix_end(redirect: &Redirect, source: &str) -> Position {
+    let start = redirect.span.start;
+    let digits = source.get(start.offset()..).map_or("", |rest| {
+        &rest[..rest.bytes().take_while(u8::is_ascii_digit).count()]
+    });
+    if !digits.is_empty() {
+        return start.advanced_by(digits);
+    }
+    redirect
+        .fd
+        .filter(|fd| *fd >= 0)
+        .map_or(start, |fd| start.advanced_by(&fd.to_string()))
 }
 
 pub(crate) fn redirect_operator_text(kind: RedirectKind) -> &'static str {
@@ -1116,10 +1127,7 @@ fn csh_both_output_redirect_span_and_target<'a>(
         return None;
     }
     let target = redirect.word_target()?;
-    let operator_start = redirect
-        .fd
-        .map(|fd| redirect.span.start.advanced_by(&fd.to_string()))
-        .unwrap_or(redirect.span.start);
+    let operator_start = redirect_fd_prefix_end(redirect, source);
     let prefix = source.get(operator_start.offset()..target.span.start.offset())?;
 
     let (span, target_text) = if prefix == ">&" {

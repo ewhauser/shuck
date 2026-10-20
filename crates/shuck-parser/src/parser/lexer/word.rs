@@ -4,11 +4,9 @@ impl<'a> Lexer<'a> {
     /// Check if this is a file descriptor redirect (e.g., 2>, 2>>, 2>&1)
     /// or just a regular word starting with a digit
     pub(in crate::parser) fn read_word_or_fd_redirect(&mut self) -> Option<LexedToken<'a>> {
-        if let Some(first_digit) = self.peek_char().filter(|ch| ch.is_ascii_digit()) {
-            let Some(fd) = first_digit.to_digit(10) else {
-                unreachable!("peeked ASCII digit should convert to a base-10 digit");
-            };
-            let fd = fd as i32;
+        if let Some((fd, digit_count)) = self.peek_fd_prefix() {
+            // Leave only the last digit so the operator lookahead below sees `D>`/`D<`.
+            self.consume_ascii_chars(digit_count - 1);
 
             match (self.second_char(), self.third_char()) {
                 (Some('>'), Some('>')) => {
@@ -64,12 +62,11 @@ impl<'a> Lexer<'a> {
                     self.consume_ascii_chars(3);
                     return Some(LexedToken::fd(TokenKind::RedirectFdReadWrite, fd));
                 }
-                (Some('<'), Some('<')) => {}
                 (Some('<'), _) => {
                     self.consume_ascii_chars(2);
                     return Some(LexedToken::fd(TokenKind::RedirectFdIn, fd));
                 }
-                _ => {}
+                _ => unreachable!("peek_fd_prefix only accepts digits followed by `<` or `>`"),
             }
         }
 
@@ -1103,6 +1100,36 @@ impl<'a> Lexer<'a> {
                 && text
                     .rfind('[')
                     .is_some_and(|open_bracket| !text[..open_bracket].ends_with('$'))
+    }
+
+    /// Peek a descriptor prefix: a run of digits directly followed by `>` or a
+    /// `<` that does not start a heredoc operator. Returns the descriptor and the
+    /// number of digits.
+    ///
+    /// Bash (and POSIX, whose tokenizer turns any all-digit word before `<` or
+    /// `>` into an IO number) accept multi-digit descriptors; zsh and mksh only
+    /// treat a single digit as a prefix and read `10>out` as the word `10`
+    /// followed by `>out`. Like bash, a number too large for a descriptor stays
+    /// a word.
+    fn peek_fd_prefix(&self) -> Option<(i32, usize)> {
+        let mut lookahead = self.lookahead_chars();
+        let mut fd: i32 = 0;
+        let mut digit_count = 0;
+        let mut next = lookahead.next();
+        while let Some(digit) = next.and_then(|ch| ch.to_digit(10)) {
+            if digit_count == 1 && !self.multi_digit_fd_prefix {
+                return None;
+            }
+            fd = fd.checked_mul(10)?.checked_add(digit as i32)?;
+            digit_count += 1;
+            next = lookahead.next();
+        }
+        let accepted = match next {
+            Some('>') => true,
+            Some('<') => lookahead.next() != Some('<'),
+            _ => false,
+        };
+        (digit_count > 0 && accepted).then_some((fd, digit_count))
     }
 
     /// Look at the target of a `N>&` / `N<&` duplication without consuming it.

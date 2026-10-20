@@ -77,6 +77,28 @@ mod tests {
     }
 
     #[test]
+    fn reports_multi_digit_descriptor_groups_at_their_operators() {
+        let source = "\
+#!/bin/bash
+: 10>a 10>b
+: 007>a 7>b
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DuplicateRedirect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| (
+                    diagnostic.span.start.line(),
+                    diagnostic.span.start.column(),
+                    diagnostic.span.slice(source)
+                ))
+                .collect::<Vec<_>>(),
+            vec![(2, 5, ">"), (2, 10, ">"), (3, 6, ">"), (3, 10, ">"),]
+        );
+    }
+
+    #[test]
     fn ignores_distinct_descriptors_and_descriptor_duplication() {
         let source = "\
 #!/bin/bash

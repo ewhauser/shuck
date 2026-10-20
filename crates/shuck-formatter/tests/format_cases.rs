@@ -364,6 +364,9 @@ default_format_cases! {
 }
 
 bash_unchanged_ast_cases! {
+    keeps_multi_digit_fd_redirects_attached:
+        "exec 99>&1\ncmd 12>out 12>>log 10<in\nexec 99>&-\n";
+    keeps_fd_prefix_spelling: "echo hi 007>out\n";
     multiline_if_conditions_do_not_capture_later_body_comments:
         "f() {\n\tif\n\t\t[[ -n \"${GEM_HOME:-}\" ]]\n\tthen\n\t\tcase \"$PATH:\" in\n\t\t$GEM_HOME/bin:*) true ;; # all fine\n\t\t*)\n\t\t\t# body note\n\t\t\twarn\n\t\t\t;;\n\t\tesac\n\tfi\n}\n\n# marker\ng() { :; }\n";
 }

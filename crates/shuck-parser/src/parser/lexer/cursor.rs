@@ -53,6 +53,10 @@ impl<'a> Lexer<'a> {
             reinject_tail_is_plain: false,
             max_subst_depth: max_depth,
             expansion_nesting: 0,
+            multi_digit_fd_prefix: matches!(
+                shell_profile.dialect,
+                super::ShellDialect::Bash | super::ShellDialect::Posix
+            ),
             initial_zsh_options: shell_profile.zsh_options().cloned(),
             zsh_timeline,
             zsh_timeline_index: 0,
