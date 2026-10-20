@@ -290,7 +290,9 @@ declare_rules! {
 }
 ```
 
-If the rule has a legacy `SH-NNN` code, add an alias in the `code_to_rule()` function in the same file.
+Legacy `SH-NNN` codes resolve automatically: `build.rs` generates the alias table behind `code_to_rule()` from each spec's `legacy_code` (plus an optional `aliases` list for codes of rules that were merged into this one). Do not hand-edit an alias table.
+
+A spec that is written before its implementation lands must carry `status: planned`; the parity tests in `crates/shuck-linter/src/rules/parity_tests.rs` fail when a spec without a status has no registered rule, or when a planned spec is registered.
 
 ### Step 3: Populate generated metadata
 

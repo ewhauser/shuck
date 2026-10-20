@@ -228,4 +228,93 @@ contracts:
         assert!(generated.contains("std::sync::OnceLock::new()"));
         assert!(generated.contains("\"ZSH_TMUX_\""));
     }
+
+    fn metadata_row(code: &str, legacy_code: Option<&str>, aliases: &[&str]) -> RuleMetadataRow {
+        RuleMetadataRow {
+            code: code.to_owned(),
+            description: String::new(),
+            rationale: String::new(),
+            fix_description: None,
+            shellcheck_level: None,
+            status: RuleSpecStatus::Implemented,
+            legacy_code: legacy_code.map(str::to_owned),
+            aliases: aliases.iter().map(|alias| (*alias).to_owned()).collect(),
+        }
+    }
+
+    #[test]
+    fn parse_rule_metadata_reads_status_and_aliases() {
+        let yaml = r#"
+new_code: C010
+status: planned
+legacy_code: SH-045
+aliases:
+  - C079
+  - SH-201
+description: Example description
+rationale: Example rationale
+"#;
+
+        let (metadata, _, _) = parse_rule_metadata(yaml).unwrap();
+        assert_eq!(metadata.status, RuleSpecStatus::Planned);
+        assert_eq!(metadata.legacy_code.as_deref(), Some("SH-045"));
+        assert_eq!(metadata.aliases, ["C079", "SH-201"]);
+    }
+
+    #[test]
+    fn parse_rule_metadata_defaults_status_to_implemented() {
+        let yaml = r#"
+new_code: C001
+description: Example description
+rationale: Example rationale
+"#;
+
+        let (metadata, _, _) = parse_rule_metadata(yaml).unwrap();
+        assert_eq!(metadata.status, RuleSpecStatus::Implemented);
+        assert!(metadata.aliases.is_empty());
+    }
+
+    #[test]
+    fn parse_rule_metadata_rejects_unknown_status() {
+        let yaml = r#"
+new_code: C001
+status: shipped
+description: Example description
+rationale: Example rationale
+"#;
+
+        assert!(parse_rule_metadata(yaml).is_err());
+    }
+
+    #[test]
+    fn validate_rule_codes_rejects_alias_claimed_twice() {
+        let rows = [
+            metadata_row("C001", Some("SH-001"), &[]),
+            metadata_row("C002", None, &["SH-001"]),
+        ];
+
+        let error = validate_rule_codes(&rows).unwrap_err();
+        assert!(error.contains("SH-001"), "{error}");
+    }
+
+    #[test]
+    fn validate_rule_codes_rejects_alias_shadowing_a_rule_code() {
+        let rows = [
+            metadata_row("C001", None, &["C002"]),
+            metadata_row("C002", None, &[]),
+        ];
+
+        let error = validate_rule_codes(&rows).unwrap_err();
+        assert!(error.contains("C002"), "{error}");
+    }
+
+    #[test]
+    fn generate_rule_alias_data_maps_legacy_codes_and_aliases() {
+        let rows = [metadata_row("C010", Some("SH-045"), &["C079"])];
+
+        let generated = generate_rule_alias_data(&rows);
+        assert!(generated.contains("\"SH-045\" => Some(\"C010\")"));
+        assert!(generated.contains("\"C079\" => Some(\"C010\")"));
+        assert!(generated.contains("_ => None"));
+    }
 }

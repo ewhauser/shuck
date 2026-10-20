@@ -1,4 +1,5 @@
 origin: novel
+status: planned
 legacy_name: missing-cli-usage
 new_category: Style
 new_code: S095

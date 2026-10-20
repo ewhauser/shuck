@@ -229,6 +229,12 @@ validate_file() {
   if ! check_yq "${file}" '(.default_enabled == null) or ((.default_enabled | type) == "!!bool")' "default_enabled must be a boolean when present"; then
     failed=1
   fi
+  if ! check_yq "${file}" '(.status == null) or (.status == "implemented") or (.status == "planned") or (.status == "retired")' "status must be omitted, \"implemented\", \"planned\", or \"retired\""; then
+    failed=1
+  fi
+  if ! check_yq "${file}" '(.aliases == null) or (((.aliases | type) == "!!seq") and ([.aliases[] | ((type == "!!str") and test("^(SH-[0-9]{3}|[CSPXK][0-9]{3})$"))] | all))' "aliases must be a list of SH-001 or C001 style codes when present"; then
+    failed=1
+  fi
   if ! check_yq "${file}" '(.options == null) or (((.options | type) == "!!seq") and ([.options[] | select((.name | type) != "!!str" or (.name | length) == 0 or (.type | type) != "!!str" or (.type | length) == 0 or (.description | type) != "!!str" or (.description | length) == 0)] | length == 0))' "options must be a list of {name, type, default, description} when present"; then
     failed=1
   fi

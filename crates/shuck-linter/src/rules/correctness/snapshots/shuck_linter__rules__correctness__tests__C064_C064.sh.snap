@@ -1,4 +1,8 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
-assertion_line: 88
 ---
+C064 if condition is missing a `then` keyword
+ --> <source>:7:1
+  |
+7 | if [ "$y" ]
+  |

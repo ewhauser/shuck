@@ -6,9 +6,12 @@ pub mod security;
 pub mod style;
 
 #[cfg(test)]
+mod parity_tests;
+
+#[cfg(test)]
 mod architecture_tests {
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     const RULE_DIRS: &[&str] = &[
         "correctness",
@@ -30,41 +33,74 @@ mod architecture_tests {
         "query::",
     ];
 
+    /// Rule-local helper files that predate the facts layer and still reach into AST
+    /// traversal types. Each entry is debt: the goal is to move the structural work into
+    /// `src/facts/` and delete the entry. Paths are relative to `src/rules/`.
+    const TRAVERSAL_TOKEN_ALLOWLIST: &[&str] = &[
+        // S001's safe-value classifier walks word parts, parameter expansions, and
+        // conditional operands to decide whether an unquoted expansion can split or glob.
+        // It should become a word-safety fact under `src/facts/` that S001 (and any other
+        // quoting rule) consumes, at which point this entry goes away.
+        "style/unquoted_expansion/safe_value.rs",
+    ];
+
+    fn collect_rule_sources(dir: &Path, out: &mut Vec<PathBuf>) {
+        let entries = fs::read_dir(dir)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", dir.display()));
+        for entry in entries {
+            let path = entry
+                .unwrap_or_else(|error| {
+                    panic!("failed to read entry in {}: {error}", dir.display())
+                })
+                .path();
+            if path.is_dir() {
+                collect_rule_sources(&path, out);
+            } else if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
+                out.push(path);
+            }
+        }
+    }
+
     #[test]
     fn rule_modules_avoid_direct_ast_traversal_tokens() {
         let rules_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/rules");
         let mut violations = Vec::new();
+        let mut unused_allowlist = TRAVERSAL_TOKEN_ALLOWLIST.to_vec();
 
         for dir in RULE_DIRS {
             let category_dir = rules_root.join(dir);
-            let entries = fs::read_dir(&category_dir).unwrap_or_else(|error| {
-                panic!("failed to read {}: {error}", category_dir.display())
-            });
+            let mut paths = Vec::new();
+            collect_rule_sources(&category_dir, &mut paths);
+            paths.sort();
 
-            for entry in entries {
-                let entry = entry.unwrap_or_else(|error| {
-                    panic!(
-                        "failed to read entry in {}: {error}",
-                        category_dir.display()
-                    )
-                });
-                let path = entry.path();
-                if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            for path in paths {
+                // The category `mod.rs` only declares modules and fixture test cases.
+                if path == category_dir.join("mod.rs") {
                     continue;
                 }
-                if matches!(
-                    path.file_name().and_then(|name| name.to_str()),
-                    Some("mod.rs" | "syntax.rs")
-                ) {
-                    continue;
-                }
+                let relative = path
+                    .strip_prefix(&rules_root)
+                    .expect("rule source lives under src/rules")
+                    .to_string_lossy()
+                    .replace('\\', "/");
 
                 let source = fs::read_to_string(&path)
                     .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
-                for token in FORBIDDEN_TOKENS {
-                    if source.contains(token) {
-                        violations.push(format!("{} contains `{token}`", path.display()));
+                let found = FORBIDDEN_TOKENS
+                    .iter()
+                    .copied()
+                    .filter(|token| source.contains(token))
+                    .collect::<Vec<_>>();
+
+                if TRAVERSAL_TOKEN_ALLOWLIST.contains(&relative.as_str()) {
+                    // An allowlisted file that has been cleaned up should drop its entry.
+                    if !found.is_empty() {
+                        unused_allowlist.retain(|entry| *entry != relative);
                     }
+                    continue;
+                }
+                for token in found {
+                    violations.push(format!("{} contains `{token}`", path.display()));
                 }
             }
         }
@@ -73,6 +109,11 @@ mod architecture_tests {
             violations.is_empty(),
             "rule files should rely on fact/shared helper APIs instead of direct AST traversal:\n{}",
             violations.join("\n"),
+        );
+        assert!(
+            unused_allowlist.is_empty(),
+            "stale TRAVERSAL_TOKEN_ALLOWLIST entries (file moved or no longer needs an exemption):\n{}",
+            unused_allowlist.join("\n"),
         );
     }
 

@@ -131,7 +131,6 @@ pub mod subst_with_redirect;
 pub mod subst_with_redirect_err;
 pub mod sudo_redirection_order;
 pub mod suspicious_bracket_glob;
-pub mod syntax;
 pub mod tautology_chain;
 pub mod template_brace_in_command;
 pub mod tilde_in_string_comparison;

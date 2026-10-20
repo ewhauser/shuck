@@ -16,6 +16,22 @@ struct RuleMetadata {
     description: String,
     rationale: String,
     fix_description: Option<String>,
+    legacy_code: Option<String>,
+    #[serde(default)]
+    aliases: Vec<String>,
+    #[serde(default)]
+    status: RuleSpecStatus,
+}
+
+/// Lifecycle of a rule spec in `docs/rules`. Specs without a `status` field are expected to
+/// have a registered `Rule`; `planned` and `retired` specs must not.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum RuleSpecStatus {
+    #[default]
+    Implemented,
+    Planned,
+    Retired,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -212,6 +228,9 @@ struct RuleMetadataRow {
     rationale: String,
     fix_description: Option<String>,
     shellcheck_level: Option<ShellCheckLevel>,
+    status: RuleSpecStatus,
+    legacy_code: Option<String>,
+    aliases: Vec<String>,
 }
 
 type RuleShellCheckMapping = (String, u32);
@@ -809,12 +828,52 @@ fn load_rule_metadata(docs_dir: &Path) -> Result<LoadedRuleMetadata, String> {
             rationale: metadata.rationale,
             fix_description: metadata.fix_description,
             shellcheck_level,
+            status: metadata.status,
+            legacy_code: metadata
+                .legacy_code
+                .map(|code| code.trim().to_owned())
+                .filter(|code| !code.is_empty()),
+            aliases: metadata
+                .aliases
+                .iter()
+                .map(|code| code.trim().to_owned())
+                .collect(),
         });
         if let Some(shellcheck_code) = shellcheck_code {
             mappings.push((rule_code, shellcheck_code));
         }
     }
+    validate_rule_codes(&metadata_rows)?;
     Ok((mappings, metadata_rows))
+}
+
+/// Rejects duplicate rule codes and any alias that could resolve to more than one rule.
+fn validate_rule_codes(rows: &[RuleMetadataRow]) -> Result<(), String> {
+    let mut canonical = HashSet::new();
+    for row in rows {
+        if !canonical.insert(row.code.as_str()) {
+            return Err(format!("duplicate new_code {:?}", row.code));
+        }
+    }
+
+    let mut aliases = HashSet::new();
+    for row in rows {
+        for alias in row.legacy_code.iter().chain(&row.aliases) {
+            if alias.is_empty() || alias.chars().any(char::is_whitespace) {
+                return Err(format!("invalid alias {alias:?} for {}", row.code));
+            }
+            if canonical.contains(alias.as_str()) {
+                return Err(format!(
+                    "alias {alias:?} for {} collides with a canonical rule code",
+                    row.code
+                ));
+            }
+            if !aliases.insert(alias.as_str()) {
+                return Err(format!("alias {alias:?} is claimed by more than one rule"));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn load_declarative_contracts(
@@ -875,6 +934,46 @@ fn generate_rule_metadata_data(rows: &[RuleMetadataRow]) -> String {
                 Some(value) => format!("Some({value:?})"),
                 None => "None".to_owned(),
             }
+        ));
+        generated.push_str("    },\n");
+    }
+    generated.push_str("];\n");
+    generated
+}
+
+fn generate_rule_alias_data(rows: &[RuleMetadataRow]) -> String {
+    let mut generated = String::from(
+        "/// Maps a legacy `SH-NNN` code or a retired rule code to the canonical rule code.\n\
+         fn rule_alias_target(code: &str) -> Option<&'static str> {\n    match code {\n",
+    );
+    for row in rows {
+        for alias in row.legacy_code.iter().chain(&row.aliases) {
+            generated.push_str(&format!("        {alias:?} => Some({:?}),\n", row.code));
+        }
+    }
+    generated.push_str("        _ => None,\n    }\n}\n");
+    generated
+}
+
+fn generate_rule_spec_data(rows: &[RuleMetadataRow]) -> String {
+    let mut generated = String::from("pub(crate) const RULE_SPECS: &[RuleSpec] = &[\n");
+    for row in rows {
+        generated.push_str("    RuleSpec {\n");
+        generated.push_str(&format!("        code: {:?},\n", row.code));
+        generated.push_str(&format!(
+            "        status: RuleSpecStatus::{:?},\n",
+            row.status
+        ));
+        generated.push_str(&format!(
+            "        legacy_code: {},\n",
+            match &row.legacy_code {
+                Some(code) => format!("Some({code:?})"),
+                None => "None".to_owned(),
+            }
+        ));
+        generated.push_str(&format!(
+            "        aliases: {},\n",
+            format_string_slice(&row.aliases)
         ));
         generated.push_str("    },\n");
     }
@@ -1131,6 +1230,14 @@ fn main() {
         generate_rule_metadata_data(&metadata_rows),
     )
     .unwrap_or_else(|err| panic!("write {}: {err}", metadata_out_path.display()));
+
+    let aliases_out_path = out_dir.join("rule_alias_data.rs");
+    fs::write(&aliases_out_path, generate_rule_alias_data(&metadata_rows))
+        .unwrap_or_else(|err| panic!("write {}: {err}", aliases_out_path.display()));
+
+    let specs_out_path = out_dir.join("rule_spec_data.rs");
+    fs::write(&specs_out_path, generate_rule_spec_data(&metadata_rows))
+        .unwrap_or_else(|err| panic!("write {}: {err}", specs_out_path.display()));
 
     let contracts_out_path = out_dir.join("ambient_contracts_data.rs");
     fs::write(
