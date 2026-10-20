@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.2.6](https://github.com/ewhauser/shuck/compare/v0.2.5...v0.2.6) (2026-10-20)
+
+
+### Bug Fixes
+
+* **cli:** harden discovery, per-file I/O errors, write-back, and cache handling ([#1324](https://github.com/ewhauser/shuck/issues/1324)) ([8f0bb44](https://github.com/ewhauser/shuck/commit/8f0bb449bb84449bd0db6e2ad9f9176eb8b8d3c2))
+* **extract:** map block scalar runs with leading blank lines and folded lines ([#1322](https://github.com/ewhauser/shuck/issues/1322)) ([2420ddc](https://github.com/ewhauser/shuck/commit/2420ddcd29df5e385f6b5d37c5380b3185d20857))
+* **formatter:** derive range formatting edits from whole-file formatting ([#1323](https://github.com/ewhauser/shuck/issues/1323)) ([54eda56](https://github.com/ewhauser/shuck/commit/54eda566358b7b0e0d044a7e85ebaf5fcf9994bf))
+* **formatter:** restore the shfmt benchmark oracle and fix content-changing output ([#1332](https://github.com/ewhauser/shuck/issues/1332)) ([abc6693](https://github.com/ewhauser/shuck/commit/abc66939548f2b8f0abce4aae22b23be40bce082))
+* **formatter:** stop changing script behavior, harden deep inputs ([#1330](https://github.com/ewhauser/shuck/issues/1330)) ([54cdc49](https://github.com/ewhauser/shuck/commit/54cdc49c25e13399eb62389818586125f4e9ec77))
+* **linter:** keep autofixes from breaking scripts ([#1328](https://github.com/ewhauser/shuck/issues/1328)) ([688c439](https://github.com/ewhauser/shuck/commit/688c439184257e6573ff28a1495de8e66ab8c599))
+* **parser:** bound nesting, chain length, and reparse cost for adversarial input ([#1329](https://github.com/ewhauser/shuck/issues/1329)) ([24e84d9](https://github.com/ewhauser/shuck/commit/24e84d948a75aa131de39943d624ed7f3e7402e2))
+* **parser:** keep N&gt;&WORD and N&lt;&WORD redirect targets intact as descriptor dups ([#1334](https://github.com/ewhauser/shuck/issues/1334)) ([be93088](https://github.com/ewhauser/shuck/commit/be9308893de342aae26da7f780a1245c4d11d29f))
+* **parser:** recognize multi-digit file descriptor prefixes ([#1335](https://github.com/ewhauser/shuck/issues/1335)) ([bfadada](https://github.com/ewhauser/shuck/commit/bfadada0670d553c5669b481b8665aeb667e0bea))
+* **run:** harden managed shell downloads and release workflows ([#1327](https://github.com/ewhauser/shuck/issues/1327)) ([157e4e0](https://github.com/ewhauser/shuck/commit/157e4e08414f1d77f7fcbe72835bdff275a3946f))
+* **server:** harden LSP workspace indexing and stop per-keystroke full rebuilds ([#1326](https://github.com/ewhauser/shuck/issues/1326)) ([c3b14f8](https://github.com/ewhauser/shuck/commit/c3b14f8c448560a5d229c32ba0b32d4f0e106fd9))
+
+
+### Performance
+
+* **server:** stop re-linting per diagnostic line and harden LSP state handling ([#1325](https://github.com/ewhauser/shuck/issues/1325)) ([eeb1db7](https://github.com/ewhauser/shuck/commit/eeb1db71b9ff8196f1752667fbdf5ed2a74c1bd5))
+
 ## [0.2.5](https://github.com/ewhauser/shuck/compare/v0.2.4...v0.2.5) (2026-10-19)
 
 
