@@ -1658,7 +1658,7 @@ entries:
     end_line: 25
   - start_line: 69
     end_line: 76
-  diff_hash: 525364dad58be50944ad8ae112cdbe82472ba2a79436c3a64dee5642dbaf5ff0
+  diff_hash: 8e20531c12b816266e1e92d9048fec27c788c2fe8a1a88227d41c6176342cea7
   reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
 - path_suffix: pyenv__pyenv__libexec__pyenv-versions
   hunks:
