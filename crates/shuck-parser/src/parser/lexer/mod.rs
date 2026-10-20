@@ -753,6 +753,8 @@ pub struct Lexer<'a> {
     /// Current recursion depth of `${...}` and `$[...]` readers, bounded by
     /// `max_subst_depth`.
     expansion_nesting: usize,
+    /// Whether a run of several digits can prefix a redirect (`10>out`).
+    multi_digit_fd_prefix: bool,
     initial_zsh_options: Option<ZshOptionState>,
     zsh_timeline: Option<Arc<ZshOptionTimeline>>,
     zsh_timeline_index: usize,

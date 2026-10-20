@@ -482,3 +482,74 @@ fn test_plain_fd_dup_and_close_redirects_are_unchanged() {
         );
     }
 }
+
+#[test]
+fn test_multi_digit_fd_prefixes_are_redirects_in_bash_and_posix() {
+    for dialect in [ShellDialect::Bash, ShellDialect::Posix] {
+        for (input, fd, kind, target) in [
+            ("exec 10>out", 10, RedirectKind::Output, "out"),
+            ("exec 10>>out", 10, RedirectKind::Append, "out"),
+            ("exec 10>|out", 10, RedirectKind::Clobber, "out"),
+            ("exec 10<in", 10, RedirectKind::Input, "in"),
+            ("exec 10<>rw", 10, RedirectKind::ReadWrite, "rw"),
+            ("exec 99>&1", 99, RedirectKind::DupOutput, "1"),
+            ("exec 99>&12", 99, RedirectKind::DupOutput, "12"),
+            ("exec 99>&-", 99, RedirectKind::DupOutput, "-"),
+            ("exec 99>&12-", 99, RedirectKind::DupOutput, "12-"),
+            ("exec 10>&$fd", 10, RedirectKind::DupOutput, "$fd"),
+            ("exec 10<&0", 10, RedirectKind::DupInput, "0"),
+            ("exec 10<&-", 10, RedirectKind::DupInput, "-"),
+            ("exec 10<&$fd", 10, RedirectKind::DupInput, "$fd"),
+            ("exec 007>out", 7, RedirectKind::Output, "out"),
+            ("exec 2147483647>out", i32::MAX, RedirectKind::Output, "out"),
+        ] {
+            let script = Parser::with_dialect(input, dialect).parse().unwrap().file;
+            assert_eq!(script.body.len(), 1, "{dialect:?} {input}");
+            let stmt = &script.body[0];
+            let AstCommand::Simple(command) = &stmt.command else {
+                panic!("{dialect:?} {input}: expected a simple command");
+            };
+            assert!(
+                command.args.is_empty(),
+                "{dialect:?} {input}: descriptor split into an arg"
+            );
+            assert_eq!(stmt.redirects.len(), 1, "{dialect:?} {input}");
+            let redirect = &stmt.redirects[0];
+            assert_eq!(redirect.fd, Some(fd), "{dialect:?} {input}");
+            assert_eq!(redirect.kind, kind, "{dialect:?} {input}");
+            assert_eq!(
+                redirect_word_target(redirect).render(input),
+                target,
+                "{dialect:?} {input}"
+            );
+            assert_eq!(redirect.span.slice(input), &input["exec ".len()..]);
+        }
+    }
+}
+
+#[test]
+fn test_multi_digit_word_before_redirect_stays_an_argument() {
+    for (dialect, input, arg, fd) in [
+        // zsh and mksh only read a single digit as a descriptor prefix.
+        (ShellDialect::Zsh, "echo 10>out", "10", None),
+        (ShellDialect::Mksh, "echo 10>out", "10", None),
+        (ShellDialect::Zsh, "echo 99>&-", "99", Some(1)),
+        // Like bash, a number too large for a descriptor stays a word.
+        (
+            ShellDialect::Bash,
+            "echo 2147483648>out",
+            "2147483648",
+            None,
+        ),
+    ] {
+        let script = Parser::with_dialect(input, dialect).parse().unwrap().file;
+        let stmt = &script.body[0];
+        let AstCommand::Simple(command) = &stmt.command else {
+            panic!("{dialect:?} {input}: expected a simple command");
+        };
+        assert_eq!(command.args.len(), 1, "{dialect:?} {input}");
+        assert_eq!(command.args[0].render(input), arg, "{dialect:?} {input}");
+        assert_eq!(stmt.redirects.len(), 1, "{dialect:?} {input}");
+        assert_eq!(stmt.redirects[0].fd, fd, "{dialect:?} {input}");
+    }
+}

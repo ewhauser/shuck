@@ -44,11 +44,12 @@ where
             self.write_text("{");
             self.write_text(name.as_str());
             self.write_text("}");
-        } else if let Some(fd) = redirect.fd
-            && (should_render_explicit_fd(fd, redirect.kind)
-                || redirect_source_has_explicit_fd(redirect, source, fd))
-        {
-            self.write_display(fd);
+        } else if let Some(fd) = redirect.fd {
+            if let Some(digits) = redirect_source_fd_digits(redirect, source, fd) {
+                self.write_text(digits);
+            } else if should_render_explicit_fd(fd, redirect.kind) {
+                self.write_display(fd);
+            }
         }
 
         self.write_text(match redirect.kind {
@@ -244,12 +245,12 @@ fn should_render_explicit_fd(fd: i32, kind: RedirectKind) -> bool {
     }
 }
 
-fn redirect_source_has_explicit_fd(redirect: &Redirect, source: &str, fd: i32) -> bool {
-    let Some(raw) = raw_redirect_source_slice(redirect, source) else {
-        return false;
-    };
-    let rendered_fd = fd.to_string();
-    raw.trim_start().starts_with(&rendered_fd)
+/// The descriptor prefix as written in the source (`2`, or `007` for fd 7), so
+/// an explicit descriptor keeps its original spelling.
+fn redirect_source_fd_digits<'a>(redirect: &Redirect, source: &'a str, fd: i32) -> Option<&'a str> {
+    let raw = raw_redirect_source_slice(redirect, source)?.trim_start();
+    let digits = &raw[..raw.bytes().take_while(u8::is_ascii_digit).count()];
+    (!digits.is_empty() && digits.parse::<i32>().ok() == Some(fd)).then_some(digits)
 }
 
 fn needs_space_before_target(kind: RedirectKind, target: &str, space_redirects: bool) -> bool {
