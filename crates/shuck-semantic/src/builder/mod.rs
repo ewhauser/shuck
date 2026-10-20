@@ -9,10 +9,10 @@ use shuck_ast::{
     FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, LiteralText, Name,
     NormalizedCommand, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
     PatternGroupKind, PatternPart, PatternPartNode, Position, SourceText, Span, Stmt, StmtSeq,
-    Subscript, SubscriptInterpretation, TextRange, TextSize, VarRef, Word, WordPart, WordPartNode,
-    WrapperKind, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment, ZshParameterExpansion,
-    normalize_command_words, normalize_command_words_owned, static_word_text,
-    try_static_word_parts_text,
+    StmtTerminator, Subscript, SubscriptInterpretation, TextRange, TextSize, VarRef, Word,
+    WordPart, WordPartNode, WrapperKind, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
+    ZshParameterExpansion, normalize_command_words, normalize_command_words_owned,
+    static_word_text, try_static_word_parts_text,
 };
 use shuck_indexer::{Indexer, LineIndex};
 use shuck_parser::{ShellDialect, ShellProfile, ZshEmulationMode, ZshOptionState, parser::Parser};
@@ -298,6 +298,9 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         builder.recorded_program.set_file_commands(file_commands);
         builder.mark_scope_completed(ScopeId(0));
         builder.drain_deferred_functions();
+        if builder.functions.contains_key("exit") {
+            builder.recorded_program.treat_exit_as_ordinary_command();
+        }
 
         let heuristic_unused_assignments = builder.compute_heuristic_unused_assignments();
 

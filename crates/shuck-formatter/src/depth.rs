@@ -46,6 +46,7 @@ impl AstVisitor for DepthProbe {
 
 #[cfg(test)]
 mod tests {
+    use shuck_ast::Command;
     use shuck_parser::parser::Parser;
 
     use super::*;
@@ -65,9 +66,42 @@ mod tests {
         assert!(!exceeds(&format!("{}\n", ["a"; 500].join(" && "))));
     }
 
+    /// Builds `a OP a OP ... a` with `operands` operands directly. The parser
+    /// refuses chains this long, but the guard must still hold for any AST it
+    /// is handed.
+    fn exceeds_chain(op: &str, operands: usize) -> bool {
+        let op = op.to_string();
+        std::thread::Builder::new()
+            .stack_size(256 << 20)
+            .spawn(move || {
+                let mut file = Parser::new(&format!("a {op} a\n")).parse().unwrap().file;
+                let seed = file.body.stmts.pop().unwrap();
+                let Command::Binary(binary) = &seed.command else {
+                    unreachable!("seed is a binary command");
+                };
+                let operand = (*binary.right).clone();
+                let mut chain = seed.clone();
+                for _ in 2..operands {
+                    let mut link = seed.clone();
+                    let Command::Binary(binary) = &mut link.command else {
+                        unreachable!("seed is a binary command");
+                    };
+                    *binary.left = chain;
+                    *binary.right = operand.clone();
+                    chain = link;
+                }
+                file.body.stmts.push(chain);
+                exceeds_statement_nesting(&file)
+            })
+            .unwrap()
+            .join()
+            .unwrap()
+    }
+
     #[test]
     fn rejects_lists_beyond_the_limit() {
-        assert!(exceeds(&format!("{}\n", ["a"; 1500].join(" && "))));
-        assert!(exceeds(&format!("{}\n", ["a"; 1500].join(" | "))));
+        assert!(!exceeds_chain("&&", 500));
+        assert!(exceeds_chain("&&", 1500));
+        assert!(exceeds_chain("|", 1500));
     }
 }

@@ -29,7 +29,6 @@ pub(crate) struct ExactVariableDataflow {
     pub(super) reaching_definitions: OnceLock<DenseReachingDefinitions>,
     pub(super) initialized_name_states: OnceLock<DenseInitializedNameStates>,
     pub(super) c006_initialized_name_states: OnceLock<DenseInitializedNameStates>,
-    pub(super) scope_components: OnceLock<Vec<ExactScopeComponent>>,
 }
 
 impl ExactVariableDataflow {
@@ -98,21 +97,6 @@ impl ExactVariableDataflow {
                 self.forward_block_order(context.cfg),
             )
         })
-    }
-
-    pub(super) fn scope_components<'a>(
-        &'a self,
-        context: &DataflowContext<'_>,
-    ) -> &'a [ExactScopeComponent] {
-        self.scope_components
-            .get_or_init(|| {
-                compute_scope_components_dense(
-                    context.cfg,
-                    context.scopes.len(),
-                    context.cfg.blocks().len(),
-                )
-            })
-            .as_slice()
     }
 
     pub(crate) fn reaching_bindings_for_reference(

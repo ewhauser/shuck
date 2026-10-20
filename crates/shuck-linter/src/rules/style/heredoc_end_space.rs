@@ -1,11 +1,9 @@
-use shuck_ast::Span;
-
 use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct HeredocEndSpace;
 
 impl Violation for HeredocEndSpace {
-    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
 
     fn rule() -> Rule {
         Rule::HeredocEndSpace
@@ -21,36 +19,23 @@ impl Violation for HeredocEndSpace {
 }
 
 pub fn heredoc_end_space(checker: &mut Checker) {
-    let source = checker.source();
     let diagnostics = checker
         .facts()
         .source_facts()
-        .heredoc_end_space_spans()
+        .heredoc_end_space_facts()
         .iter()
-        .copied()
-        .filter_map(|span| heredoc_end_space_fix(span, source))
-        .map(|(span, fix)| Diagnostic::new(HeredocEndSpace, span).with_fix(fix))
+        .map(|fact| {
+            let diagnostic = Diagnostic::new(HeredocEndSpace, fact.span());
+            match fact.edit_span() {
+                Some(edit_span) => diagnostic.with_fix(Fix::unsafe_edit(Edit::deletion(edit_span))),
+                None => diagnostic,
+            }
+        })
         .collect::<Vec<_>>();
 
     for diagnostic in diagnostics {
         checker.report_diagnostic_dedup(diagnostic);
     }
-}
-
-fn heredoc_end_space_fix(span: Span, source: &str) -> Option<(Span, Fix)> {
-    let start = span.start.offset();
-    let rest = source.get(start..)?;
-    let len = rest
-        .chars()
-        .take_while(|ch| matches!(ch, ' ' | '\t'))
-        .map(char::len_utf8)
-        .sum::<usize>();
-    (len > 0).then(|| {
-        (
-            span,
-            Fix::unsafe_edit(Edit::deletion_at(start, start + len)),
-        )
-    })
 }
 
 #[cfg(test)]
@@ -162,5 +147,33 @@ EOF
         assert_eq!(diagnostics[0].span.start.column(), 4);
         assert_eq!(diagnostics[0].span.end.column(), 4);
         assert_eq!(diagnostics[0].span.slice(source), "");
+    }
+
+    #[test]
+    fn omits_fix_when_a_later_exact_terminator_closes_the_heredoc() {
+        let source = "#!/bin/bash\ncat <<X\nbody\nX \nX\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::HeredocEndSpace),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.diagnostics.len(), 1);
+        assert!(result.diagnostics[0].fix.is_none());
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+    }
+
+    #[test]
+    fn omits_fix_when_a_later_tab_stripped_terminator_closes_the_heredoc() {
+        let source = "#!/bin/bash\ncat <<-X\nbody\n\tX \n\tX\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::HeredocEndSpace),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.diagnostics.len(), 1);
+        assert_eq!(result.fixed_source, source);
     }
 }

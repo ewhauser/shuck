@@ -814,6 +814,11 @@ where
             operator_breaks.fill(true);
         }
         let operator_next_line = self.options().binary_next_line();
+        // As in shfmt, when the pipeline follows a line-broken `&&` or `||`,
+        // only its first line break keeps the list indent; later ones indent
+        // one more level.
+        let list_rhs = std::mem::take(&mut self.list_rhs_pipeline);
+        let mut seen_break = false;
 
         for (index, stmt) in statements.iter().enumerate() {
             if index == 0 {
@@ -826,6 +831,9 @@ where
                     .map(|(operator, span)| (binary_operator(operator), *span))
                     .unwrap_or(("|", stmt.span));
                 let break_here = operator_breaks.get(index - 1).copied().unwrap_or(false);
+                let continuation_indent =
+                    self.pipeline_continuation_indent + usize::from(list_rhs && seen_break);
+                seen_break |= break_here;
                 let operator_comment = break_here
                     .then(|| self.source_map().suffix_comment_after_span(operator_span))
                     .flatten();
@@ -833,14 +841,11 @@ where
                 // so keep the operator at the end of the line in that case.
                 if break_here && operator_next_line && operator_comment.is_none() {
                     self.line_continuation();
-                    self.with_extra_prefix_indent(
-                        self.pipeline_continuation_indent,
-                        |formatter| {
-                            formatter.write_text(operator);
-                            formatter.write_space();
-                            formatter.format_pipeline_stmt_after_operator(stmt, operator_span)
-                        },
-                    )?;
+                    self.with_extra_prefix_indent(continuation_indent, |formatter| {
+                        formatter.write_text(operator);
+                        formatter.write_space();
+                        formatter.format_pipeline_stmt_after_operator(stmt, operator_span)
+                    })?;
                     continue;
                 }
                 if break_here {
@@ -849,12 +854,9 @@ where
                     self.write_operator_suffix_comment(operator_comment);
                     self.newline();
                     self.emit_pipeline_interstitial_comments(stmt, operator_span);
-                    self.with_extra_prefix_indent(
-                        self.pipeline_continuation_indent,
-                        |formatter| {
-                            formatter.format_pipeline_stmt_after_operator(stmt, operator_span)
-                        },
-                    )?;
+                    self.with_extra_prefix_indent(continuation_indent, |formatter| {
+                        formatter.format_pipeline_stmt_after_operator(stmt, operator_span)
+                    })?;
                     continue;
                 }
                 self.write_space();
@@ -981,12 +983,15 @@ where
                 let emitted_interstitial_comments = formatter
                     .emit_command_list_interstitial_comments(item.stmt, item.operator_span);
                 if pipeline_indent && stmt_is_pipeline(item.stmt) {
-                    formatter.with_pipeline_continuation_indent(0, |formatter| {
+                    formatter.list_rhs_pipeline = true;
+                    let result = formatter.with_pipeline_continuation_indent(0, |formatter| {
                         formatter.with_group_body_leading_filter(
                             emitted_interstitial_comments,
                             |formatter| format_stmt(formatter, item.stmt),
                         )
-                    })
+                    });
+                    formatter.list_rhs_pipeline = false;
+                    result
                 } else {
                     formatter.with_group_body_leading_filter(
                         emitted_interstitial_comments,

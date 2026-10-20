@@ -12966,3 +12966,31 @@ print $name
         ArrayReferencePolicy::RequiresExplicitSelector
     );
 }
+
+fn dead_code_snippets(source: &str) -> Vec<String> {
+    let model = model(source);
+    let analysis = model.analysis();
+    analysis
+        .dead_code()
+        .iter()
+        .flat_map(|entry| entry.unreachable.iter())
+        .map(|span| span.slice(source).trim_end().to_owned())
+        .collect()
+}
+
+#[test]
+fn backgrounded_exit_does_not_terminate_the_script() {
+    assert!(dead_code_snippets("exit 1 &\necho live\n").is_empty());
+    assert!(dead_code_snippets("die() { exit 1; }\ndie &\necho live\n").is_empty());
+    assert!(dead_code_snippets("true && exit 1 &\necho live\n").is_empty());
+    assert_eq!(
+        dead_code_snippets("{ exit 2; echo dead; } &\necho live\n"),
+        vec!["echo dead".to_owned()]
+    );
+}
+
+#[test]
+fn exit_shadowed_by_function_does_not_terminate_the_script() {
+    assert!(dead_code_snippets("exit() { echo shadow; }\nexit 1\necho live\n").is_empty());
+    assert!(dead_code_snippets("exit 1\necho dead\nexit() { :; }\n").is_empty());
+}

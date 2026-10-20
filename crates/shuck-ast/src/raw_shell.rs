@@ -264,12 +264,6 @@ impl<'source> RawShellScanner<'source> {
         None
     }
 
-    /// Returns whether `index` is preceded by an odd number of backslashes.
-    #[must_use]
-    pub fn is_escaped(&self, index: usize) -> bool {
-        offset_is_backslash_escaped(self.source, index)
-    }
-
     /// Finds the closing `)` for a command substitution body.
     #[must_use]
     pub fn matching_command_substitution_close(&self, body_start: usize) -> Option<usize> {

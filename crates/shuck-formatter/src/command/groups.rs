@@ -305,7 +305,12 @@ fn find_group_open_offset_on_line(
         let ch = source[offset..].chars().next()?;
 
         if let Some(next) = skip_escaped_or_quoted(source, offset, line_end, ch) {
-            offset = next;
+            // A quote still open at `line_end` holds the statement itself, as in
+            // `"$({ cmd; })"`, so the group opener is inside it.
+            let closed = ch == '\\'
+                || next < line_end
+                || (next > offset + ch.len_utf8() && source[..next].ends_with(ch));
+            offset = if closed { next } else { offset + ch.len_utf8() };
             continue;
         }
         if ch == '#' && shell_comment_can_start(source, offset) {

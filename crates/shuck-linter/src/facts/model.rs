@@ -37,6 +37,8 @@ pub(crate) struct CommandFactStore<'a> {
     pub(in crate::facts) lists: Vec<ListFact<'a>>,
     pub(in crate::facts) tautology_chain_operator_spans: OnceLock<Vec<Span>>,
     pub(in crate::facts) statement_facts: Vec<StatementFact>,
+    pub(in crate::facts) file_body_span: Span,
+    pub(in crate::facts) statement_deletions: OnceLock<FxHashMap<FactSpan, StatementDeletionFact>>,
     pub(in crate::facts) background_semicolon_spans: Vec<Span>,
     pub(in crate::facts) single_test_subshell_spans: Vec<Span>,
     pub(in crate::facts) subshell_test_group_spans: Vec<Span>,
@@ -139,6 +141,7 @@ pub(crate) struct AssignmentFactStore<'a> {
 
 pub(crate) struct SourceFactStore<'a> {
     pub(in crate::facts) source: &'a str,
+    pub(in crate::facts) file_end: usize,
     pub(in crate::facts) line_index: &'a LineIndex,
     pub(in crate::facts) comment_index: &'a CommentIndex,
     pub(in crate::facts) shell: ShellDialect,
@@ -173,8 +176,8 @@ pub(crate) struct SourceFactStore<'a> {
     pub(in crate::facts) heredoc_missing_end_spans: Vec<Span>,
     pub(in crate::facts) heredoc_closer_not_alone_spans: Vec<Span>,
     pub(in crate::facts) misquoted_heredoc_close_spans: Vec<Span>,
-    pub(in crate::facts) heredoc_end_space_spans: Vec<Span>,
-    pub(in crate::facts) indented_heredoc_close_facts: OnceLock<Vec<(Span, Span)>>,
+    pub(in crate::facts) heredoc_end_space_facts: Vec<HeredocCloserLineFact>,
+    pub(in crate::facts) indented_heredoc_close_facts: OnceLock<Vec<HeredocCloserLineFact>>,
     pub(in crate::facts) echo_here_doc_spans: Vec<Span>,
     pub(in crate::facts) spaced_tabstrip_close_spans: Vec<Span>,
 }
@@ -710,6 +713,24 @@ impl<'facts, 'a> CommandFactQueries<'facts, 'a> {
 
     pub(crate) fn statement_facts(self) -> &'facts [StatementFact] {
         &self.facts.command.statement_facts
+    }
+
+    /// Returns the syntax-preserving deletion for the statement whose semantic
+    /// span is `span`, if the statement can be removed on its own.
+    pub(crate) fn statement_deletion(self, span: Span) -> Option<&'facts StatementDeletionFact> {
+        self.facts
+            .command
+            .statement_deletions
+            .get_or_init(|| {
+                build_statement_deletion_facts(
+                    &self.facts.command.commands,
+                    &self.facts.command.command_fact_indices_by_id,
+                    &self.facts.command.statement_facts,
+                    self.facts.command.file_body_span,
+                    self.facts.source_facts.source,
+                )
+            })
+            .get(&FactSpan::new(span))
     }
 
     pub(crate) fn background_semicolon_spans(self) -> &'facts [Span] {
@@ -1263,11 +1284,11 @@ impl<'facts, 'a> SourceFacts<'facts, 'a> {
         &self.facts.source_facts.misquoted_heredoc_close_spans
     }
 
-    pub(crate) fn heredoc_end_space_spans(self) -> &'facts [Span] {
-        &self.facts.source_facts.heredoc_end_space_spans
+    pub(crate) fn heredoc_end_space_facts(self) -> &'facts [HeredocCloserLineFact] {
+        &self.facts.source_facts.heredoc_end_space_facts
     }
 
-    pub(crate) fn indented_heredoc_close_facts(self) -> &'facts [(Span, Span)] {
+    pub(crate) fn indented_heredoc_close_facts(self) -> &'facts [HeredocCloserLineFact] {
         self.facts
             .source_facts
             .indented_heredoc_close_facts
@@ -1276,7 +1297,11 @@ impl<'facts, 'a> SourceFacts<'facts, 'a> {
                     self.facts.source_facts.source,
                     self.facts.source_facts.line_index,
                 );
-                build_indented_heredoc_close_facts(&self.facts.command.commands, locator)
+                build_indented_heredoc_close_facts(
+                    &self.facts.command.commands,
+                    locator,
+                    self.facts.source_facts.file_end,
+                )
             })
     }
 

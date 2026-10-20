@@ -249,17 +249,39 @@ where
             self.write_compound_body_open_suffix(then_site);
         }
         self.format_if_branch_body_site_with_open_suffix(then_site, false)?;
+        // Set when the previous branch body stayed on its keyword's line, so the
+        // next keyword continues that line.
+        let mut previous_body_inline = false;
         for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
-            if matches!(layout, ExpandedIfLayout::Compact) {
+            let inline_header = if matches!(layout, ExpandedIfLayout::Compact) {
                 self.write_text("; elif ");
                 self.format_inline_stmts(condition)?;
                 self.write_text(self.then_separator_for_condition(condition));
+                false
             } else {
-                self.write_if_branch_prefix(command, index, source);
-                self.write_elif_header(command, index, condition, body, source)?;
-            }
+                if previous_body_inline {
+                    self.write_text("; ");
+                } else {
+                    self.write_if_branch_prefix(command, index, source);
+                }
+                self.write_elif_header(command, index, condition, body, source)?
+            };
             let body_upper_bound =
                 if_branch_upper_bound(command, index + 1, source, self.source_map(), self.facts());
+            previous_body_inline = inline_header
+                && self.elif_body_stays_on_then_line(
+                    command,
+                    index,
+                    condition,
+                    body,
+                    body_upper_bound,
+                    fi_span,
+                );
+            if previous_body_inline {
+                self.write_space();
+                self.format_inline_stmts(body)?;
+                continue;
+            }
             let site = CompoundBodySite::if_then_branch(command, body, body_upper_bound);
             self.format_if_branch_body_site(site)?;
         }
@@ -267,7 +289,11 @@ where
             match layout {
                 ExpandedIfLayout::Compact => self.write_text("; else"),
                 ExpandedIfLayout::Multiline { inline_else_close } => {
-                    self.write_if_branch_prefix(command, command.elif_branches.len(), source);
+                    if previous_body_inline {
+                        self.write_text("; ");
+                    } else {
+                        self.write_if_branch_prefix(command, command.elif_branches.len(), source);
+                    }
                     if inline_else_close {
                         self.write_text("else ");
                         self.format_inline_stmts(body)?;
@@ -279,14 +305,45 @@ where
             }
             let site = CompoundBodySite::if_else_branch(command, body, fi_upper_bound);
             self.format_if_branch_body_site(site)?;
+            previous_body_inline = false;
         }
         match layout {
             ExpandedIfLayout::Compact => self.write_if_close("; fi", fi_span),
+            ExpandedIfLayout::Multiline { .. } if previous_body_inline => {
+                self.write_if_close("; fi", fi_span);
+            }
             ExpandedIfLayout::Multiline { .. } => {
                 self.finish_multiline_if_close(command, then_upper_bound, fi_span);
             }
         }
         Ok(())
+    }
+
+    /// Whether an `elif` body stays after its `then`, as in `elif c; then d; fi`.
+    fn elif_body_stays_on_then_line(
+        &self,
+        command: &IfCommand,
+        index: usize,
+        condition: &StmtSeq,
+        body: &StmtSeq,
+        body_upper_bound: usize,
+        fi_span: Span,
+    ) -> bool {
+        let context = self.render_context();
+        let [stmt] = body.as_slice() else {
+            return false;
+        };
+        !matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
+            && can_inline_stmt(context, stmt)
+            && !self
+                .facts()
+                .sequence(body, Some(body_upper_bound))
+                .has_comments()
+            && !self.source_map().contains_newline_between(
+                condition.span.end.offset(),
+                stmt_span(stmt).start.offset(),
+            )
+            && if_branch_closer_shares_body_line(context, command, index + 1, body, fi_span)
     }
 
     pub(super) fn finish_multiline_if_close(
@@ -358,7 +415,7 @@ where
         condition: &StmtSeq,
         body: &StmtSeq,
         source: &str,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         if condition_keyword_on_previous_non_empty_line(
             condition,
             source,
@@ -380,12 +437,12 @@ where
             })?;
             self.newline();
             self.write_text("then");
-            Ok(())
+            Ok(false)
         } else {
             self.write_text("elif ");
             self.format_inline_stmts(condition)?;
             self.write_text(self.then_separator_for_condition(condition));
-            Ok(())
+            Ok(true)
         }
     }
 
@@ -1452,10 +1509,16 @@ where
     }
 
     pub(super) fn format_conditional(&mut self, command: &ConditionalCommand) -> Result<()> {
+        let outer_comments = std::mem::take(&mut self.conditional_comments);
         self.write_text("[[ ");
-        self.format_conditional_expr(&command.expression)?;
+        let result = self.format_conditional_expr(&command.expression);
+        let comments = std::mem::replace(&mut self.conditional_comments, outer_comments);
+        result?;
         let tight_close = self.conditional_needs_tight_close(&command.expression);
         self.write_text(if tight_close { "]]" } else { " ]]" });
+        for comment in comments {
+            self.writer.queue_trailing_comment(comment);
+        }
         Ok(())
     }
 
@@ -1940,6 +2003,15 @@ where
         self.write_text(expression.op.as_str());
         if conditional_binary_has_explicit_rhs_break(expression, self.source_map()) {
             self.newline();
+            if self.collect_conditional_comments(
+                expression.left.span().end.offset(),
+                expression.right.span().start.offset(),
+            ) {
+                // Comments cannot stay between the operands, so they move to the
+                // end of the line that closes the `[[`, leaving a blank line
+                // where they were, as shfmt does.
+                self.newline();
+            }
             if !conditional_expr_contains_command_substitution(&expression.left) {
                 self.write_indent_units(1);
             }
@@ -1952,6 +2024,17 @@ where
         } else {
             self.format_conditional_expr(&expression.right)
         }
+    }
+
+    fn collect_conditional_comments(&mut self, start: usize, end: usize) -> bool {
+        let mut cursor = start;
+        let mut found = false;
+        while let Some(comment) = self.source_map().first_source_comment_between(cursor, end) {
+            cursor = comment.span().end.offset().max(cursor + 1);
+            self.conditional_comments.push(comment.text());
+            found = true;
+        }
+        found
     }
 
     pub(super) fn write_conditional_regex_rhs(

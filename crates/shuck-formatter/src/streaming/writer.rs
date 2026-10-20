@@ -28,6 +28,7 @@ pub(super) struct ShellWriter<S> {
     line_indent_column: usize,
     line_start: bool,
     pending_heredocs: Vec<PendingHeredoc>,
+    pending_comments: Vec<String>,
 }
 
 impl ShellWriter<BufferSink> {
@@ -40,6 +41,7 @@ impl ShellWriter<BufferSink> {
     }
 
     pub(super) fn finish_into_string(mut self) -> String {
+        self.flush_pending_comments();
         self.flush_pending_heredocs();
         self.output.finish_into_string()
     }
@@ -51,6 +53,7 @@ impl<'source> ShellWriter<CompareSink<'source>> {
     }
 
     pub(super) fn finish_matches_source(mut self) -> bool {
+        self.flush_pending_comments();
         self.flush_pending_heredocs();
         self.output.finish(self.options.line_ending())
     }
@@ -70,6 +73,7 @@ where
             line_indent_column: 0,
             line_start: true,
             pending_heredocs: Vec::new(),
+            pending_comments: Vec::new(),
         }
     }
 
@@ -219,7 +223,30 @@ where
         self.pending_heredocs.push(heredoc);
     }
 
+    /// Queues a comment that sits inside a construct which is rendered on fewer
+    /// lines than the source, such as a `[[ ... ]]` split across lines. The
+    /// comment is written at the end of the next output line instead of being
+    /// dropped.
+    pub(super) fn queue_trailing_comment(&mut self, comment: &str) {
+        self.pending_comments.push(comment.to_string());
+    }
+
+    fn flush_pending_comments(&mut self) {
+        let pending = mem::take(&mut self.pending_comments);
+        for comment in pending {
+            if self.line_start {
+                self.write_indent();
+            } else {
+                self.push_output_char(' ');
+            }
+            self.write_text(&comment);
+        }
+    }
+
     pub(super) fn flush_pending_heredocs(&mut self) {
+        if !self.pending_heredocs.is_empty() {
+            self.flush_pending_comments();
+        }
         let pending = mem::take(&mut self.pending_heredocs);
         for heredoc in pending {
             self.push_output_str(self.line_ending());
@@ -256,6 +283,7 @@ where
     }
 
     pub(super) fn newline(&mut self) {
+        self.flush_pending_comments();
         self.flush_pending_heredocs();
         self.push_output_str(self.line_ending());
         self.line_start = true;
