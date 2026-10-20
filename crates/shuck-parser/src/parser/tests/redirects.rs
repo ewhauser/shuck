@@ -417,3 +417,68 @@ coproc worker { true; }
     };
     assert_eq!(command.name_span.unwrap().slice(input), "worker");
 }
+
+#[test]
+fn test_fd_dup_word_targets_stay_whole_dup_redirects() {
+    for (input, kind, target) in [
+        ("echo 3>&1-", RedirectKind::DupOutput, "1-"),
+        ("(echo) 3>&1-", RedirectKind::DupOutput, "1-"),
+        ("{ echo; } 3>&1-", RedirectKind::DupOutput, "1-"),
+        ("echo 3<&0-", RedirectKind::DupInput, "0-"),
+        ("(echo) 3<&0-", RedirectKind::DupInput, "0-"),
+        ("(echo) 3<&$fd", RedirectKind::DupInput, "$fd"),
+        ("echo 3>&1x", RedirectKind::DupOutput, "1x"),
+        ("echo 3>&-", RedirectKind::DupOutput, "-"),
+        ("(echo) 3>&-", RedirectKind::DupOutput, "-"),
+        ("echo 3>&$fd", RedirectKind::DupOutput, "$fd"),
+        ("{ echo; } 3>&${fd}", RedirectKind::DupOutput, "${fd}"),
+        ("echo 3>&\"$fd\"", RedirectKind::DupOutput, "$fd"),
+    ] {
+        let script = Parser::new(input).parse().unwrap().file;
+        assert_eq!(script.body.len(), 1, "{input}: target split into a command");
+        let stmt = &script.body[0];
+        if let AstCommand::Simple(command) = &stmt.command {
+            assert!(command.args.is_empty(), "{input}: target split into an arg");
+        }
+        assert_eq!(stmt.redirects.len(), 1, "{input}");
+        let redirect = &stmt.redirects[0];
+        assert_eq!(redirect.fd, Some(3), "{input}");
+        assert_eq!(redirect.kind, kind, "{input}");
+        assert_eq!(
+            redirect_word_target(redirect).render(input),
+            target,
+            "{input}"
+        );
+        assert_eq!(
+            redirect.span.slice(input),
+            &input[input.find('3').unwrap()..]
+        );
+    }
+}
+
+#[test]
+fn test_plain_fd_dup_and_close_redirects_are_unchanged() {
+    for (input, kind, target) in [
+        ("(echo) 3>&1", RedirectKind::DupOutput, "1"),
+        ("(echo) 3<&0", RedirectKind::DupInput, "0"),
+        ("(echo) 3<&-", RedirectKind::DupInput, "-"),
+        ("(echo) 3>&1;", RedirectKind::DupOutput, "1"),
+        ("(echo) 3>&1 \\\n  | cat", RedirectKind::DupOutput, "1"),
+    ] {
+        let script = Parser::new(input).parse().unwrap().file;
+        assert_eq!(script.body.len(), 1, "{input}");
+        let stmt = &script.body[0];
+        let redirects = match &stmt.command {
+            AstCommand::Binary(binary) => &binary.left.redirects,
+            _ => &stmt.redirects,
+        };
+        assert_eq!(redirects.len(), 1, "{input}");
+        assert_eq!(redirects[0].fd, Some(3), "{input}");
+        assert_eq!(redirects[0].kind, kind, "{input}");
+        assert_eq!(
+            redirect_word_target(&redirects[0]).render(input),
+            target,
+            "{input}"
+        );
+    }
+}

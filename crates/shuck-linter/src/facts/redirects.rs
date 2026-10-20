@@ -19,6 +19,9 @@ pub struct RedirectTargetAnalysis {
     pub kind: RedirectTargetKind,
     pub dev_null_status: Option<RedirectDevNullStatus>,
     pub numeric_descriptor_target: Option<i32>,
+    /// Whether a descriptor dup's target is statically `-`, `N`, or `N-`, so it
+    /// closes, copies, or moves a descriptor rather than possibly naming a file.
+    pub static_descriptor_target: bool,
     pub expansion: ExpansionAnalysis,
     pub runtime_literal: RuntimeLiteralAnalysis,
 }
@@ -622,12 +625,20 @@ pub(crate) fn analyze_redirect_target(
         behavior,
     );
 
+    let mut static_descriptor_target = false;
     let (kind, dev_null_status, numeric_descriptor_target) = match redirect.kind {
-        RedirectKind::DupOutput | RedirectKind::DupInput => (
-            RedirectTargetKind::DescriptorDup,
-            None,
-            static_word_text(target, source).and_then(|text| text.parse::<i32>().ok()),
-        ),
+        RedirectKind::DupOutput | RedirectKind::DupInput => {
+            let text = static_word_text(target, source);
+            static_descriptor_target = text.as_deref().is_some_and(|text| {
+                let digits = text.strip_suffix('-').unwrap_or(text);
+                text == "-" || (!digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+            });
+            (
+                RedirectTargetKind::DescriptorDup,
+                None,
+                text.and_then(|text| text.parse::<i32>().ok()),
+            )
+        }
         RedirectKind::HereDoc | RedirectKind::HereDocStrip => return None,
         RedirectKind::HereString
         | RedirectKind::Output
@@ -654,6 +665,7 @@ pub(crate) fn analyze_redirect_target(
         kind,
         dev_null_status,
         numeric_descriptor_target,
+        static_descriptor_target,
         expansion,
         runtime_literal,
     })

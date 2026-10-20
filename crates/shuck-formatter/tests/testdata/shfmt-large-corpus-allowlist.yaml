@@ -1658,7 +1658,7 @@ entries:
     end_line: 25
   - start_line: 69
     end_line: 76
-  diff_hash: 3a3a27d82070a0ea249dd65336e9e45e12a3ec6b1086de5280c99d33b3e3471d
+  diff_hash: 8e20531c12b816266e1e92d9048fec27c788c2fe8a1a88227d41c6176342cea7
   reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
 - path_suffix: pyenv__pyenv__libexec__pyenv-versions
   hunks:
@@ -2112,13 +2112,11 @@ entries:
   reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
 - path_suffix: termux__termux-packages__scripts__bin__update-packages
   hunks:
-  - start_line: 128
-    end_line: 134
   - start_line: 435
     end_line: 441
   - start_line: 601
     end_line: 625
-  diff_hash: 0c1467a3089698019a10b229e139fb4ee9164c1ce749cfca10a45becf2252c91
+  diff_hash: 1c1004c35161f2283a3f8b22336c6a8e8787172a4db38d84d014f42ac777ae40
   reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
 - path_suffix: termux__termux-packages__scripts__build__setup__termux_setup_gir.sh
   hunks:

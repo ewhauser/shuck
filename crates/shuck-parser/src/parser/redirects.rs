@@ -234,11 +234,17 @@ impl<'a> Parser<'a> {
                 Ok(true)
             }
             Some(TokenKind::DupOutput) => {
+                // `N>&WORD` carries its explicit descriptor; bare `>&` defaults to 1.
+                let fd = self.current_fd_value();
                 let operator_span = self.current_span;
                 self.advance();
                 if let Some(target) = self.maybe_expect_word(strict)? {
                     redirects.push(Redirect {
-                        fd: if fd_var.is_some() { None } else { Some(1) },
+                        fd: if fd_var.is_some() {
+                            None
+                        } else {
+                            Some(fd.unwrap_or(1))
+                        },
                         fd_var,
                         fd_var_span,
                         kind: RedirectKind::DupOutput,
@@ -311,11 +317,17 @@ impl<'a> Parser<'a> {
                 Ok(true)
             }
             Some(TokenKind::DupInput) => {
+                // `N<&WORD` carries its explicit descriptor; bare `<&` defaults to 0.
+                let fd = self.current_fd_value();
                 let operator_span = self.current_span;
                 self.advance();
                 if let Some(target) = self.maybe_expect_word(strict)? {
                     redirects.push(Redirect {
-                        fd: if fd_var.is_some() { None } else { Some(0) },
+                        fd: if fd_var.is_some() {
+                            None
+                        } else {
+                            Some(fd.unwrap_or(0))
+                        },
                         fd_var,
                         fd_var_span,
                         kind: RedirectKind::DupInput,

@@ -151,19 +151,24 @@ fn stdout_redirect_span_before_pipe(
         return None;
     }
 
-    if !matches!(
-        data.kind,
+    let analysis = redirect.analysis()?;
+    let sends_stdout_elsewhere = match data.kind {
         RedirectKind::Output
-            | RedirectKind::Clobber
-            | RedirectKind::Append
-            | RedirectKind::OutputBoth
-    ) {
-        return None;
-    }
+        | RedirectKind::Clobber
+        | RedirectKind::Append
+        | RedirectKind::OutputBoth => analysis.is_file_target(),
+        // `>&file` and `>&$target` may name a file; `>&2`, `>&3-`, and `>&-` only
+        // copy, move, or close a descriptor.
+        RedirectKind::DupOutput => !analysis.static_descriptor_target,
+        RedirectKind::Input
+        | RedirectKind::ReadWrite
+        | RedirectKind::HereDoc
+        | RedirectKind::HereDocStrip
+        | RedirectKind::HereString
+        | RedirectKind::DupInput => false,
+    };
 
-    redirect
-        .analysis()?
-        .is_file_target()
+    sends_stdout_elsewhere
         .then(|| redirect_operator_span(redirect, source))
         .flatten()
 }
@@ -214,6 +219,39 @@ cmd 1>out | next
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec![">", ">", ">", ">>", ">|", ">"]
+        );
+    }
+
+    #[test]
+    fn reports_stdout_dups_that_may_name_a_file() {
+        let source = "\
+#!/bin/bash
+cmd >&file | next
+cmd 1>&file | next
+cmd >&$fd | next
+cmd 1>&$fd | next
+cmd 1>&\"$fd\" | next
+cmd >&$fd- | next
+cmd 1>&- | next
+cmd >&- | next
+cmd 1>&3 | next
+cmd 1>&3- | next
+cmd 2>&$fd | next
+cmd 1>&$fd 2>&1 | next
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::RedirectBeforePipe));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.start.line())
+                .collect::<Vec<_>>(),
+            vec![2, 3, 4, 5, 6, 7]
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.span.slice(source) == ">&")
         );
     }
 

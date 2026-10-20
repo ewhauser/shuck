@@ -26,21 +26,13 @@ impl<'a> Lexer<'a> {
                 (Some('>'), Some('&')) => {
                     self.consume_ascii_chars(3);
 
-                    let mut target_str = String::with_capacity(4);
-                    while let Some(c) = self.peek_char() {
-                        if c.is_ascii_digit() {
-                            target_str.push(c);
-                            self.advance();
-                        } else {
-                            break;
-                        }
+                    let (digit_count, continues) = self.peek_dup_fd_target();
+                    if digit_count == 0 || continues {
+                        // `N>&-` (close), `N>&M-` (move), `N>&$fd`, and other word
+                        // targets are left for the parser to read as a word.
+                        return Some(LexedToken::fd(TokenKind::DupOutput, fd));
                     }
-
-                    if target_str.is_empty() {
-                        return Some(LexedToken::fd(TokenKind::RedirectFd, fd));
-                    }
-
-                    let target_fd: i32 = target_str.parse().unwrap_or(1);
+                    let target_fd = self.consume_fd_number(digit_count);
                     return Some(LexedToken::fd_pair(TokenKind::DupFd, fd, target_fd));
                 }
                 (Some('>'), _) => {
@@ -50,23 +42,22 @@ impl<'a> Lexer<'a> {
                 (Some('<'), Some('&')) => {
                     self.consume_ascii_chars(3);
 
-                    let mut target_str = String::with_capacity(4);
-                    while let Some(c) = self.peek_char() {
-                        if c.is_ascii_digit() || c == '-' {
-                            target_str.push(c);
-                            self.advance();
-                            if c == '-' {
-                                break;
-                            }
-                        } else {
-                            break;
-                        }
-                    }
-
-                    if target_str == "-" {
+                    let closes_fd = {
+                        let mut lookahead = self.lookahead_chars();
+                        lookahead.next() == Some('-')
+                            && !Self::continues_dup_fd_target(lookahead.next(), lookahead.next())
+                    };
+                    if closes_fd {
+                        self.advance();
                         return Some(LexedToken::fd(TokenKind::DupFdClose, fd));
                     }
-                    let target_fd: i32 = target_str.parse().unwrap_or(0);
+                    let (digit_count, continues) = self.peek_dup_fd_target();
+                    if digit_count == 0 || continues {
+                        // `N<&M-` (move), `N<&$fd`, and other word targets are
+                        // left for the parser to read as a word.
+                        return Some(LexedToken::fd(TokenKind::DupInput, fd));
+                    }
+                    let target_fd = self.consume_fd_number(digit_count);
                     return Some(LexedToken::fd_pair(TokenKind::DupFdIn, fd, target_fd));
                 }
                 (Some('<'), Some('>')) => {
@@ -1112,6 +1103,45 @@ impl<'a> Lexer<'a> {
                 && text
                     .rfind('[')
                     .is_some_and(|open_bracket| !text[..open_bracket].ends_with('$'))
+    }
+
+    /// Look at the target of a `N>&` / `N<&` duplication without consuming it.
+    ///
+    /// Returns the number of leading ASCII digits and whether the target keeps
+    /// going as a longer word after them (`1-`, `1x`, `$fd`).
+    fn peek_dup_fd_target(&self) -> (usize, bool) {
+        let mut lookahead = self.lookahead_chars();
+        let mut digit_count = 0;
+        let mut next = lookahead.next();
+        while next.is_some_and(|ch| ch.is_ascii_digit()) {
+            digit_count += 1;
+            next = lookahead.next();
+        }
+        let after = lookahead.next();
+        (digit_count, Self::continues_dup_fd_target(next, after))
+    }
+
+    /// Whether `next` (followed by `after`) extends a duplication target into a
+    /// longer word rather than ending it.
+    fn continues_dup_fd_target(next: Option<char>, after: Option<char>) -> bool {
+        match next {
+            // A line continuation ends the target just like whitespace.
+            Some('\\') => after != Some('\n'),
+            Some(ch) => Self::is_word_char(ch) || matches!(ch, '\'' | '"' | '{'),
+            None => false,
+        }
+    }
+
+    /// Consume `digit_count` ASCII digits and return their value as a descriptor.
+    fn consume_fd_number(&mut self, digit_count: usize) -> i32 {
+        let mut value: i32 = 0;
+        for _ in 0..digit_count {
+            let Some(digit) = self.advance().and_then(|ch| ch.to_digit(10)) else {
+                unreachable!("peeked ASCII digits should convert to base-10 digits");
+            };
+            value = value.saturating_mul(10).saturating_add(digit as i32);
+        }
+        value
     }
 
     pub(in crate::parser) fn is_word_char(ch: char) -> bool {
