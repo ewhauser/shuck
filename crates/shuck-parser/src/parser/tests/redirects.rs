@@ -419,7 +419,7 @@ coproc worker { true; }
 }
 
 #[test]
-fn test_fd_move_redirects_keep_dash_in_target_word() {
+fn test_fd_dup_word_targets_stay_whole_dup_redirects() {
     for (input, kind, target) in [
         ("echo 3>&1-", RedirectKind::DupOutput, "1-"),
         ("(echo) 3>&1-", RedirectKind::DupOutput, "1-"),
@@ -428,6 +428,11 @@ fn test_fd_move_redirects_keep_dash_in_target_word() {
         ("(echo) 3<&0-", RedirectKind::DupInput, "0-"),
         ("(echo) 3<&$fd", RedirectKind::DupInput, "$fd"),
         ("echo 3>&1x", RedirectKind::DupOutput, "1x"),
+        ("echo 3>&-", RedirectKind::DupOutput, "-"),
+        ("(echo) 3>&-", RedirectKind::DupOutput, "-"),
+        ("echo 3>&$fd", RedirectKind::DupOutput, "$fd"),
+        ("{ echo; } 3>&${fd}", RedirectKind::DupOutput, "${fd}"),
+        ("echo 3>&\"$fd\"", RedirectKind::DupOutput, "$fd"),
     ] {
         let script = Parser::new(input).parse().unwrap().file;
         assert_eq!(script.body.len(), 1, "{input}: target split into a command");

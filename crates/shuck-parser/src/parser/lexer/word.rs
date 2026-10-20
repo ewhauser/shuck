@@ -27,12 +27,9 @@ impl<'a> Lexer<'a> {
                     self.consume_ascii_chars(3);
 
                     let (digit_count, continues) = self.peek_dup_fd_target();
-                    if digit_count == 0 {
-                        return Some(LexedToken::fd(TokenKind::RedirectFd, fd));
-                    }
-                    if continues {
-                        // `N>&M-` (move) or another word starting with digits:
-                        // leave the whole target for the parser to read as a word.
+                    if digit_count == 0 || continues {
+                        // `N>&-` (close), `N>&M-` (move), `N>&$fd`, and other word
+                        // targets are left for the parser to read as a word.
                         return Some(LexedToken::fd(TokenKind::DupOutput, fd));
                     }
                     let target_fd = self.consume_fd_number(digit_count);

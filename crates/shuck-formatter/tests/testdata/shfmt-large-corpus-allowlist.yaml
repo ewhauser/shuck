@@ -2434,13 +2434,11 @@ entries:
   reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
 - path_suffix: termux__termux-packages__scripts__bin__update-packages
   hunks:
-  - start_line: 128
-    end_line: 134
   - start_line: 435
     end_line: 441
   - start_line: 601
     end_line: 625
-  diff_hash: 0c1467a3089698019a10b229e139fb4ee9164c1ce749cfca10a45becf2252c91
+  diff_hash: 1c1004c35161f2283a3f8b22336c6a8e8787172a4db38d84d014f42ac777ae40
   reason: Known formatter difference from the shfmt oracle at this corpus snapshot.
 - path_suffix: termux__termux-packages__scripts__build__setup__termux_setup_gir.sh
   hunks:
