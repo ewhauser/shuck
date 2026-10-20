@@ -120,7 +120,10 @@ Keep fix generation rule-local, but keep fix application centralized.
   inference, or make a policy choice the user may not want.
 - Set `Violation::FIX_AVAILABILITY` accurately:
   `None` when no fix exists, `Always` when every emitted diagnostic has a
-  fix, and `Sometimes` when only some instances can be fixed.
+  fix, and `Sometimes` when only some instances can be fixed. The website
+  rule table reads it, and `src/rules/parity_tests.rs` checks it against
+  the spec's `fix_description` (present exactly when a fix exists) and
+  against the fixes the rule's fixture actually produces.
 - Provide a `fix_title()` when the rule emits a fix so downstream callers can
   describe the action without rephrasing the rule message.
 
@@ -214,10 +217,20 @@ in the rule body — do not invent a new traversal in the rule to bridge them.
 ## Enforcement
 
 - `src/rules/mod.rs` contains an architecture test
-  (`rule_modules_avoid_direct_ast_traversal_tokens`) that scans rule files for
-  forbidden tokens. CI fails if a rule file imports or names them. If you need
-  one of those types, the work belongs in the fact builder or semantic layer,
-  not in the rule.
+  (`rule_modules_avoid_direct_ast_traversal_tokens`) that scans every `.rs`
+  file under the rule category directories, including rule-local helper
+  subdirectories, for forbidden tokens. CI fails if a rule file imports or
+  names them. If you need one of those types, the work belongs in the fact
+  builder or semantic layer, not in the rule. The only exemptions are listed
+  in `TRAVERSAL_TOKEN_ALLOWLIST` with the planned move into `src/facts/`; do
+  not add to it.
+- `src/rules/parity_tests.rs` keeps the registry, `docs/rules/*.yaml`,
+  `Violation` impls, and fixtures in sync: every rule needs a spec and a
+  fixture under `resources/test/fixtures/<category>/<CODE>.sh` that produces
+  at least one diagnostic; specs for unregistered rules need
+  `status: planned` (or `retired`); legacy `SH-NNN` aliases come from the
+  spec's `legacy_code`/`aliases` via `build.rs`. Known gaps are listed in
+  explicit allowlists there, and each entry fails once it goes stale.
 - New rules should be reviewed against this file. If a rule cannot be written
   without breaking these rules, the missing piece is almost always a fact that
   has not been built yet — build it.
