@@ -3,6 +3,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
+use shuck_config::resolve::{
+    NativeSourceResolver, resolve_source_ref_paths, source_ref_candidate_paths,
+};
 use shuck_linter::{Applicability, LinterSettings, RuleSet, ShellCheckCodeMap, ShellDialect};
 use shuck_parser::{
     Error as ParseError,
@@ -13,9 +16,6 @@ use super::cache::CheckCacheData;
 use super::display::{display_lint_diagnostics, display_parse_error};
 use super::embedded::analyze_embedded_file;
 use super::settings::CompiledPerFileShellList;
-use super::source_resolver::{
-    NativeSourceResolver, resolve_source_ref_paths, source_ref_candidate_paths,
-};
 use crate::commands::check_output::DisplayedDiagnostic;
 use crate::commands::project_runner::PendingProjectFile;
 use crate::discover::FileKind;

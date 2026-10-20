@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use shuck_config::resolve::{
-    ResolvePolicy, ResolvedFormatSettings, ResolvedLintSettings, ResolvedZshPluginSettings,
-    SettingsOverride, SettingsResolver,
+    NativeSourceResolver, ResolvePolicy, ResolvedFormatSettings, ResolvedLintSettings,
+    ResolvedZshPluginSettings, SettingsOverride, SettingsResolver,
 };
 use shuck_config::{
     ConfigArguments, FormatExclusions, ShuckConfig, load_project_config,
@@ -33,6 +33,7 @@ pub struct ShuckSettings {
     format_dialect_error: Option<String>,
     format_exclusions: FormatExclusions,
     fixable_rules: RuleSet,
+    source_resolver: Option<Arc<NativeSourceResolver>>,
     project_root: Option<PathBuf>,
 }
 
@@ -46,6 +47,12 @@ pub(crate) struct SettingsResolveContext {
 pub(crate) struct ResolvedProjectSettings {
     lint: ResolvedLintSettings,
     format: ResolvedFormatSettings,
+    /// Extra search roots for `# shuck: source=` targets, or `None` when no
+    /// `[lint] source-paths` are configured. `lint-sources` has no
+    /// counterpart here: it only decides whether `shuck check` adds directive
+    /// targets as extra inputs, while the server lints each open document on
+    /// its own, exactly as `shuck check <that file>` would.
+    source_resolver: Option<Arc<NativeSourceResolver>>,
     project_root: Option<PathBuf>,
 }
 
@@ -147,6 +154,14 @@ impl ShuckSettings {
         self.fixable_rules
     }
 
+    pub(crate) fn source_path_resolver(
+        &self,
+    ) -> Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)> {
+        self.source_resolver
+            .as_deref()
+            .map(|resolver| resolver as &(dyn shuck_semantic::SourcePathResolver + Send + Sync))
+    }
+
     pub(crate) fn project_root(&self) -> Option<&Path> {
         self.project_root.as_deref()
     }
@@ -162,6 +177,7 @@ impl Default for ShuckSettings {
             format_dialect_error: None,
             format_exclusions: FormatExclusions::default(),
             fixable_rules: lint.fixable_rules,
+            source_resolver: None,
             project_root: None,
         }
     }
@@ -237,10 +253,22 @@ impl ResolvedProjectSettings {
         for warning in resolver.warnings() {
             tracing::warn!("Ignoring invalid shuck setting: {warning}");
         }
+        // Relative `[lint] source-paths` resolve against the project root (where
+        // the config lives), matching `shuck check`. When none are configured the
+        // source closure's own base-directory resolution already covers hints.
+        let source_resolver = (!lint.source_paths.is_empty()).then(|| {
+            let root_base = context
+                .project_root
+                .as_deref()
+                .unwrap_or(context.config_root());
+            let root_base = std::fs::canonicalize(root_base).unwrap_or_else(|_| root_base.into());
+            Arc::new(lint.source_resolver(root_base))
+        });
 
         Self {
             lint,
             format,
+            source_resolver,
             project_root: context.project_root.clone(),
         }
     }
@@ -260,6 +288,7 @@ impl ResolvedProjectSettings {
             format_dialect_error,
             format_exclusions: self.format.exclusions.clone(),
             fixable_rules: self.lint.fixable_rules,
+            source_resolver: self.source_resolver.clone(),
             project_root: self.project_root.clone(),
         }
     }

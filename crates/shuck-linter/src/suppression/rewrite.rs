@@ -135,8 +135,35 @@ pub fn build_ignore_edit_for_line(
     reason: Option<&str>,
     source_path: Option<&Path>,
 ) -> Option<crate::Edit> {
+    build_ignore_edit_for_line_with_resolvers(
+        source,
+        settings,
+        line,
+        reason,
+        source_path,
+        None,
+        None,
+    )
+}
+
+pub fn build_ignore_edit_for_line_with_resolvers(
+    source: &str,
+    settings: &LinterSettings,
+    line: usize,
+    reason: Option<&str>,
+    source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
+) -> Option<crate::Edit> {
     let shellcheck_map = ShellCheckCodeMap::default();
-    let analysis = analyze_source(source, settings, &shellcheck_map, source_path, None, None);
+    let analysis = analyze_source(
+        source,
+        settings,
+        &shellcheck_map,
+        source_path,
+        source_path_resolver,
+        plugin_resolver,
+    );
     let line_diagnostics = analysis
         .diagnostics
         .iter()
@@ -161,8 +188,8 @@ pub fn build_ignore_edit_for_line(
         settings,
         &shellcheck_map,
         source_path,
-        None,
-        None,
+        source_path_resolver,
+        plugin_resolver,
     );
     edit_is_valid(&analysis, &candidate_analysis, line, &line_diagnostics).then_some(
         crate::Edit::replacement_at(

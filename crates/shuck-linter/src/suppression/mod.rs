@@ -14,6 +14,6 @@ pub(crate) use index::{
 };
 pub use rewrite::{
     AddIgnoreParseError, AddIgnoreResult, add_ignores_to_path, add_ignores_to_path_with_resolvers,
-    build_ignore_edit_for_line,
+    build_ignore_edit_for_line, build_ignore_edit_for_line_with_resolvers,
 };
 pub use shellcheck_map::ShellCheckCodeMap;
