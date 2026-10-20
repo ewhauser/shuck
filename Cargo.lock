@@ -1849,8 +1849,11 @@ dependencies = [
  "etcetera",
  "globset",
  "serde",
+ "shuck-ast",
  "shuck-formatter",
+ "shuck-linter",
  "shuck-run",
+ "shuck-semantic",
  "tempfile",
  "toml",
 ]

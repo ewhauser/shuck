@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Configuration loading and project-root discovery for shuck"
+description = "Configuration loading, project-root discovery, and settings resolution for shuck"
 
 [dependencies]
 anyhow = { workspace = true }
@@ -14,8 +14,11 @@ clap = { workspace = true }
 etcetera = { workspace = true }
 globset = { workspace = true }
 serde = { workspace = true }
+shuck-ast = { workspace = true }
 shuck-formatter = { workspace = true }
+shuck-linter = { workspace = true }
 shuck-run = { workspace = true }
+shuck-semantic = { workspace = true }
 toml = { workspace = true }
 
 [dev-dependencies]

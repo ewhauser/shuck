@@ -4,18 +4,18 @@
 //! WebAssembly bindings for source-only Shuck linting and formatting.
 
 use std::path::Path;
-use std::str::FromStr;
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use shuck_ast::{TextRange, TextSize};
 use shuck_formatter::{
-    FormattedSource, IndentStyle, ShellDialect as FormatDialect, ShellFormatOptions,
+    FormatSettingsPatch, FormattedSource, IndentStyle, ShellDialect as FormatDialect,
+    ShellFormatOptions,
 };
 use shuck_indexer::LineIndex;
 use shuck_linter::{
-    AnalysisRequest, Applicability, Diagnostic as ShuckDiagnostic, LinterSettings, RuleSelector,
-    ShellDialect as LintDialect,
+    AnalysisRequest, Applicability, Diagnostic as ShuckDiagnostic, LinterSettings,
+    ShellDialect as LintDialect, apply_rule_selector_layer, parse_rule_selectors,
 };
 use shuck_parser::parser::Parser;
 use wasm_bindgen::prelude::*;
@@ -71,7 +71,7 @@ export interface LintOptions {
 export interface FormatOptions {
   /** Logical filename used for dialect inference; no file is read. */
   filename?: string;
-  /** Explicit shell dialect. Omit to infer it from the source and filename. */
+  /** Explicit shell dialect. Omit to infer it from the source and filename. `ksh` is not supported by the formatter. */
   shell?: Shell;
   indentStyle?: "tab" | "space";
   indentWidth?: number;
@@ -133,13 +133,10 @@ impl ShellName {
         }
     }
 
-    const fn format_dialect(self) -> FormatDialect {
-        match self {
-            Self::Sh | Self::Dash | Self::Ksh => FormatDialect::Posix,
-            Self::Bash => FormatDialect::Bash,
-            Self::Mksh => FormatDialect::Mksh,
-            Self::Zsh => FormatDialect::Zsh,
-        }
+    fn format_dialect(self) -> Result<FormatDialect, String> {
+        let name = self.lint_dialect().as_str();
+        FormatDialect::for_shell_name(name)
+            .ok_or_else(|| format!("shell `{name}` is not supported by the formatter"))
     }
 }
 
@@ -248,27 +245,19 @@ fn inferred_lint_dialect(source: &str, path: Option<&Path>) -> LintDialect {
 }
 
 fn linter_settings(options: &LintOptions, shell: LintDialect) -> Result<LinterSettings, String> {
+    let select = options
+        .select
+        .as_deref()
+        .map(|select| parse_rule_selectors(select, "select"))
+        .transpose()
+        .map_err(|error| error.to_string())?;
+    let ignore =
+        parse_rule_selectors(&options.ignore, "ignore").map_err(|error| error.to_string())?;
     let mut settings = LinterSettings::default();
-    if let Some(select) = &options.select {
-        settings.rules = selectors(select)?
-            .iter()
-            .fold(shuck_linter::RuleSet::EMPTY, |rules, selector| {
-                rules.union(&selector.into_rule_set())
-            });
-    }
-    for selector in selectors(&options.ignore)? {
-        settings.rules = settings.rules.subtract(&selector.into_rule_set());
-    }
+    settings.rules = apply_rule_selector_layer(settings.rules, select.as_deref(), &[], &ignore);
     settings.shell = shell;
     settings.resolve_source_closure = false;
     Ok(settings)
-}
-
-fn selectors(values: &[String]) -> Result<Vec<RuleSelector>, String> {
-    values
-        .iter()
-        .map(|value| RuleSelector::from_str(value).map_err(|error| error.to_string()))
-        .collect()
 }
 
 fn diagnostic_for_js(diagnostic: &ShuckDiagnostic, source: &str, lines: &LineIndex) -> Diagnostic {
@@ -330,41 +319,20 @@ fn clamp_to_char_boundary(source: &str, offset: usize) -> usize {
 
 fn format_source(source: &str, options: &FormatOptions) -> Result<String, String> {
     let path = options.filename.as_deref().map(Path::new);
-    let mut format_options = ShellFormatOptions::default();
-
-    if let Some(shell) = options.shell {
-        format_options = format_options.with_dialect(shell.format_dialect());
-    }
-    if let Some(indent_style) = options.indent_style {
-        format_options = format_options.with_indent_style(indent_style.into());
-    }
-    if let Some(indent_width) = options.indent_width {
-        format_options = format_options.with_indent_width(indent_width);
-    }
-    if let Some(value) = options.binary_next_line {
-        format_options = format_options.with_binary_next_line(value);
-    }
-    if let Some(value) = options.switch_case_indent {
-        format_options = format_options.with_switch_case_indent(value);
-    }
-    if let Some(value) = options.space_redirects {
-        format_options = format_options.with_space_redirects(value);
-    }
-    if let Some(value) = options.keep_padding {
-        format_options = format_options.with_keep_padding(value);
-    }
-    if let Some(value) = options.function_next_line {
-        format_options = format_options.with_function_next_line(value);
-    }
-    if let Some(value) = options.never_split {
-        format_options = format_options.with_never_split(value);
-    }
-    if let Some(value) = options.simplify {
-        format_options = format_options.with_simplify(value);
-    }
-    if let Some(value) = options.minify {
-        format_options = format_options.with_minify(value);
-    }
+    let patch = FormatSettingsPatch {
+        dialect: options.shell.map(ShellName::format_dialect).transpose()?,
+        indent_style: options.indent_style.map(IndentStyle::from),
+        indent_width: options.indent_width,
+        binary_next_line: options.binary_next_line,
+        switch_case_indent: options.switch_case_indent,
+        space_redirects: options.space_redirects,
+        keep_padding: options.keep_padding,
+        function_next_line: options.function_next_line,
+        never_split: options.never_split,
+        simplify: options.simplify,
+        minify: options.minify,
+    };
+    let format_options = ShellFormatOptions::default().with_patch(&patch);
 
     match shuck_formatter::format_source(source, path, &format_options)
         .map_err(|error| error.to_string())?
@@ -442,6 +410,39 @@ mod tests {
         .expect_err("unknown selector should fail");
 
         assert!(error.contains("unknown rule selector"));
+    }
+
+    #[test]
+    fn lint_ignore_uses_selector_specificity() {
+        let options = LintOptions {
+            shell: Some(ShellName::Bash),
+            select: Some(vec!["C001".to_owned()]),
+            ignore: vec!["C".to_owned()],
+            ..LintOptions::default()
+        };
+        let settings =
+            linter_settings(&options, LintDialect::Bash).expect("selectors should parse");
+
+        assert_eq!(settings.rules.len(), 1);
+        assert!(
+            settings
+                .rules
+                .contains(shuck_linter::Rule::UnusedAssignment)
+        );
+    }
+
+    #[test]
+    fn formatter_rejects_ksh_like_the_cli() {
+        let error = format_source(
+            "echo hi\n",
+            &FormatOptions {
+                shell: Some(ShellName::Ksh),
+                ..FormatOptions::default()
+            },
+        )
+        .expect_err("ksh has no formatter dialect");
+
+        assert!(error.contains("not supported by the formatter"));
     }
 
     #[test]

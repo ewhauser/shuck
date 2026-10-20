@@ -124,7 +124,9 @@ pub use named_groups::NamedGroup;
 pub use registry::{Category, Rule, code_to_rule};
 /// Rule metadata lookup utilities.
 pub use rule_metadata::{RuleMetadata, ShellCheckLevel, rule_metadata, rule_metadata_by_code};
-pub use rule_selector::{RuleSelector, SelectorParseError};
+pub use rule_selector::{
+    RuleSelector, SelectorParseError, apply_rule_selector_layer, parse_rule_selectors,
+};
 /// Sets of enabled or disabled rules.
 pub use rule_set::RuleSet;
 #[allow(unused_imports)]
