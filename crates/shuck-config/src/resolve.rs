@@ -38,6 +38,10 @@ use crate::{
     ShuckConfig, apply_config_overrides, normalize_path,
 };
 
+mod source;
+
+pub use source::{NativeSourceResolver, resolve_source_ref_paths, source_ref_candidate_paths};
+
 /// Error reported when `[format].indent-width` is zero.
 pub const CONFIG_INDENT_WIDTH_ERROR: &str = "`[format].indent-width` must be at least 1";
 
@@ -212,6 +216,13 @@ impl Default for ResolvedLintSettings {
 }
 
 impl ResolvedLintSettings {
+    /// Returns a resolver for `# shuck: source=` targets that searches the
+    /// configured `source-paths`, with relative roots anchored at `root_base`
+    /// (normally the project root).
+    pub fn source_resolver(&self, root_base: PathBuf) -> NativeSourceResolver {
+        NativeSourceResolver::new(root_base, self.source_paths.clone())
+    }
+
     /// Returns linter settings with the per-file shell for `path` applied.
     pub fn linter_for_path(&self, path: Option<&Path>) -> LinterSettings {
         let mut linter = self.linter.clone();

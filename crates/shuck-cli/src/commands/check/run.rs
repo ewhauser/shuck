@@ -5,13 +5,13 @@ use anyhow::Result;
 use rayon::prelude::*;
 use shuck_cache::FileCacheKey;
 use shuck_config::ConfigArguments;
+use shuck_config::resolve::NativeSourceResolver;
 use shuck_linter::{Applicability, LinterSettings, RuleSelector, ShellCheckCodeMap};
 
 use super::CheckReport;
 use super::analyze::{FileCheckResult, analyze_file, discover_followed_paths, read_shared_source};
 use super::cache::{CheckCacheData, CheckCacheSettings, push_cached_diagnostics};
 use super::settings::{ResolvedCheckSettings, resolve_project_check_settings};
-use super::source_resolver::NativeSourceResolver;
 use crate::args::{CheckCommand, FileSelectionArgs, RuleSelectionArgs};
 use crate::commands::project_runner::{
     FileError, PendingProjectFile, ProjectRunRequest, prepare_project_runs_with_cache_key,
@@ -446,6 +446,7 @@ mod tests {
     use crate::commands::project_runner::PendingProjectFile;
     use crate::discover::{FileKind, normalize_path};
     use shuck_config::ConfigArguments;
+    use shuck_config::resolve::NativeSourceResolver;
 
     #[test]
     fn parse_failure_with_warning_lint_stays_fatal_under_exit_zero() {

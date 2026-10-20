@@ -16,7 +16,6 @@ mod display;
 mod embedded;
 mod run;
 mod settings;
-mod source_resolver;
 mod stdin;
 mod watch;
 #[cfg(test)]

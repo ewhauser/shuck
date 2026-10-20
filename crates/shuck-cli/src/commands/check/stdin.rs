@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
+use shuck_config::resolve::NativeSourceResolver;
 use shuck_config::{
     ConfigArguments, resolve_project_root_for_file, resolve_project_root_for_input,
 };
@@ -16,7 +17,6 @@ use super::analyze::{
 use super::display::{display_lint_diagnostics_for_file, display_parse_error};
 use super::embedded::analyze_embedded_source;
 use super::settings::resolve_project_check_settings;
-use super::source_resolver::NativeSourceResolver;
 use crate::ExitStatus;
 use crate::args::{CheckCommand, CheckOutputFormatArg};
 use crate::commands::check_output::print_report_to;

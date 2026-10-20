@@ -128,12 +128,15 @@ pub(crate) fn directive_edit_for_line(
     let query = snapshot.query();
     let source = query.document().contents();
     let path = query.file_path();
-    let edit = shuck_linter::build_ignore_edit_for_line(
+    let settings = snapshot.shuck_settings();
+    let edit = shuck_linter::build_ignore_edit_for_line_with_resolvers(
         source,
-        snapshot.shuck_settings().linter(),
+        settings.linter(),
         line,
         None,
         path.as_deref(),
+        settings.source_path_resolver(),
+        Some(settings.zsh_plugins()),
     )?;
     Some(to_lsp_text_edit(
         &edit,
@@ -166,6 +169,7 @@ pub(crate) fn collect_raw_diagnostics_for_analysis(
     .with_optional_source_path(analysis.path())
     .with_shellcheck_map(&shellcheck_map)
     .with_plugin_resolver(snapshot.shuck_settings().zsh_plugins())
+    .with_optional_source_path_resolver(snapshot.shuck_settings().source_path_resolver())
     .lint();
     let parse_error = analysis.parse_result().is_err().then(|| {
         let shuck_parser::Error::Parse {

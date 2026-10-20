@@ -159,7 +159,8 @@ pub use shuck_semantic::{
 pub use suppression::{
     AddIgnoreParseError, AddIgnoreResult, ShellCheckCodeMap, SuppressionAction,
     SuppressionDirective, SuppressionIndex, SuppressionSource, add_ignores_to_path,
-    add_ignores_to_path_with_resolvers, build_ignore_edit_for_line, parse_directives,
+    add_ignores_to_path_with_resolvers, build_ignore_edit_for_line,
+    build_ignore_edit_for_line_with_resolvers, parse_directives,
 };
 /// Trait implemented by rule-specific diagnostic payloads.
 pub use violation::Violation;

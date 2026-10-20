@@ -2393,6 +2393,112 @@ fn cross_file_call_hierarchy_honors_configured_source_paths() {
         .expect("server should exit cleanly");
 }
 
+/// Opens `scripts/main.sh` in a fresh server rooted at `workspace` and returns
+/// the codes of the pulled document diagnostics.
+fn pull_diagnostic_codes(workspace: &std::path::Path, uri: &Url, text: &str) -> Vec<String> {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": replay_capabilities(),
+            "rootUri": Url::from_file_path(workspace).unwrap(),
+        }),
+    );
+    let _ = recv_response(&client_connection, 1);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("initialized should send");
+    open_document(&client_connection, uri, text);
+
+    send_request(
+        &client_connection,
+        2,
+        "textDocument/diagnostic",
+        serde_json::to_value(DocumentDiagnosticParams {
+            text_document: TextDocumentIdentifier { uri: uri.clone() },
+            identifier: None,
+            previous_result_id: None,
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .expect("diagnostic params should serialize"),
+    );
+    let report: DocumentDiagnosticReportResult =
+        serde_json::from_value(recv_response(&client_connection, 2))
+            .expect("diagnostic response should deserialize");
+    let DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) = report
+    else {
+        panic!("expected a full diagnostic report");
+    };
+    let mut codes = report
+        .full_document_diagnostic_report
+        .items
+        .into_iter()
+        .map(|diagnostic| match diagnostic.code {
+            Some(lsp_types::NumberOrString::String(code)) => code,
+            other => panic!("expected a string diagnostic code, got {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    codes.sort();
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .expect("exit notification should send");
+    server_thread
+        .join()
+        .expect("server thread should join")
+        .expect("server should exit cleanly");
+    codes
+}
+
+#[test]
+fn document_diagnostics_resolve_source_directives_against_configured_source_paths() {
+    // lib/util.sh is reachable from scripts/main.sh only through the configured
+    // [lint] source-paths root, not relative to the annotating file. These are
+    // the same diagnostics `shuck check scripts/main.sh` reports.
+    let main = "#!/bin/bash\n# shuck: source=util.sh\nsource \"$X/util.sh\"\necho \"$greeting\"\n";
+    let write_workspace = |config: Option<&str>| {
+        let workspace = tempfile::tempdir().expect("tempdir should be created");
+        if let Some(config) = config {
+            std::fs::write(workspace.path().join("shuck.toml"), config).unwrap();
+        }
+        std::fs::create_dir(workspace.path().join("lib")).unwrap();
+        std::fs::create_dir(workspace.path().join("scripts")).unwrap();
+        std::fs::write(workspace.path().join("lib/util.sh"), "greeting=hi\n").unwrap();
+        std::fs::write(workspace.path().join("scripts/main.sh"), main).unwrap();
+        let uri = Url::from_file_path(workspace.path().join("scripts/main.sh")).unwrap();
+        (workspace, uri)
+    };
+
+    // Without the root the directive target is missing, so the source is
+    // untracked and `greeting` looks unassigned.
+    let (workspace, uri) = write_workspace(None);
+    assert_eq!(
+        pull_diagnostic_codes(workspace.path(), &uri, main),
+        vec!["C003".to_owned(), "C006".to_owned()]
+    );
+
+    let (workspace, uri) = write_workspace(Some("[lint]\nsource-paths = [\"lib\"]\n"));
+    assert_eq!(
+        pull_diagnostic_codes(workspace.path(), &uri, main),
+        Vec::<String>::new()
+    );
+}
+
 #[test]
 fn call_hierarchy_round_trips_same_named_definition_identity() {
     let (server_connection, client_connection) = Connection::memory();
