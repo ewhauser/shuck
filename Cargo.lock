@@ -1809,7 +1809,6 @@ dependencies = [
  "clearscreen",
  "colored",
  "etcetera",
- "globset",
  "insta",
  "notify",
  "predicates",
