@@ -15,7 +15,7 @@ pub(crate) struct HeredocStart<'line> {
 }
 
 pub(crate) fn heredoc_start(line: &str) -> Option<HeredocStart<'_>> {
-    let marker = line.find("<<")?;
+    let marker = heredoc_operator_offset(line)?;
     let after_marker = &line[marker + 2..];
     if after_marker.starts_with('<') {
         return None;
@@ -34,6 +34,45 @@ pub(crate) fn heredoc_start(line: &str) -> Option<HeredocStart<'_>> {
         strip_tabs,
         operator_end: marker + if strip_tabs { 3 } else { 2 },
     })
+}
+
+/// Finds the first `<<` that can start a heredoc, skipping single-quoted text
+/// and arithmetic, where `<<` is a shift (`$((1 << 2))`).
+fn heredoc_operator_offset(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    // One entry per open parenthesis; `true` marks an arithmetic `((`.
+    let mut parens: Vec<bool> = Vec::new();
+    let mut in_double_quotes = false;
+    let mut index = 0;
+    while index < bytes.len() {
+        let in_arithmetic = parens.last().copied().unwrap_or(false);
+        match bytes[index] {
+            b'\\' => index += 1,
+            b'"' => in_double_quotes = !in_double_quotes,
+            b'\'' if !in_double_quotes && !in_arithmetic => {
+                index = line[index + 1..]
+                    .find('\'')
+                    .map_or(bytes.len(), |close| index + 1 + close);
+            }
+            b'(' if bytes.get(index + 1) == Some(&b'(') => {
+                parens.extend([true, true]);
+                index += 1;
+            }
+            b'(' => parens.push(in_arithmetic),
+            b')' => {
+                parens.pop();
+            }
+            b'<' if bytes.get(index + 1) == Some(&b'<') => {
+                if !in_arithmetic {
+                    return Some(index);
+                }
+                index += 1;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
 }
 
 pub(crate) fn common_indent_prefix<'a>(left: &'a str, right: &str) -> &'a str {

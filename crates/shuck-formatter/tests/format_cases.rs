@@ -3000,3 +3000,34 @@ fn quoted_command_substitution_with_heredoc_keeps_string_tail_unindented() {
         "if a; then\n\tif b; then\n\t\techo \"$(\n\t\t\tcat <<EOS\nx ${what}.\nEOS\n\t\t)\n\" | tr -d \"\\\\\"\n\tfi\nfi\n",
     );
 }
+
+bash_unchanged_ast_cases! {
+    keeps_replacement_text_after_single_quoted_pattern:
+        "out=\"${out//'\\'/'\\\\'}\"\nout=${out//'$'/'\\$'}\n";
+    keeps_shift_operator_spacing_in_arithmetic_expansion:
+        "x=$((50 << 10))\necho \"$((1 << 2))\"\n";
+    keeps_inline_brace_group_in_quoted_command_substitution:
+        "num=\"$({ a; } 2>/dev/null)\"\n";
+    keeps_elif_body_inline_when_fi_shares_its_line:
+        "if a; then\n\tb\nelif c; then d; fi\n";
+    keeps_else_body_inline_when_fi_shares_its_last_line:
+        "if a; then\n\tb\nelse c=(x\n\ty); fi\n";
+}
+
+bash_format_ast_cases! {
+    preserves_comment_inside_multiline_conditional:
+        "if [[ -n $a &&\n  # why\n  -n $b ]]; then\n  echo hi\nfi\n"
+        => "if [[ -n $a &&\n\n\t-n $b ]]; then # why\n\techo hi\nfi\n";
+    adds_empty_replacement_when_quotes_hide_the_separator:
+        "x=\"${x//'/\\\\'}\"\n"
+        => "x=\"${x//'/\\\\'/}\"\n";
+    expands_then_body_when_else_starts_a_new_line:
+        "if a; then b\nelse c; fi\n"
+        => "if a; then\n\tb\nelse c; fi\n";
+    expands_then_body_when_fi_starts_a_new_line:
+        "if a; then b\nfi\n"
+        => "if a; then\n\tb\nfi\n";
+    indents_later_pipeline_breaks_after_broken_and_list:
+        "[ -d x ] &&\n  a |\n  b |\n  c\n"
+        => "[ -d x ] &&\n\ta |\n\tb |\n\t\tc\n";
+}

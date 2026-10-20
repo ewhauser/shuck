@@ -329,11 +329,27 @@ pub(super) fn raw_parameter_replacement_parts<'a>(
 }
 
 pub(super) fn split_raw_parameter_replacement(raw: &str) -> (&str, &str) {
+    match raw_parameter_replacement_separator(raw) {
+        Some(index) => (&raw[..index], &raw[index + '/'.len_utf8()..]),
+        None => (raw, ""),
+    }
+}
+
+/// Finds the `/` separating the pattern from the replacement in the text after
+/// a `${name/` or `${name//` operator. Quoted regions hide the separator, so in
+/// `${x//'/\\'}` the whole operand is the pattern and the replacement is empty.
+pub(super) fn raw_parameter_replacement_separator(raw: &str) -> Option<usize> {
     let mut escaped = false;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
     let mut parameter_depth = 0usize;
     let mut chars = raw.char_indices().peekable();
 
     while let Some((index, ch)) = chars.next() {
+        if in_single_quotes {
+            in_single_quotes = ch != '\'';
+            continue;
+        }
         if escaped {
             escaped = false;
             continue;
@@ -341,19 +357,19 @@ pub(super) fn split_raw_parameter_replacement(raw: &str) -> (&str, &str) {
 
         match ch {
             '\\' => escaped = true,
+            '\'' if !in_double_quotes => in_single_quotes = true,
+            '"' => in_double_quotes = !in_double_quotes,
             '$' if chars.peek().is_some_and(|(_, next)| *next == '{') => {
                 chars.next();
                 parameter_depth += 1;
             }
             '}' if parameter_depth > 0 => parameter_depth -= 1,
-            '/' if parameter_depth == 0 => {
-                return (&raw[..index], &raw[index + '/'.len_utf8()..]);
-            }
+            '/' if parameter_depth == 0 && !in_double_quotes => return Some(index),
             _ => {}
         }
     }
 
-    (raw, "")
+    None
 }
 
 pub(super) fn render_parameter_replacement_pattern(
