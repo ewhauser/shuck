@@ -94,4 +94,4 @@ jobs:
             echo "expected exactly one package tarball, found ${#tarballs[@]}" >&2
             exit 1
           fi
-          npm publish "${tarballs[0]}" --access public
+          npm publish "./${tarballs[0]}" --access public
