@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.7](https://github.com/ewhauser/shuck/compare/v0.2.6...v0.2.7) (2026-10-20)
+
+
+### Bug Fixes
+
+* **server:** honor lint.source-paths ([#1341](https://github.com/ewhauser/shuck/issues/1341)) ([4646189](https://github.com/ewhauser/shuck/commit/4646189b004b7d81746cc7aa3ffc491623208dc5))
+
+
+### Documentation
+
+* refresh AGENTS.md and README to match the workspace ([#1338](https://github.com/ewhauser/shuck/issues/1338)) ([f5e26ef](https://github.com/ewhauser/shuck/commit/f5e26ef80231d79f6a51bb9d9811b06fc016a614))
+
+
+### Refactor
+
+* **config:** share settings resolution across CLI, LSP, and WASM ([#1340](https://github.com/ewhauser/shuck/issues/1340)) ([f5449cf](https://github.com/ewhauser/shuck/commit/f5449cfbcfc17af7d17e48d1732ab14c667d3cd4))
+
 ## [0.2.6](https://github.com/ewhauser/shuck/compare/v0.2.5...v0.2.6) (2026-10-20)
 
 
