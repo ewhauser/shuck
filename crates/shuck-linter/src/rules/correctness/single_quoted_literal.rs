@@ -440,6 +440,10 @@ mod tests {
         assert_eq!(c005("awk -v value='$HOME' '{print value}' file\n"), 0);
         assert_eq!(c005("jq '$item.name' file\n"), 0);
         assert_eq!(c005("jq --arg name '$HOME' '$name' file\n"), 0);
+        assert_eq!(c005("jq -r --slurpfile r f '.$x' file\n"), 0);
+        assert_eq!(c005("jq -r --rawfile r f '.$x' file\n"), 0);
+        assert_eq!(c005("jq -r --argfile r f '.$x' file\n"), 0);
+        assert_eq!(c005("jq --slurpfile r '$HOME' '.'\n"), 1);
         assert_eq!(c005("bash -c 'echo $HOME'\n"), 0);
         assert_eq!(c005("bash '$HOME'\n"), 1);
         assert_eq!(c005("ssh host 'echo $HOME'\n"), 0);

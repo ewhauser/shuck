@@ -1872,7 +1872,8 @@ pub(crate) fn jq_literal_argument_index(args: &[Word], source: &str) -> Vec<usiz
                 break;
             }
             "-f" | "--from-file" => return result,
-            "-L" | "--slurpfile" | "--rawfile" => index += 2,
+            "-L" => index += 2,
+            "--slurpfile" | "--rawfile" | "--argfile" => index += 3,
             "--arg" | "--argjson" => {
                 if args.get(index + 2).is_some() {
                     result.push(index + 2);
