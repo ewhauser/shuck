@@ -1360,9 +1360,9 @@ pub(crate) fn single_quoted_literal_exempt_argument(
         _ if command_name.ends_with("awk") => {
             awk_literal_argument_index(body_args, source).contains(&relative_arg_index)
         }
-        _ if command_name.starts_with("perl") => {
-            perl_program_argument_index(body_args, source).contains(&relative_arg_index)
-        }
+        // Every argument to a Perl interpreter is Perl's to interpret, including the
+        // operands of `exec @ARGV`-style trampolines that hand a shell script along.
+        _ if command_name.starts_with("perl") => true,
         _ => false,
     }
 }
@@ -1890,23 +1890,6 @@ pub(crate) fn jq_literal_argument_index(args: &[Word], source: &str) -> Vec<usiz
         }
     }
     result
-}
-
-pub(crate) fn perl_program_argument_index(args: &[Word], source: &str) -> Vec<usize> {
-    args.windows(2)
-        .enumerate()
-        .filter_map(|(index, pair)| {
-            let flag = static_word_text(&pair[0], source)?;
-            perl_option_takes_program_argument(flag.as_ref()).then_some(index + 1)
-        })
-        .collect()
-}
-
-pub(crate) fn perl_option_takes_program_argument(option: &str) -> bool {
-    matches!(option, "-e" | "-E")
-        || (option.starts_with('-')
-            && !option.starts_with("--")
-            && option.chars().any(|character| matches!(character, 'e' | 'E')))
 }
 
 pub(crate) fn rename_program_argument_index(args: &[Word], source: &str) -> Option<usize> {

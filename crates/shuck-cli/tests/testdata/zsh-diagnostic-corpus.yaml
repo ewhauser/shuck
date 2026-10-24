@@ -10046,17 +10046,6 @@ repos:
           column: 19
         classification: real
       - path: "plugins/ufw/_ufw"
-        code: "C005"
-        severity: "warning"
-        message: "shell expansion inside single quotes stays literal"
-        start:
-          line: 9
-          column: 19
-        end:
-          line: 9
-          column: 69
-        classification: false_positive
-      - path: "plugins/ufw/_ufw"
         code: "C001"
         severity: "warning"
         message: "variable `ret` is assigned but never used"
