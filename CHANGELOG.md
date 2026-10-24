@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.8](https://github.com/ewhauser/shuck/compare/v0.2.7...v0.2.8) (2026-10-24)
+
+
+### Bug Fixes
+
+* **deps:** update dependency next to v16.4.1 [security] ([#1349](https://github.com/ewhauser/shuck/issues/1349)) ([9e109b8](https://github.com/ewhauser/shuck/commit/9e109b87bd9f0c7b248d0f144e979e27f2732b24))
+* **linter:** classify jq named file arguments before filters ([#1350](https://github.com/ewhauser/shuck/issues/1350)) ([e223915](https://github.com/ewhauser/shuck/commit/e2239153eba41b5665d6086f3935f5d26ee0e7d3))
+* **linter:** exempt every perl argument from C005 ([#1351](https://github.com/ewhauser/shuck/issues/1351)) ([01805cc](https://github.com/ewhauser/shuck/commit/01805cce104e76eb735be20aad217444737fb90c))
+
 ## [0.2.7](https://github.com/ewhauser/shuck/compare/v0.2.6...v0.2.7) (2026-10-20)
 
 
