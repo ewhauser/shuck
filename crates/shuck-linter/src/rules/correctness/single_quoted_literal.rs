@@ -511,6 +511,21 @@ mod tests {
     }
 
     #[test]
+    fn every_perl_argument_is_exempt() {
+        assert_eq!(
+            c005("#!/bin/bash\nperl -e 'exec @ARGV' /bin/bash -c 'echo $1'\n"),
+            0
+        );
+        assert_eq!(c005("#!/bin/bash\nperl script.pl 'echo $1'\n"), 0);
+        assert_eq!(c005("#!/bin/bash\nperl -pe 's/a/b/' 'file$x'\n"), 0);
+        assert_eq!(c005("#!/bin/bash\nperl5.30 -e 'x' 'echo $1'\n"), 0);
+        assert_eq!(c005("#!/bin/bash\ncommand perl -e 'x' 'echo $1'\n"), 0);
+        assert_eq!(c005("#!/bin/bash\nsudo perl -e 'x' 'echo $1'\n"), 0);
+        assert_eq!(c005("#!/bin/bash\nenv perl -e 'x' 'echo $1'\n"), 1);
+        assert_eq!(c005("#!/bin/bash\npython -c 'x' 'echo $1'\n"), 1);
+    }
+
+    #[test]
     fn zsh_delayed_eval_command_arguments_are_exempt() {
         assert_eq!(
             c005_zsh(
