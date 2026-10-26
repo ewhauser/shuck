@@ -441,3 +441,15 @@ fn test_heredoc_in_arithmetic_fuzz_crash() {
     // Must not panic.
     let _ = crate::parser::Parser::new(&script).parse();
 }
+
+#[test]
+fn test_heredoc_body_read_from_multiline_replay_keeps_offsets_monotonic() {
+    // Regression test: the first heredoc's tail scan treats `\'` as an open
+    // quote and replays the rest of the file, so the second heredoc's body is
+    // read out of that replay. Its tail used to be queued after the leftover
+    // replay text and to overwrite the pending resume offset, producing an
+    // error token whose span ended before it started.
+    let source = "<<d \\'<<EOF\nEOF\n\n[[ e = \"";
+    // Must not panic.
+    let _ = crate::parser::Parser::new(source).parse();
+}

@@ -93,14 +93,26 @@ impl<'a> Lexer<'a> {
         // redirects, command words, additional heredocs) stay visible to the
         // parser. Always replay a terminating newline so parsing stops before
         // tokens that originally lived on later source lines, like `}` or `do`.
+        //
+        // An earlier heredoc's tail can run past its own line (for example an
+        // unbalanced quote swallows the rest of the file), so this body may
+        // have been read out of that replay without draining it. The leftover
+        // replay text follows this body, so it belongs after this tail, and
+        // the pending resume offset still marks where the source cursor is.
         let post_heredoc_offset = self.offset;
         self.offset = rest_of_line_start.offset();
-        self.reinject_tail_is_plain = !rest_of_line.contains(['"', '\'', '\\', '#']);
+        let leftover_replay = std::mem::take(&mut self.reinject_buf);
+        self.reinject_tail_is_plain =
+            leftover_replay.is_empty() && !rest_of_line.contains(['"', '\'', '\\', '#']);
         for ch in rest_of_line.chars() {
             self.reinject_buf.push_back(ch);
         }
         self.reinject_buf.push_back('\n');
-        self.reinject_resume_offset = Some(post_heredoc_offset);
+        if leftover_replay.is_empty() {
+            self.reinject_resume_offset = Some(post_heredoc_offset);
+        } else {
+            self.reinject_buf.extend(leftover_replay);
+        }
 
         HeredocRead {
             content,
