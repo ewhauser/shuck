@@ -434,6 +434,9 @@ fn collect_directory(
         );
     }
 
+    // Limits keep the first files walked, so walk in a stable order rather
+    // than whatever order the filesystem returns directory entries in.
+    builder.sort_by_file_name(|left, right| left.cmp(right));
     for entry in builder.build() {
         if discovery_stopped(options, state.files.len(), state.visited_entries) {
             break;
@@ -1307,6 +1310,8 @@ mod tests {
     #[test]
     fn bounded_discovery_stops_after_the_file_limit() {
         let tempdir = tempdir().unwrap();
+        // Some filesystems list the newest entries first, so a walk that
+        // follows raw directory order would return the highest names here.
         for index in 0..20 {
             fs::write(
                 tempdir.path().join(format!("script-{index:02}.sh")),
@@ -1325,7 +1330,18 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(files.len(), 3);
+        let names = files
+            .iter()
+            .map(|file| file.display_path.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            names,
+            vec![
+                PathBuf::from("script-00.sh"),
+                PathBuf::from("script-01.sh"),
+                PathBuf::from("script-02.sh"),
+            ]
+        );
     }
 
     #[test]
