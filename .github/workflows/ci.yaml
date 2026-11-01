@@ -316,10 +316,14 @@ jobs:
               cp "$fixture" "$RUNNER_TEMP/macro-benchmark/fixtures/"
             fi
           done
+      - name: "Snapshot baseline shuck binary"
+        run: |
+          mkdir -p "$RUNNER_TEMP/macro-benchmark/bin"
+          cp "$RUNNER_TEMP/macro-benchmark/target/release/shuck" "$RUNNER_TEMP/macro-benchmark/bin/shuck"
       - name: "Pack benchmark baseline artifact"
         run: |
           mkdir -p "$RUNNER_TEMP/benchmark-baseline-artifact"
-          tar -C "$RUNNER_TEMP/macro-benchmark" -cf "$RUNNER_TEMP/benchmark-baseline-artifact/macro-cli-main-baseline.tar" baseline fixtures
+          tar -C "$RUNNER_TEMP/macro-benchmark" -cf "$RUNNER_TEMP/benchmark-baseline-artifact/macro-cli-main-baseline.tar" baseline fixtures bin
       - name: "Upload benchmark baseline artifact"
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
@@ -423,23 +427,31 @@ jobs:
       - name: "Extract main benchmark baseline artifact"
         id: extract-main-baseline
         if: ${{ !cancelled() && steps.download-main-baseline.outcome == 'success' }}
+        continue-on-error: true
         run: |
           tar -xf "$RUNNER_TEMP/benchmark-baseline-artifact/macro-cli-main-baseline.tar" -C "$RUNNER_TEMP/macro-benchmark"
+          # Artifacts uploaded before the binary was packed only carry timings
+          # from another runner; rebuild the PR base instead of comparing them.
+          if [ ! -x "$RUNNER_TEMP/macro-benchmark/bin/shuck" ]; then
+            echo "::notice::Main baseline artifact has no shuck binary; falling back to rebuilding the PR base."
+            exit 1
+          fi
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         if: ${{ !cancelled() && steps.extract-main-baseline.outcome != 'success' }}
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.base.sha }}
           path: base
-      - name: "Run fallback baseline benchmarks"
+      - name: "Build fallback baseline binary"
         id: benchmark-baseline-fallback
         if: ${{ !cancelled() && steps.extract-main-baseline.outcome != 'success' }}
         continue-on-error: true
         run: |
+          set -o pipefail
           benchmark_root="$RUNNER_TEMP/macro-benchmark"
           benchmark_report_dir="$RUNNER_TEMP/benchmark-report"
-          rm -rf "$benchmark_root/baseline" "$benchmark_root/fixtures"
-          mkdir -p "$benchmark_root/baseline" "$benchmark_root/fixtures" "$benchmark_report_dir"
+          rm -rf "${benchmark_root:?}/baseline" "${benchmark_root:?}/fixtures" "${benchmark_root:?}/bin"
+          mkdir -p "$benchmark_root/bin" "$benchmark_root/fixtures" "$benchmark_report_dir"
           for fixture in \
             "$GITHUB_WORKSPACE"/base/crates/shuck-benchmark/resources/files/*.sh \
             "$GITHUB_WORKSPACE"/base/crates/shuck-benchmark/resources/files/*.zsh; do
@@ -448,13 +460,11 @@ jobs:
             fi
           done
           export CARGO_TARGET_DIR="$benchmark_root/target"
-          export SHUCK_BENCHMARK_MODE=shuck-only
-          export SHUCK_BENCHMARK_OUTPUT_DIR="$benchmark_root/baseline"
-          export SHUCK_BENCHMARK_FIXTURES_DIR="$benchmark_root/fixtures"
           export SHUCK_BENCHMARK_REPO_ROOT="$GITHUB_WORKSPACE/base"
-          "$GITHUB_WORKSPACE/head/scripts/benchmarks/setup.sh" hyperfine
-          "$GITHUB_WORKSPACE/head/scripts/benchmarks/run.sh" \
+          "$GITHUB_WORKSPACE/head/scripts/benchmarks/setup.sh" hyperfine \
             2>&1 | tee "$benchmark_report_dir/base.log"
+          # The head build below reuses this target dir, so keep a copy.
+          cp "$CARGO_TARGET_DIR/release/shuck" "$benchmark_root/bin/shuck"
       - name: "Determine baseline metadata"
         id: baseline-metadata
         if: ${{ !cancelled() }}
@@ -464,12 +474,12 @@ jobs:
           FALLBACK_BASELINE_OUTCOME: ${{ steps.benchmark-baseline-fallback.outcome }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          baseline_source="rebuilt from PR base checkout"
+          baseline_source="binary rebuilt from the PR base checkout"
           baseline_sha="$PR_BASE_SHA"
           baseline_outcome="${FALLBACK_BASELINE_OUTCOME:-skipped}"
 
           if [ "${DOWNLOADED_BASELINE_OUTCOME:-skipped}" = "success" ]; then
-            baseline_source="downloaded from the latest successful main CI artifact"
+            baseline_source="binary from the latest successful main CI artifact"
             baseline_sha="${DOWNLOADED_BASELINE_SHA}"
             baseline_outcome="success"
           fi
@@ -482,18 +492,24 @@ jobs:
         if: ${{ !cancelled() && (steps.extract-main-baseline.outcome == 'success' || steps.benchmark-baseline-fallback.outcome == 'success') }}
         continue-on-error: true
         run: |
+          set -o pipefail
           benchmark_root="$RUNNER_TEMP/macro-benchmark"
           benchmark_report_dir="$RUNNER_TEMP/benchmark-report"
-          rm -rf "$benchmark_root/head"
-          mkdir -p "$benchmark_root/head" "$benchmark_report_dir"
+          rm -rf "$benchmark_root/paired"
+          mkdir -p "$benchmark_root/paired" "$benchmark_report_dir"
           export CARGO_TARGET_DIR="$benchmark_root/target"
-          export SHUCK_BENCHMARK_MODE=shuck-only
-          export SHUCK_BENCHMARK_OUTPUT_DIR="$benchmark_root/head"
-          export SHUCK_BENCHMARK_FIXTURES_DIR="$benchmark_root/fixtures"
           export SHUCK_BENCHMARK_REPO_ROOT="$GITHUB_WORKSPACE/head"
-          "$GITHUB_WORKSPACE/head/scripts/benchmarks/setup.sh" hyperfine
-          "$GITHUB_WORKSPACE/head/scripts/benchmarks/run.sh" \
+          "$GITHUB_WORKSPACE/head/scripts/benchmarks/setup.sh" hyperfine \
             2>&1 | tee "$benchmark_report_dir/head.log"
+          # Time both binaries on this runner, alternating which goes first
+          # each round, so runner-to-runner variance cancels out.
+          export SHUCK_BENCHMARK_BASE_BIN="$benchmark_root/bin/shuck"
+          export SHUCK_BENCHMARK_HEAD_BIN="$CARGO_TARGET_DIR/release/shuck"
+          export SHUCK_BENCHMARK_OUTPUT_DIR="$benchmark_root/paired"
+          export SHUCK_BENCHMARK_FIXTURES_DIR="$benchmark_root/fixtures"
+          export SHUCK_BENCHMARK_ROUNDS=3
+          "$GITHUB_WORKSPACE/head/scripts/benchmarks/run_paired.sh" \
+            2>&1 | tee "$benchmark_report_dir/paired.log"
       - name: "Build benchmark report"
         id: render-benchmark-report
         if: ${{ !cancelled() }}
@@ -507,8 +523,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           python3 scripts/benchmarks/macro_pr_report.py \
-            --baseline-dir "$RUNNER_TEMP/macro-benchmark/baseline" \
-            --head-dir "$RUNNER_TEMP/macro-benchmark/head" \
+            --paired-dir "$RUNNER_TEMP/macro-benchmark/paired" \
             --output "$RUNNER_TEMP/benchmark-report/comment.md" \
             --base-sha "$BASELINE_SHA" \
             --head-sha "$HEAD_SHA" \
@@ -525,8 +540,7 @@ jobs:
           if-no-files-found: ignore
           path: |
             ${{ runner.temp }}/benchmark-report
-            ${{ runner.temp }}/macro-benchmark/baseline
-            ${{ runner.temp }}/macro-benchmark/head
+            ${{ runner.temp }}/macro-benchmark/paired
       - name: "Post PR benchmark comment"
         if: ${{ !cancelled() && steps.render-benchmark-report.outcome == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0

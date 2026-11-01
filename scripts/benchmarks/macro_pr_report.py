@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import statistics
 from dataclasses import dataclass
 from pathlib import Path
 
 
 COMMENT_MARKER = "<!-- shuck-benchmark-report -->"
 REGRESSION_THRESHOLD = 5.0
+# A delta only counts as a regression when it also clears this many multiples
+# of the combined relative stddev of the two sides.
+NOISE_MULTIPLIER = 2.0
 
 
 @dataclass(frozen=True)
@@ -24,6 +29,12 @@ class MacroResult:
     @property
     def has_failures(self) -> bool:
         return any(code != 0 for code in self.exit_codes)
+
+    @property
+    def relative_stddev_pct(self) -> float:
+        if self.mean == 0.0:
+            return 0.0
+        return (self.stddev / self.mean) * 100.0
 
 
 @dataclass(frozen=True)
@@ -41,13 +52,31 @@ class BenchmarkRow:
             return 0.0
         return ((self.current.mean - self.baseline.mean) / self.baseline.mean) * 100.0
 
+    @property
+    def noise_pct(self) -> float:
+        """Combined relative stddev of both sides, in percent."""
+        return math.hypot(
+            self.baseline.relative_stddev_pct, self.current.relative_stddev_pct
+        )
+
+    @property
+    def is_regression(self) -> bool:
+        return (
+            self.delta_pct >= REGRESSION_THRESHOLD
+            and self.delta_pct > NOISE_MULTIPLIER * self.noise_pct
+        )
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate a Markdown benchmark report from macro CLI benchmark JSON exports."
     )
-    parser.add_argument("--baseline-dir", type=Path, required=True)
-    parser.add_argument("--head-dir", type=Path, required=True)
+    parser.add_argument(
+        "--paired-dir",
+        type=Path,
+        required=True,
+        help="Output directory of run_paired.sh (round-*/bench-*.json).",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--base-sha", required=True)
     parser.add_argument("--head-sha", required=True)
@@ -58,54 +87,74 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_macro_result(path: Path) -> MacroResult | None:
-    payload = json.loads(path.read_text())
-    results = payload.get("results", [])
-    if not results:
-        return None
-
-    case = path.stem.removeprefix("bench-")
-    shuck = next(
-        (
-            candidate
-            for candidate in results
-            if str(candidate.get("command", "")).startswith("shuck/")
-        ),
-        None,
-    )
-    if shuck is None and len(results) == 1:
-        shuck = results[0]
-    if shuck is None:
-        return None
-
+def summarize_samples(
+    case: str, times: list[float], exit_codes: list[int]
+) -> MacroResult:
     return MacroResult(
         case=case,
-        mean=float(shuck["mean"]),
-        stddev=float(shuck.get("stddev", 0.0)),
-        minimum=float(shuck.get("min", shuck["mean"])),
-        maximum=float(shuck.get("max", shuck["mean"])),
-        exit_codes=tuple(int(code) for code in shuck.get("exit_codes", [])),
+        mean=statistics.fmean(times),
+        stddev=statistics.stdev(times) if len(times) > 1 else 0.0,
+        minimum=min(times),
+        maximum=max(times),
+        exit_codes=tuple(exit_codes),
     )
 
 
-def collect_rows(baseline_dir: Path, head_dir: Path) -> list[BenchmarkRow]:
-    if not (baseline_dir.exists() and head_dir.exists()):
+def command_samples(result: dict) -> list[float]:
+    times = result.get("times")
+    if times:
+        return [float(sample) for sample in times]
+    return [float(result["mean"])]
+
+
+def load_paired_round(path: Path) -> dict[str, dict]:
+    """Return the hyperfine results in one round file keyed by side (base/head)."""
+    payload = json.loads(path.read_text())
+    sides: dict[str, dict] = {}
+    for result in payload.get("results", []):
+        side, _, _ = str(result.get("command", "")).partition("/")
+        if side in ("base", "head"):
+            sides[side] = result
+    return sides
+
+
+def round_dirs(paired_dir: Path) -> list[Path]:
+    if not paired_dir.exists():
         return []
+    return sorted(path for path in paired_dir.glob("round-*") if path.is_dir())
 
-    baseline_paths = {path.name: path for path in baseline_dir.glob("bench-*.json")}
-    head_paths = {path.name: path for path in head_dir.glob("bench-*.json")}
-    shared_names = sorted(
-        baseline_paths.keys() & head_paths.keys(),
-        key=lambda name: (name != "bench-all.json", name),
-    )
 
+def collect_rows(paired_dir: Path) -> list[BenchmarkRow]:
+    """Pool every round's samples per case and side into one row per case."""
+    samples: dict[str, dict[str, list[float]]] = {}
+    exit_codes: dict[str, dict[str, list[int]]] = {}
+    for round_dir in round_dirs(paired_dir):
+        for path in round_dir.glob("bench-*.json"):
+            case = path.stem.removeprefix("bench-")
+            for side, result in load_paired_round(path).items():
+                samples.setdefault(case, {}).setdefault(side, []).extend(
+                    command_samples(result)
+                )
+                exit_codes.setdefault(case, {}).setdefault(side, []).extend(
+                    int(code) for code in result.get("exit_codes", [])
+                )
+
+    cases = sorted(samples, key=lambda case: (case != "all", case))
     rows: list[BenchmarkRow] = []
-    for name in shared_names:
-        baseline = load_macro_result(baseline_paths[name])
-        current = load_macro_result(head_paths[name])
-        if baseline is None or current is None:
+    for case in cases:
+        sides = samples[case]
+        if not (sides.get("base") and sides.get("head")):
             continue
-        rows.append(BenchmarkRow(baseline=baseline, current=current))
+        rows.append(
+            BenchmarkRow(
+                baseline=summarize_samples(
+                    case, sides["base"], exit_codes[case].get("base", [])
+                ),
+                current=summarize_samples(
+                    case, sides["head"], exit_codes[case].get("head", [])
+                ),
+            )
+        )
     return rows
 
 
@@ -148,7 +197,9 @@ def render_table(rows: list[BenchmarkRow]) -> list[str]:
     return lines
 
 
-def render_report(args: argparse.Namespace, rows: list[BenchmarkRow]) -> str:
+def render_report(
+    args: argparse.Namespace, rows: list[BenchmarkRow], rounds: int
+) -> str:
     base_short = args.base_sha[:7]
     head_short = args.head_sha[:7]
 
@@ -165,7 +216,7 @@ def render_report(args: argparse.Namespace, rows: list[BenchmarkRow]) -> str:
         [row for row in rows if row.delta_pct < 0.0],
         key=lambda row: row.delta_pct,
     )[:5]
-    flagged = [row for row in aggregate if row.delta_pct >= REGRESSION_THRESHOLD]
+    flagged = [row for row in aggregate if row.is_regression]
     failed_rows = [row for row in rows if row.baseline.has_failures or row.current.has_failures]
 
     lines = [
@@ -176,6 +227,9 @@ def render_report(args: argparse.Namespace, rows: list[BenchmarkRow]) -> str:
         "",
         "Positive deltas mean slower `shuck check --no-cache` runs.",
         "",
+        "- Both binaries were timed on the same runner in "
+        f"{rounds} alternating round{'s' if rounds != 1 else ''}, "
+        "so differences between CI machines do not show up as deltas.",
         f"- Baseline source: {args.baseline_source}",
         f"- Baseline preparation: `{args.baseline_outcome}`",
         f"- Comparison run: `{args.compare_outcome}`",
@@ -197,9 +251,15 @@ def render_report(args: argparse.Namespace, rows: list[BenchmarkRow]) -> str:
     lines.extend(
         [
             "",
-            f"Flagged aggregate regressions over +{REGRESSION_THRESHOLD:.1f}%: {len(flagged)}",
+            f"- Flagged aggregate regressions over +{REGRESSION_THRESHOLD:.1f}% "
+            f"and {NOISE_MULTIPLIER:g}x noise: {len(flagged)}",
         ]
     )
+    for row in aggregate:
+        lines.append(
+            f"- Noise for `{row.case}`: +/-{row.noise_pct:.2f}% "
+            "(combined relative stddev of both sides)"
+        )
 
     if len(rows) > len(aggregate):
         lines.extend(["", "<details>", "<summary>Per-fixture macro deltas</summary>", ""])
@@ -243,8 +303,8 @@ def render_report(args: argparse.Namespace, rows: list[BenchmarkRow]) -> str:
 
 def main() -> int:
     args = parse_args()
-    rows = collect_rows(args.baseline_dir, args.head_dir)
-    report = render_report(args, rows)
+    rows = collect_rows(args.paired_dir)
+    report = render_report(args, rows, len(round_dirs(args.paired_dir)))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(report)
     return 0
