@@ -797,9 +797,9 @@ fn mask_non_code_text(state: &mut ShellMultilineState, line: &str) -> String {
         }
     }
 
-    // SAFETY: every byte copied from `line` is either left unchanged from valid UTF-8
-    // or replaced with ASCII `x`, so the masked buffer remains valid UTF-8.
-    unsafe { String::from_utf8_unchecked(masked) }
+    // Masked spans start and end on ASCII delimiters, so they never split a
+    // multi-byte character and the buffer stays valid UTF-8.
+    String::from_utf8(masked).expect("masking preserves UTF-8 boundaries")
 }
 
 fn mask_span(masked: &mut [u8], start: usize, end: usize) {
