@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.8](https://github.com/ewhauser/shuck/compare/v0.2.7...v0.2.8) (2026-11-01)
+
+
+### Bug Fixes
+
+* **deps:** update dependency next to v16.4.1 [security] ([#1349](https://github.com/ewhauser/shuck/issues/1349)) ([9e109b8](https://github.com/ewhauser/shuck/commit/9e109b87bd9f0c7b248d0f144e979e27f2732b24))
+* **discover:** walk in a stable order when limits apply ([#1355](https://github.com/ewhauser/shuck/issues/1355)) ([b34f8e2](https://github.com/ewhauser/shuck/commit/b34f8e2fb0a4b17ecb2e7c0bda50083a93b42c2c))
+* **linter:** classify jq named file arguments before filters ([#1350](https://github.com/ewhauser/shuck/issues/1350)) ([e223915](https://github.com/ewhauser/shuck/commit/e2239153eba41b5665d6086f3935f5d26ee0e7d3))
+* **linter:** exempt every perl argument from C005 ([#1351](https://github.com/ewhauser/shuck/issues/1351)) ([01805cc](https://github.com/ewhauser/shuck/commit/01805cce104e76eb735be20aad217444737fb90c))
+* **parser:** keep heredoc replay ordered when a body is read from replayed text ([#1354](https://github.com/ewhauser/shuck/issues/1354)) ([8510179](https://github.com/ewhauser/shuck/commit/8510179f188c82d339bf662e46a8284ee886d7b0)), closes [#1353](https://github.com/ewhauser/shuck/issues/1353)
+
+
+### Refactor
+
+* **linter:** drop unchecked UTF-8 conversion in parse diagnostics ([#1356](https://github.com/ewhauser/shuck/issues/1356)) ([ee1e9b6](https://github.com/ewhauser/shuck/commit/ee1e9b658e18606f9d820ea69e61f0025acab8f9))
+
 ## [0.2.7](https://github.com/ewhauser/shuck/compare/v0.2.6...v0.2.7) (2026-10-20)
 
 
