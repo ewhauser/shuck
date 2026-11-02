@@ -1911,6 +1911,56 @@ fn format_stdin_round_trips_valid_input() {
 }
 
 #[test]
+#[cfg(unix)]
+fn format_quoted_parameter_default_preserves_execution_and_is_idempotent() {
+    let source = "value=${1:-\"$(\n  printf '%s' '\"'\n)\"}\nprintf '<%s>\\n' \"$value\"\n";
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.args([
+        "format",
+        "--isolated",
+        "--no-cache",
+        "--stdin-filename",
+        "default.bash",
+        "-",
+    ])
+    .write_stdin(source);
+    let output = cmd.assert().success().get_output().clone();
+    assert!(output.stderr.is_empty());
+    let formatted = String::from_utf8(output.stdout).unwrap();
+
+    for (args, expected) in [
+        (vec![], "<\">\n"),
+        (vec![""], "<\">\n"),
+        (vec!["provided"], "<provided>\n"),
+    ] {
+        for script in [source, formatted.as_str()] {
+            let execution = ProcessCommand::new("bash")
+                .args(["--noprofile", "--norc", "-c", script, "default.bash"])
+                .args(&args)
+                .env_remove("BASH_ENV")
+                .output()
+                .unwrap();
+            assert!(execution.status.success());
+            assert!(execution.stderr.is_empty());
+            assert_eq!(execution.stdout, expected.as_bytes());
+        }
+    }
+
+    let mut second = Command::cargo_bin("shuck").unwrap();
+    second
+        .args([
+            "format",
+            "--isolated",
+            "--no-cache",
+            "--stdin-filename",
+            "default.bash",
+            "-",
+        ])
+        .write_stdin(formatted.clone());
+    second.assert().success().stdout(formatted).stderr("");
+}
+
+#[test]
 fn format_stdin_filename_reports_parse_errors() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     cmd.args(["format", "--stdin-filename", "foo.sh"])

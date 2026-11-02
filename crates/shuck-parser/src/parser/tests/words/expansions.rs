@@ -1397,6 +1397,33 @@ fn test_parameter_default_operand_keeps_nested_command_substitution_spans() {
 }
 
 #[test]
+fn test_quoted_parameter_operand_isolates_command_substitution_quotes() {
+    for body in [
+        "printf '%s' '\"'",
+        "\n  printf '%s' '\"'\n",
+        "\n  printf '%s' '}\"'\n",
+        "\n  printf '%s' \"$(printf '%s' '\"')\"\n",
+    ] {
+        let expected = format!("\"$({body})\"");
+        let input = format!("value=${{1:-{expected}}}suffix\n");
+        let script = Parser::new(&input).parse().unwrap().file;
+        let command = expect_simple(&script.body[0]);
+        let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+            panic!("expected scalar assignment");
+        };
+        let (_, _, operand) = expect_parameter_operation_part(&word.parts[0].kind);
+        let operand = operand.expect("expected operand");
+        assert!(operand.is_source_backed());
+        assert_eq!(operand.slice(&input), expected);
+        assert_eq!(
+            word.parts[0].span.slice(&input),
+            format!("${{1:-{expected}}}")
+        );
+        assert_eq!(word.parts[1].span.slice(&input), "suffix");
+    }
+}
+
+#[test]
 fn test_parameter_quoted_default_operand_keeps_nested_command_substitution_spans() {
     let input = "NUMJOBS=${NUMJOBS:-\" -j $(expr $(nproc) + 1) \"}\n";
     let script = Parser::new(input).parse().unwrap().file;
