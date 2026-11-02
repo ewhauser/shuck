@@ -58,6 +58,22 @@ fn assert_default_idempotent(source: &str, filename: &str) {
     );
 }
 
+#[test]
+fn quoted_parameter_default_with_command_quotes_keeps_its_closing_brace() {
+    let options = ShellFormatOptions::default();
+    let path = Some(Path::new("default.bash"));
+    for operand in [
+        "\"$(\n  printf '%s' '\"'\n)\"",
+        "\"$(printf '%s' '\"')\"",
+        "$(\n  printf '%s' '\"'\n)",
+        "\"$(\n  printf '%s' '}\"'\n)\"",
+    ] {
+        let source = format!("value=${{1:-{operand}}}\n");
+        assert_unchanged_with_ast(&source, path, &options);
+        assert_idempotent(&source, path, &options);
+    }
+}
+
 #[track_caller]
 fn assert_formats_to(
     source: &str,
