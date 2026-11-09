@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.9](https://github.com/ewhauser/shuck/compare/v0.2.8...v0.2.9) (2026-11-09)
+
+
+### Bug Fixes
+
+* **parser:** isolate command substitution quotes in parameter operands ([#1361](https://github.com/ewhauser/shuck/issues/1361)) ([5312be6](https://github.com/ewhauser/shuck/commit/5312be6528432a3c395dae3c72ae2d71dd540e4b))
+
 ## [0.2.8](https://github.com/ewhauser/shuck/compare/v0.2.7...v0.2.8) (2026-11-01)
 
 
