@@ -934,6 +934,23 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
+            // A command substitution has its own quote context. Its contents
+            // must not change the surrounding parameter operand's quote state.
+            if use_source
+                && c == '$'
+                && !in_single
+                && let Some(end) =
+                    Self::scan_raw_dollar_paren_substitution_end(self.input, cursor.offset())
+            {
+                while cursor.offset() < end && chars.peek().is_some() {
+                    let ch = Self::next_word_char_unwrap(chars, cursor);
+                    if let Some(operand) = operand.as_mut() {
+                        operand.push(ch);
+                    }
+                }
+                continue;
+            }
+
             match c {
                 '\\' if !in_single => {
                     escaped = true;
