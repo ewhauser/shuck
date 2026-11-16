@@ -47,6 +47,24 @@ fn env_activation_uses_shellcheck_surface() {
         .stdout(predicate::str::contains("engine: shuck"));
 }
 
+#[test]
+fn compat_accepts_ansi_c_escaped_backslashes() {
+    let directory = tempdir().unwrap();
+    fs::write(
+        directory.path().join("quote.bash"),
+        "#!/bin/bash\nsep=$'\\\\'\nprintf '%s\\n' \"$sep\"\n",
+    )
+    .unwrap();
+
+    compat_cmd()
+        .current_dir(directory.path())
+        .args(["-f", "gcc", "quote.bash"])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+}
+
 #[cfg(unix)]
 #[test]
 fn argv0_basename_shellcheck_activates_compat_mode() {
