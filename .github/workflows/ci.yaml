@@ -61,6 +61,8 @@ jobs:
           package-manager-cache: false
       - name: "Check release workflow security hardening"
         run: python3 scripts/check-release-security.py check
+      - name: "Test release workflow security hardening"
+        run: python3 scripts/test_check_release_security.py
       - name: "Test npm publish tarball selection"
         run: python3 scripts/test_npm_publish_workflow.py
       - name: "Check release-please crate version coverage"

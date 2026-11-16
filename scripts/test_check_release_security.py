@@ -5,6 +5,11 @@ from __future__ import annotations
 import sys
 import unittest
 import importlib.util
+import hashlib
+import shutil
+import subprocess
+import tempfile
+import textwrap
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +27,109 @@ fix = MODULE.fix
 TESTDATA = REPO_ROOT / "scripts" / "testdata"
 RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
 CARGO_TOML = REPO_ROOT / "Cargo.toml"
+
+
+class DistInstallerExecutionTests(unittest.TestCase):
+    """Execute the generated Bash with local downloads and a short-option-only shim.
+
+    The shim models the macOS option incompatibility; it is not a macOS build.
+    Real host checksum utilities still perform the hashing and verification.
+    """
+
+    def run_installer(
+        self, mode, checksum="valid", corrupt=False, hash_failure=False, hash_output=None
+    ):
+        payload = 'printf installed > "$INSTALL_MARKER"\n'
+        digest = hashlib.sha256(payload.encode()).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            for command in ("mktemp", "sh"):
+                (bin_dir / command).symlink_to(shutil.which(command))
+            curl = bin_dir / "curl"
+            curl.write_text(
+                f"#!{sys.executable}\n"
+                "import os, pathlib, sys\n"
+                "pathlib.Path(sys.argv[-1]).write_text(os.environ['INSTALL_PAYLOAD'])\n"
+            )
+            curl.chmod(0o755)
+            commands = ("shasum",) if mode == "shasum" else ("sha256sum", "shasum")
+            if mode == "none":
+                commands = ()
+            for command in commands:
+                executable = shutil.which(command)
+                self.assertIsNotNone(executable, f"{command} required for this test")
+                shim = bin_dir / command
+                shim.write_text(
+                    f"#!{sys.executable}\n"
+                    "import os, sys\n"
+                    "with open(os.environ['HASH_LOG'], 'a') as log:\n"
+                    f"    log.write({command!r} + '\\n')\n"
+                    f"if {hash_failure!r}:\n"
+                    "    sys.exit(1)\n"
+                    f"if {hash_output is not None!r}:\n"
+                    f"    print({hash_output!r})\n"
+                    "    sys.exit(0)\n"
+                    f"if {mode == 'short-only' and command == 'sha256sum'!r} and any(arg.startswith('--') for arg in sys.argv[1:]):\n"
+                    "    sys.stderr.write('usage: sha256sum [-bctwz] [files ...]\\n')\n"
+                    "    sys.exit(1)\n"
+                    f"os.execv({executable!r}, [{command!r}] + sys.argv[1:])\n"
+                )
+                shim.chmod(0o755)
+            env = {
+                "PATH": str(bin_dir),
+                "TMPDIR": directory,
+                "DIST_VERSION": MODULE.DIST_VERSION,
+                "INSTALL_PAYLOAD": payload + ("# corrupted\n" if corrupt else ""),
+                "INSTALL_MARKER": str(root / "installed"),
+                "HASH_LOG": str(root / "hash.log"),
+            }
+            if checksum is not None:
+                env["DIST_INSTALLER_SHA256"] = checksum.replace("valid", digest)
+            lines = MODULE.verified_dist_install_lines(0)
+            script = textwrap.dedent("\n".join(lines[lines.index("run: |") + 1:]))
+            result = subprocess.run(
+                [shutil.which("bash"), "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+                env=env, capture_output=True, text=True,
+            )
+            log = root / "hash.log"
+            commands = log.read_text().splitlines() if log.exists() else []
+            return result, (root / "installed").exists(), commands
+
+    def test_valid_installer_and_command_selection(self):
+        for mode in ("gnu", "short-only", "shasum"):
+            with self.subTest(mode=mode):
+                result, installed, commands = self.run_installer(mode)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(installed)
+                self.assertEqual(commands, ["shasum" if mode == "shasum" else "sha256sum"])
+
+    def test_verification_fails_closed(self):
+        for mode in ("gnu", "short-only", "shasum"):
+            for options in (
+                {"corrupt": True},
+                {"checksum": ""},
+                {"checksum": None},
+                {"checksum": "not-a-digest"},
+                {"checksum": "a" * 63},
+                {"checksum": "a" * 65},
+                {"checksum": "valid\nmalformed"},
+                {"hash_failure": True},
+                {"hash_output": ""},
+                {"hash_output": "not-a-digest"},
+                {"checksum": "", "hash_output": ""},
+            ):
+                with self.subTest(mode=mode, options=options):
+                    result, installed, _ = self.run_installer(mode, **options)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(installed)
+
+    def test_missing_checksum_commands_fail_closed(self):
+        result, installed, commands = self.run_installer("none")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(installed)
+        self.assertEqual(commands, [])
 
 
 SAMPLE_WORKFLOW = """\
@@ -155,6 +263,22 @@ class CheckReleaseSecurityTests(unittest.TestCase):
         self.assertEqual(
             check(RELEASE_WORKFLOW.read_text(), CARGO_TOML.read_text()), []
         )
+
+    def test_installer_verification_cannot_regress_after_regeneration(self) -> None:
+        for workflow in (
+            RELEASE_WORKFLOW.read_text(),
+            fix((TESTDATA / "cargo-dist-release.yml").read_text()),
+        ):
+            expected = "\n".join(MODULE.verified_dist_install_lines(8))
+            self.assertEqual(workflow.count(expected), 2)
+            for broken in (
+                workflow.replace('installer_sha256="$(sha256sum "$installer")"',
+                                 'echo "${DIST_INSTALLER_SHA256}  ${installer}" | sha256sum --check --strict'),
+                workflow.replace('"${installer_sha256%% *}" != "$DIST_INSTALLER_SHA256"', 'false'),
+                workflow.replace("            exit 1\n", "            :\n"),
+            ):
+                self.assertTrue(any("does not verify the pinned installer checksum" in issue
+                                    for issue in check(broken)))
 
     def test_release_publishing_must_undraft_release_please_draft(self) -> None:
         workflow = RELEASE_WORKFLOW.read_text()
