@@ -946,62 +946,35 @@ impl<'a> Parser<'a> {
                 // Process substitution <(cmd) or >(cmd)
                 let is_input = self.at(TokenKind::ProcessSubIn);
                 let process_span = self.current_span;
+                // Use the existing grammar-aware scanner: a case pattern's `)`
+                // does not close the process substitution. This borrowed scan is
+                // needed before token consumption so the nested parse receives
+                // the complete body, including unparenthesized case patterns.
+                let body_start = process_span.end.offset();
+                let consumed = lexer::scan_command_substitution_body_len(&self.input[body_start..])
+                    .ok_or_else(|| self.error("unexpected end of input in process substitution"))?;
+                let close_offset = body_start + consumed - 1;
                 self.advance();
-
-                // Walk tokens until the matching closing paren, then reparse the original
-                // source slice so nested command spans remain absolute.
-                let mut depth = 1;
-                let close_span = loop {
-                    match self.current_token_kind {
-                        Some(
-                            TokenKind::LeftParen
-                            | TokenKind::DoubleLeftParen
-                            | TokenKind::ProcessSubIn
-                            | TokenKind::ProcessSubOut,
-                        ) => {
-                            depth += match self.current_token_kind {
-                                Some(TokenKind::DoubleLeftParen) => 2,
-                                _ => 1,
-                            };
-                            self.advance();
-                        }
-                        Some(TokenKind::RightParen) => {
-                            depth -= 1;
-                            if depth == 0 {
-                                let close_span = self.current_span;
-                                self.advance();
-                                break close_span;
-                            }
-                            self.advance();
-                        }
-                        Some(TokenKind::DoubleRightParen) => {
-                            if depth == 1 {
-                                self.split_current_double_right_paren();
-                                continue;
-                            }
-
-                            let (_, second_span) =
-                                Self::split_double_right_paren(self.current_span);
-                            match depth {
-                                0 => unreachable!("process substitution depth cannot underflow"),
-                                2 => {
-                                    self.advance();
-                                    break second_span;
-                                }
-                                _ => {
-                                    depth -= 2;
-                                    self.advance();
-                                }
-                            }
-                        }
-                        None => {
-                            return Err(Error::parse(
-                                "unexpected end of input in process substitution".to_string(),
-                            ));
-                        }
-                        _ => self.advance(),
+                while self.current_token_kind.is_some()
+                    && self.current_span.start.offset() < close_offset
+                {
+                    if self.at(TokenKind::DoubleRightParen)
+                        && self.current_span.end.offset() > close_offset
+                    {
+                        self.split_current_double_right_paren();
                     }
-                };
+                    self.advance();
+                }
+                if self.at(TokenKind::DoubleRightParen) {
+                    self.split_current_double_right_paren();
+                }
+                if !self.at(TokenKind::RightParen)
+                    || self.current_span.start.offset() != close_offset
+                {
+                    return Err(self.error("expected ')' to close process substitution"));
+                }
+                let close_span = self.current_span;
+                self.advance();
 
                 let inner_start = process_span.end;
                 let body = self.nested_stmt_seq_from_current_input(inner_start, close_span.start);

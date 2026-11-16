@@ -124,6 +124,25 @@ done
     }
 
     #[test]
+    fn ignores_case_continue_in_process_substitution_loop() {
+        let source = r#"#!/bin/bash
+while read -r name; do
+  echo "$name"
+done < <(
+  for dir in /tmp/*; do
+    name="$(basename "$dir")"
+    case "$name" in skip) continue ;; esac
+    echo "$name"
+  done
+)
+"#;
+        for rule in [Rule::LoopControlOutsideLoop, Rule::StrayClosingKeyword] {
+            let diagnostics = test_snippet(source, &LinterSettings::for_rule(rule));
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        }
+    }
+
+    #[test]
     fn ignores_loop_control_inside_function_loop_brace_group() {
         let source = "\
 #!/bin/bash
