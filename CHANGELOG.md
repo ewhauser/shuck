@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.10](https://github.com/ewhauser/shuck/compare/v0.2.9...v0.2.10) (2026-11-16)
+
+
+### Bug Fixes
+
+* **release:** use supported macOS runner for Apple Silicon ([#1376](https://github.com/ewhauser/shuck/issues/1376)) ([4eeda5f](https://github.com/ewhauser/shuck/commit/4eeda5fa0c687249a30b5cf41762b8901b758b90))
+
 ## [0.2.9](https://github.com/ewhauser/shuck/compare/v0.2.8...v0.2.9) (2026-11-09)
 
 
