@@ -1,6 +1,34 @@
 use super::*;
 
 #[test]
+fn process_substitution_keeps_unparenthesized_case_patterns_inside_loops() {
+    for direction in ["<", ">"] {
+        let input = format!(
+            "cat {direction}(\nfor entry in one two; do\ncase \"$entry\" in one) continue ;; *) printf '%s\\n' \"$entry\" ;; esac\ndone\n)\nprintf done\n"
+        );
+        let output = Parser::with_dialect(&input, ShellDialect::Bash).parse();
+        assert!(output.diagnostics.is_empty(), "{:#?}", output.diagnostics);
+        let file = output.unwrap().file;
+        assert_eq!(file.body.len(), 2);
+        let command = expect_simple(&file.body[0]);
+        let WordPart::ProcessSubstitution { body, is_input } = &command.args[0].parts[0].kind
+        else {
+            panic!("expected process substitution");
+        };
+        assert_eq!(*is_input, direction == "<");
+        assert_eq!(body.len(), 1);
+        assert!(matches!(
+            body[0].command,
+            AstCommand::Compound(CompoundCommand::For(_))
+        ));
+        assert_eq!(
+            command.args[0].span.slice(&input),
+            &input[4..input.rfind("\nprintf done").unwrap()]
+        );
+    }
+}
+
+#[test]
 fn test_parse_return_preserves_assignments_and_redirects() {
     let input = "FOO=bar return 42 > out.txt";
     let parser = Parser::new(input);
