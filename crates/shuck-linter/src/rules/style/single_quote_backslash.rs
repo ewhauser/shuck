@@ -27,6 +27,7 @@ pub fn single_quote_backslash(checker: &mut Checker) {
         .words()
         .single_quoted_fragments()
         .iter()
+        .filter(|fragment| !fragment.dollar_quoted())
         .filter_map(|fragment| single_quoted_fragment_backslash_span(fragment.span(), source))
         .map(|span| {
             Diagnostic::new(SingleQuoteBackslash, span).with_fix(Fix::safe_edit(
@@ -90,6 +91,23 @@ printf '%s\\n' \"${dest_dir//\\'/\\'\\\\\\'\\'}\"
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn preserves_escaped_backslashes_in_ansi_c_quotes() {
+        let source = r#"#!/bin/bash
+sep=$'\\'
+printf '%s\n' "$sep" $'path\\' "${sep:-$'\\'}"
+"#;
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SingleQuoteBackslash),
+            Applicability::Safe,
+        );
+
+        assert!(result.diagnostics.is_empty());
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
     }
 
     #[test]
