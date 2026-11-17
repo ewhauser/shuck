@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.11](https://github.com/ewhauser/shuck/compare/v0.2.10...v0.2.11) (2026-11-17)
+
+
+### Bug Fixes
+
+* **deps:** update dependency next to v16.4.5 [security] ([#1382](https://github.com/ewhauser/shuck/issues/1382)) ([14d216e](https://github.com/ewhauser/shuck/commit/14d216e39e5fe6d643ca364418fe4003aee54889))
+* **linter:** preserve escaped backslashes in ANSI-C quotes ([#1380](https://github.com/ewhauser/shuck/issues/1380)) ([6c40a4d](https://github.com/ewhauser/shuck/commit/6c40a4d508465d1d22d948e9dbbfbdd7664681cf))
+* **parser:** preserve case patterns in process substitutions ([#1381](https://github.com/ewhauser/shuck/issues/1381)) ([76aaf2e](https://github.com/ewhauser/shuck/commit/76aaf2e5dd7cc063f171bc739992d86756b37275))
+* **release:** verify dist installer with portable checksum commands ([#1379](https://github.com/ewhauser/shuck/issues/1379)) ([9af2bb6](https://github.com/ewhauser/shuck/commit/9af2bb6957c849362489d103a9d2c9ca2c7fdfe3))
+
 ## [0.2.10](https://github.com/ewhauser/shuck/compare/v0.2.9...v0.2.10) (2026-11-16)
 
 
