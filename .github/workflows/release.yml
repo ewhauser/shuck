@@ -72,9 +72,13 @@ jobs:
           installer="$(mktemp -d)/cargo-dist-installer.sh"
           curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/${DIST_VERSION}/cargo-dist-installer.sh" --output "$installer"
           if command -v sha256sum >/dev/null 2>&1; then
-            echo "${DIST_INSTALLER_SHA256}  ${installer}" | sha256sum --check --strict
+            installer_sha256="$(sha256sum "$installer")"
           else
-            echo "${DIST_INSTALLER_SHA256}  ${installer}" | shasum -a 256 --check
+            installer_sha256="$(shasum -a 256 "$installer")"
+          fi
+          if [[ ! "$DIST_INSTALLER_SHA256" =~ ^[0-9a-f]{64}$ || "${installer_sha256%% *}" != "$DIST_INSTALLER_SHA256" ]]; then
+            echo "cargo-dist installer checksum verification failed" >&2
+            exit 1
           fi
           sh "$installer"
       - name: Cache dist
@@ -154,9 +158,13 @@ jobs:
           installer="$(mktemp -d)/cargo-dist-installer.sh"
           curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/${DIST_VERSION}/cargo-dist-installer.sh" --output "$installer"
           if command -v sha256sum >/dev/null 2>&1; then
-            echo "${DIST_INSTALLER_SHA256}  ${installer}" | sha256sum --check --strict
+            installer_sha256="$(sha256sum "$installer")"
           else
-            echo "${DIST_INSTALLER_SHA256}  ${installer}" | shasum -a 256 --check
+            installer_sha256="$(shasum -a 256 "$installer")"
+          fi
+          if [[ ! "$DIST_INSTALLER_SHA256" =~ ^[0-9a-f]{64}$ || "${installer_sha256%% *}" != "$DIST_INSTALLER_SHA256" ]]; then
+            echo "cargo-dist installer checksum verification failed" >&2
+            exit 1
           fi
           sh "$installer"
       # Get the dist-manifest

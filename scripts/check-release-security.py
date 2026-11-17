@@ -300,11 +300,8 @@ def check(content, cargo_toml=None):
         issues.append("dist installer is piped to a shell without checksum verification")
     for start, end in install_dist_steps(lines):
         step = "\n".join(lines[start:end])
-        if (
-            f"DIST_INSTALLER_SHA256: {DIST_INSTALLER_SHA256}" not in step
-            or f"DIST_VERSION: {DIST_VERSION}" not in step
-            or "--check" not in step
-        ):
+        expected = "\n".join(line.strip() for line in verified_dist_install_lines(0))
+        if expected not in "\n".join(line.strip() for line in step.splitlines()):
             issues.append(
                 f"Install dist step at line {start + 1} does not verify the pinned installer checksum"
             )
@@ -333,9 +330,15 @@ def verified_dist_install_lines(step_indent):
         '"https://github.com/axodotdev/cargo-dist/releases/download/${DIST_VERSION}/cargo-dist-installer.sh" '
         '--output "$installer"',
         f"{body}if command -v sha256sum >/dev/null 2>&1; then",
-        f'{body}  echo "${{DIST_INSTALLER_SHA256}}  ${{installer}}" | sha256sum --check --strict',
+        # macOS sha256sum does not support GNU long options. Compare the digest
+        # directly so malformed/missing expected checksums also fail closed.
+        f'{body}  installer_sha256="$(sha256sum "$installer")"',
         f"{body}else",
-        f'{body}  echo "${{DIST_INSTALLER_SHA256}}  ${{installer}}" | shasum -a 256 --check',
+        f'{body}  installer_sha256="$(shasum -a 256 "$installer")"',
+        f"{body}fi",
+        f'{body}if [[ ! "$DIST_INSTALLER_SHA256" =~ ^[0-9a-f]{{64}}$ || "${{installer_sha256%% *}}" != "$DIST_INSTALLER_SHA256" ]]; then',
+        f'{body}  echo "cargo-dist installer checksum verification failed" >&2',
+        f"{body}  exit 1",
         f"{body}fi",
         f'{body}sh "$installer"',
     ]
