@@ -8080,6 +8080,25 @@ fn bash_runtime_vars_are_not_marked_uninitialized_in_bash_scripts() {
 }
 
 #[test]
+fn bash_identity_and_clock_variables_are_preinitialized() {
+    let names = ["EUID", "UID", "PPID", "SHLVL", "BASHPID", "EPOCHSECONDS"];
+    for shebang in ["#!/bin/bash", "#!/bin/sh"] {
+        let mut source = format!("{shebang}\n");
+        for name in names.into_iter().chain(["FOO_BAR"]) {
+            source.push_str(&format!("echo \"${{{name}}}\"\n"));
+        }
+        let model = model(&source);
+        let expected = if shebang == "#!/bin/bash" {
+            vec!["FOO_BAR"]
+        } else {
+            names.into_iter().chain(["FOO_BAR"]).collect()
+        };
+        assert_eq!(unresolved_names(&model), expected, "{shebang}");
+        assert_eq!(uninitialized_names(&model), expected, "{shebang}");
+    }
+}
+
+#[test]
 fn env_split_bash_shebang_enables_bash_runtime_vars() {
     let source = bash_runtime_source("#!/usr/bin/env -S bash -e");
     let model = model(&source);

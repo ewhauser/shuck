@@ -234,6 +234,40 @@ fn oracle_check_unassigned_uppercase_matches_shellcheck() {
 
 #[test]
 #[ignore]
+fn oracle_uppercase_check_bash_runtime_variables() {
+    if !shellcheck_available() {
+        return;
+    }
+    let directory = tempdir().unwrap();
+    let source = "#!/bin/bash\nif [[ \"${EUID}\" -ne 0 ]]; then exit 1; fi\necho \"$UID\" \"$PPID\" \"$SHLVL\" \"$BASHPID\" \"$EPOCHSECONDS\"\necho \"${BASH_SOURCE[0]}\" \"${BASH_REMATCH[0]}\" \"${FUNCNAME[0]}\"\n";
+    for undefined in [false, true] {
+        fs::write(
+            directory.path().join("x.sh"),
+            format!(
+                "{source}{}",
+                if undefined { "echo \"$FOO_BAR\"\n" } else { "" }
+            ),
+        )
+        .unwrap();
+        for enable in ["check-unassigned-uppercase", "all"] {
+            let args = [
+                "--norc", "-o", enable, "-i", "SC2154", "-f", "json1", "x.sh",
+            ];
+            let shellcheck = run_shellcheck(&args, directory.path());
+            let compat = run_compat(&args, directory.path());
+            assert_eq!(shellcheck.status.code(), Some(i32::from(undefined)));
+            assert_eq!(shellcheck.status.code(), compat.status.code());
+            assert_eq!(json1_comments(&compat).len(), usize::from(undefined));
+            assert_eq!(
+                json1_comment_shapes(&shellcheck),
+                json1_comment_shapes(&compat)
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore]
 fn oracle_uppercase_optional_is_disabled_by_default() {
     if !shellcheck_available() {
         return;

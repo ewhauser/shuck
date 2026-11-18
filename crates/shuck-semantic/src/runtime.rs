@@ -35,6 +35,12 @@ const COMMON_PREINITIALIZED: &[&str] = &[
 ];
 
 const BASH_PREINITIALIZED: &[&str] = &[
+    "EUID",
+    "UID",
+    "PPID",
+    "SHLVL",
+    "BASHPID",
+    "EPOCHSECONDS",
     "BASH_ALIASES",
     "BASH_ARGC",
     "BASH_ARGV",
