@@ -11,6 +11,7 @@ use std::process::ExitCode;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use shuck_linter::Violation;
 use shuck_linter::{
     LinterSettings, Rule, RuleSet, Severity, ShellCheckCodeMap, ShellCheckLevel, ShellDialect,
     rule_metadata,
@@ -945,12 +946,54 @@ fn lint_with_context(
     settings.resolve_source_closure = options.external_sources;
     settings.rule_options = rule_options;
 
-    let analysis =
+    let fallback = if parse_result.is_err() && options.enabled_rules.contains(Rule::BrokenTestParse)
+    {
+        let shuck_parser::Error::Parse {
+            message,
+            line,
+            column,
+        } = parse_result.strict_error();
+        let line_index = shuck_indexer::LineIndex::new(source);
+        let offset = line_index
+            .offset_for_line_column(line, column, source)
+            .unwrap_or(shuck_ast::TextSize::new(source.len() as u32));
+        let line = line_index.line_number(offset);
+        let line_start = usize::from(line_index.line_start(line).unwrap_or_default());
+        let column = source[line_start..usize::from(offset)].chars().count() + 1;
+        let position = shuck_ast::Position::at(line, column, usize::from(offset));
+        Some(shuck_linter::Diagnostic::new(
+            CompatParseError(message),
+            shuck_ast::Span::from_positions(position, position),
+        ))
+    } else {
+        None
+    };
+    let mut analysis =
         shuck_linter::AnalysisRequest::from_parse_result(&parse_result, source, &settings)
+            .with_additional_diagnostics(fallback.iter().cloned().collect())
             .with_source_path(path)
             .with_shellcheck_map(&options.shellcheck_map)
             .with_source_path_resolver(&resolver)
             .analyze();
+
+    // Keep the established syntax diagnostics when they already describe the failure.
+    if let Some(fallback) = fallback
+        && analysis.diagnostics.iter().any(|diagnostic| {
+            diagnostic != &fallback
+                && options
+                    .shellcheck_map
+                    .code_for_rule(diagnostic.rule)
+                    .is_some_and(|code| {
+                        code < 2000
+                            && level_for_diagnostic(diagnostic.rule, diagnostic.severity, code)
+                                == CompatLevel::Error
+                    })
+        })
+    {
+        analysis
+            .diagnostics
+            .retain(|diagnostic| diagnostic != &fallback);
+    }
 
     let resolved_paths = analysis
         .semantic
@@ -960,6 +1003,18 @@ fn lint_with_context(
         .collect::<BTreeSet<_>>();
 
     Ok((analysis.diagnostics, resolved_paths))
+}
+
+struct CompatParseError(String);
+
+impl Violation for CompatParseError {
+    fn rule() -> Rule {
+        Rule::BrokenTestParse
+    }
+
+    fn message(&self) -> String {
+        self.0.clone()
+    }
 }
 
 fn resolve_source_ref_paths(

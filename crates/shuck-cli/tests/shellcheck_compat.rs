@@ -783,3 +783,155 @@ fn compat_diff_emits_unified_patch_for_fixable_sc2086() {
     assert!(stdout.contains("-echo $foo"));
     assert!(stdout.contains("+echo \"$foo\""));
 }
+
+#[test]
+fn compat_reports_unmapped_parse_failures() {
+    let directory = tempdir().unwrap();
+    for source in [
+        "echo \"sample\n",
+        "case x in x) : ;;\n",
+        "{ :\n",
+        "echo $(:\n",
+        "echo `:\n",
+        "echo )\n",
+        ": ;;\n",
+        "echo $missing\necho \"sample\n",
+    ] {
+        fs::write(directory.path().join("broken.sh"), source).unwrap();
+        let output = run_compat(
+            &["--norc", "-s", "bash", "-f", "json1", "broken.sh"],
+            directory.path(),
+        );
+        assert_eq!(output.status.code(), Some(1), "{source:?}");
+        let comments = json1_comments(&output);
+        let errors: Vec<_> = comments
+            .iter()
+            .filter(|comment| comment["code"] == 1072)
+            .collect();
+        assert_eq!(errors.len(), 1, "{source:?}: {comments:?}");
+        assert_eq!(errors[0]["level"], "error");
+        assert!(errors[0]["line"].as_u64().unwrap() >= 1);
+        assert!(errors[0]["column"].as_u64().unwrap() >= 1);
+        assert!(errors[0]["fix"].is_null());
+    }
+}
+
+#[test]
+fn compat_parse_failure_respects_filters_formats_and_valid_input() {
+    let directory = tempdir().unwrap();
+    fs::write(
+        directory.path().join("broken.sh"),
+        "#!/bin/bash\necho \"sample\n",
+    )
+    .unwrap();
+    for format in ["json", "json1", "gcc", "checkstyle", "tty", "quiet", "diff"] {
+        let output = run_compat(&["--norc", "-f", format, "broken.sh"], directory.path());
+        assert_eq!(output.status.code(), Some(1), "{format}");
+        assert_eq!(output.stderr.is_empty(), format != "diff", "{format}");
+        if matches!(format, "quiet" | "diff") {
+            assert!(output.stdout.is_empty(), "{format}");
+        } else {
+            assert!(
+                String::from_utf8_lossy(&output.stdout).contains("1072"),
+                "{format}"
+            );
+        }
+    }
+    for flags in [
+        vec!["-i", "SC1072"],
+        vec!["-S", "error"],
+        vec!["-o", "all"],
+        vec!["-x"],
+    ] {
+        let mut args = vec!["--norc", "-f", "json1"];
+        args.extend(flags);
+        args.push("broken.sh");
+        let output = run_compat(&args, directory.path());
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        assert_eq!(json1_comments(&output).len(), 1);
+    }
+    for flags in [
+        vec!["-i", "SC9999"],
+        vec!["-e", "SC1072"],
+        vec!["-i", "1072", "-e", "1072"],
+    ] {
+        let mut args = vec!["--norc", "-f", "json1"];
+        args.extend(flags);
+        args.push("broken.sh");
+        let output = run_compat(&args, directory.path());
+        assert_eq!(output.status.code(), Some(0), "{args:?}");
+        assert!(json1_comments(&output).is_empty());
+    }
+    fs::write(directory.path().join("good.sh"), "#!/bin/bash\n:\n").unwrap();
+    compat_cmd()
+        .current_dir(directory.path())
+        .args(["--norc", "-f", "json1", "good.sh"])
+        .assert()
+        .success()
+        .stdout("{\"comments\":[]}");
+    Command::cargo_bin("shuck")
+        .unwrap()
+        .env_remove("SHUCK_SHELLCHECK_COMPAT")
+        .current_dir(directory.path())
+        .args([
+            "check",
+            "--no-cache",
+            "--output-format",
+            "json",
+            "broken.sh",
+        ])
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("parse-error"));
+}
+
+#[test]
+fn compat_parse_fallback_honors_header_suppressions_and_existing_syntax_diagnostics() {
+    let directory = tempdir().unwrap();
+    for disable in ["1072", "all"] {
+        fs::write(
+            directory.path().join("broken.sh"),
+            format!("#!/bin/bash\n# shellcheck disable={disable}\necho \"sample\n"),
+        )
+        .unwrap();
+        compat_cmd()
+            .current_dir(directory.path())
+            .args(["--norc", "-f", "json1", "broken.sh"])
+            .assert()
+            .success()
+            .stdout("{\"comments\":[]}");
+    }
+    fs::write(
+        directory.path().join("broken.sh"),
+        "#!/bin/bash\nif true; then :\n",
+    )
+    .unwrap();
+    let output = run_compat(&["--norc", "-f", "json1", "broken.sh"], directory.path());
+    assert_eq!(output.status.code(), Some(1));
+    let comments = json1_comments(&output);
+    assert!(comments.iter().any(|comment| comment["code"] == 1047));
+    assert!(!comments.iter().any(|comment| comment["code"] == 1072));
+}
+
+#[test]
+fn compat_parse_fallback_attaches_only_to_the_disabled_command() {
+    let directory = tempdir().unwrap();
+    for (source, expected) in [
+        (
+            "#!/bin/bash\n:\n# shellcheck disable=1072\necho \"sample\n",
+            0,
+        ),
+        (
+            "#!/bin/bash\n:\n# shellcheck disable=1072\n:\necho \"sample\n",
+            1,
+        ),
+    ] {
+        fs::write(directory.path().join("input.sh"), source).unwrap();
+        let output = run_compat(
+            &["--norc", "-i", "1072", "-f", "json1", "input.sh"],
+            directory.path(),
+        );
+        assert_eq!(output.status.code(), Some(expected), "{source:?}");
+        assert_eq!(json1_comments(&output).len(), expected as usize);
+    }
+}
