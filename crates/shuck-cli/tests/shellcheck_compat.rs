@@ -679,6 +679,102 @@ fn compat_check_unassigned_uppercase_enables_sc2154_on_uppercase_names() {
 }
 
 #[test]
+fn compat_uppercase_check_accepts_bash_root_guard() {
+    let directory = tempdir().unwrap();
+    fs::write(
+        directory.path().join("fp.sh"),
+        "#!/bin/bash\nif [[ \"${EUID}\" -ne 0 ]]; then\n  echo 'root required' >&2\n  exit 1\nfi\n",
+    )
+    .unwrap();
+
+    for enable in ["check-unassigned-uppercase", "all"] {
+        compat_cmd()
+            .current_dir(directory.path())
+            .args(["--norc", "-o", enable, "-f", "gcc", "fp.sh"])
+            .assert()
+            .success()
+            .stdout("")
+            .stderr("");
+    }
+    for selectors in [vec![], vec!["--select", "ALL"]] {
+        let output = Command::cargo_bin("shuck")
+            .unwrap()
+            .env_remove("SHUCK_SHELLCHECK_COMPAT")
+            .current_dir(directory.path())
+            .args(["check", "--no-cache", "--output-format", "json"])
+            .args(&selectors)
+            .arg("fp.sh")
+            .output()
+            .unwrap();
+        let diagnostics: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+        let codes: Vec<_> = diagnostics
+            .iter()
+            .map(|entry| entry["code"].as_str().unwrap())
+            .collect();
+        if selectors.is_empty() {
+            assert_eq!(output.status.code(), Some(0));
+            assert!(codes.is_empty());
+        } else {
+            assert_eq!(output.status.code(), Some(1));
+            assert_eq!(codes, ["S081"]);
+        }
+    }
+}
+
+#[test]
+fn compat_uppercase_check_distinguishes_bash_builtins_from_undefined_names() {
+    let directory = tempdir().unwrap();
+    for name in [
+        "EUID",
+        "UID",
+        "PPID",
+        "SHLVL",
+        "BASHPID",
+        "BASH_SOURCE",
+        "BASH_REMATCH",
+        "EPOCHSECONDS",
+        "FUNCNAME",
+        "RANDOM",
+        "SECONDS",
+        "LINENO",
+        "HOSTNAME",
+        "BASH_VERSION",
+        "OPTARG",
+        "OPTIND",
+        "HOME",
+        "PATH",
+        "IFS",
+        "PWD",
+        "BASH_SOURCE[0]",
+        "FOO_BAR",
+    ] {
+        fs::write(
+            directory.path().join("x.sh"),
+            format!("#!/bin/bash\necho \"${{{name}}}\"\n"),
+        )
+        .unwrap();
+        for enable in ["check-unassigned-uppercase", "all"] {
+            let output = run_compat(
+                &[
+                    "--norc", "-o", enable, "-i", "SC2154", "-f", "json1", "x.sh",
+                ],
+                directory.path(),
+            );
+            let comments = json1_comments(&output);
+            if name == "FOO_BAR" {
+                assert_eq!(output.status.code(), Some(1), "{name}: {enable}");
+                assert_eq!(comments.len(), 1, "{name}: {enable}");
+                assert_eq!(comments[0]["code"], 2154);
+                assert_eq!(comments[0]["line"], 2);
+            } else {
+                assert_eq!(output.status.code(), Some(0), "{name}: {enable}");
+                assert!(comments.is_empty(), "{name}: {enable}: {comments:?}");
+            }
+        }
+    }
+}
+
+#[test]
 fn compat_json1_orders_higher_severity_before_lower_severity_at_same_span() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $foo\n").unwrap();
