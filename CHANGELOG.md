@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.12](https://github.com/ewhauser/shuck/compare/v0.2.11...v0.2.12) (2026-11-21)
+
+
+### Bug Fixes
+
+* **semantic:** preinitialize Bash identity and clock variables ([#1385](https://github.com/ewhauser/shuck/issues/1385)) ([880d082](https://github.com/ewhauser/shuck/commit/880d082c486fccfafa414354decf522bb1f120df))
+
 ## [0.2.11](https://github.com/ewhauser/shuck/compare/v0.2.10...v0.2.11) (2026-11-17)
 
 
