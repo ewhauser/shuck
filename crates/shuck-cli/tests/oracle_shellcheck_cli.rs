@@ -513,3 +513,60 @@ fn oracle_stdin_json1_shape_matches_shellcheck() {
         json1_comment_shapes(&compat)
     );
 }
+
+#[test]
+#[ignore]
+fn oracle_unmapped_parse_failures_remain_errors() {
+    if !shellcheck_available() {
+        return;
+    }
+    let directory = tempdir().unwrap();
+    for source in [
+        "echo \"sample\n",
+        "case x in x) : ;;\n",
+        "{ :\n",
+        "echo $(:\n",
+        "echo `:\n",
+    ] {
+        fs::write(directory.path().join("broken.sh"), source).unwrap();
+        for format in ["json1", "gcc", "checkstyle", "quiet", "diff"] {
+            let args = [
+                "--norc",
+                "-s",
+                "bash",
+                "-i",
+                "SC1072",
+                "-f",
+                format,
+                "broken.sh",
+            ];
+            let oracle = run_shellcheck(&args, directory.path());
+            let compat = run_compat(&args, directory.path());
+            assert_eq!(oracle.status.code(), Some(1), "{source:?}: {format}");
+            assert_eq!(
+                compat.status.code(),
+                oracle.status.code(),
+                "{source:?}: {format}"
+            );
+            if format == "json1" {
+                assert_eq!(json1_codes(&compat), json1_codes(&oracle));
+            }
+        }
+    }
+    for source in [
+        ":\n",
+        "# shellcheck disable=1072\necho \"sample\n",
+        "# shellcheck disable=all\necho \"sample\n",
+        ":\n# shellcheck disable=1072\necho \"sample\n",
+    ] {
+        fs::write(directory.path().join("input.sh"), source).unwrap();
+        let args = [
+            "--norc", "-s", "bash", "-i", "1072", "-f", "json1", "input.sh",
+        ];
+        let oracle = run_shellcheck(&args, directory.path());
+        let compat = run_compat(&args, directory.path());
+        assert_eq!(oracle.status.code(), Some(0));
+        assert_eq!(compat.status.code(), oracle.status.code());
+        assert_eq!(json1_codes(&compat), json1_codes(&oracle));
+    }
+}

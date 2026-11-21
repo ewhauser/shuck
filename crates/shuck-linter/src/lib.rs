@@ -226,6 +226,7 @@ pub struct AnalysisRequest<'a> {
     source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
     plugin_resolver: Option<&'a (dyn PluginResolver + Send + Sync)>,
     suppressions: SuppressionRequest<'a>,
+    additional_diagnostics: Vec<Diagnostic>,
 }
 
 enum AnalysisInput<'a> {
@@ -259,6 +260,7 @@ impl<'a> AnalysisRequest<'a> {
             source_path_resolver: None,
             plugin_resolver: None,
             suppressions: SuppressionRequest::None,
+            additional_diagnostics: Vec::new(),
         }
     }
 
@@ -283,6 +285,7 @@ impl<'a> AnalysisRequest<'a> {
             source_path_resolver: None,
             plugin_resolver: None,
             suppressions: SuppressionRequest::DefaultShellCheckMap,
+            additional_diagnostics: Vec::new(),
         }
     }
 
@@ -349,6 +352,13 @@ impl<'a> AnalysisRequest<'a> {
     /// Parses suppression directives using the provided compatibility-code map.
     pub fn with_shellcheck_map(mut self, shellcheck_map: &'a ShellCheckCodeMap) -> Self {
         self.suppressions = SuppressionRequest::ShellCheckMap(shellcheck_map);
+        self
+    }
+
+    /// Includes caller-owned diagnostics in the normal severity, suppression, and path filters.
+    /// Callers remain responsible for selecting the rules they want to report.
+    pub fn with_additional_diagnostics(mut self, diagnostics: Vec<Diagnostic>) -> Self {
+        self.additional_diagnostics = diagnostics;
         self
     }
 
@@ -881,6 +891,7 @@ fn build_suppression_index_from_semantic(
     file: &File,
     source: &str,
     semantic: &LinterSemanticArtifacts<'_>,
+    additional_diagnostics: &[Diagnostic],
 ) -> Option<SuppressionIndex> {
     if directives.is_empty() {
         return None;
@@ -892,9 +903,28 @@ fn build_suppression_index_from_semantic(
         return None;
     }
 
+    let spans = semantic.suppression_command_spans();
+    let mut recovered_spans = Vec::new();
+    for diagnostic in additional_diagnostics {
+        if !spans.iter().any(|span| {
+            span.start.offset() <= diagnostic.span.start.offset()
+                && diagnostic.span.end.offset() <= span.end.offset()
+        }) {
+            recovered_spans.push(diagnostic.span);
+        }
+    }
+    let spans = if recovered_spans.is_empty() {
+        spans
+    } else {
+        // A rejected command may have no AST node. Its diagnostic still gives the
+        // existing directive attachment logic a target, without spanning later commands.
+        recovered_spans.extend_from_slice(spans);
+        sort_command_spans_for_lookup(&mut recovered_spans);
+        &recovered_spans
+    };
     Some(SuppressionIndex::from_sorted_command_spans(
         &directives,
-        semantic.suppression_command_spans(),
+        spans,
         first_statement_line(file).unwrap_or(u32::MAX),
     ))
 }
@@ -1022,6 +1052,7 @@ fn build_request_suppression_index<'a>(
                 request.file(),
                 request.source,
                 semantic,
+                &request.additional_diagnostics,
             )
             .map(AppliedSuppressionIndex::Owned)
             .unwrap_or(AppliedSuppressionIndex::None)
@@ -1031,6 +1062,7 @@ fn build_request_suppression_index<'a>(
             request.file(),
             request.source,
             semantic,
+            &request.additional_diagnostics,
         )
         .map(AppliedSuppressionIndex::Owned)
         .unwrap_or(AppliedSuppressionIndex::None),
@@ -1045,6 +1077,7 @@ fn build_request_suppression_index<'a>(
                 request.file(),
                 request.source,
                 semantic,
+                &request.additional_diagnostics,
             )
             .map(AppliedSuppressionIndex::Owned)
             .unwrap_or(AppliedSuppressionIndex::None)
@@ -1074,6 +1107,9 @@ fn add_parse_diagnostics(
 }
 
 fn finalize_diagnostics(result: &mut LinterAnalysisResult<'_>, request: &AnalysisRequest<'_>) {
+    result
+        .diagnostics
+        .extend(request.additional_diagnostics.iter().cloned());
     for diagnostic in result.diagnostics.iter_mut() {
         if let Some(&severity) = request.settings.severity_overrides.get(&diagnostic.rule) {
             diagnostic.severity = severity;
@@ -2913,6 +2949,33 @@ helper
     }
 
     #[test]
+    fn caller_diagnostics_use_existing_suppression_and_severity_filters() {
+        let source = "#!/bin/sh\n# shellcheck disable=SC2086\necho $value\n";
+        let parsed = Parser::new(source).parse();
+        let mut settings = LinterSettings::for_rule(Rule::UnquotedExpansion);
+        settings
+            .severity_overrides
+            .insert(Rule::UnquotedExpansion, Severity::Error);
+        let diagnostic = Diagnostic::new(
+            crate::rules::style::unquoted_expansion::UnquotedExpansion,
+            parsed.file.body[0].span,
+        );
+        let request = AnalysisRequest::from_parse_result(&parsed, source, &settings)
+            .with_additional_diagnostics(vec![diagnostic.clone()]);
+        assert!(request.lint().is_empty());
+        let diagnostics = AnalysisRequest::from_parse_result(&parsed, source, &settings)
+            .without_suppressions()
+            .with_additional_diagnostics(vec![diagnostic])
+            .lint();
+        assert!(!diagnostics.is_empty());
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.severity == Severity::Error)
+        );
+    }
+
+    #[test]
     fn post_hoc_filtering_removes_only_suppressed_diagnostics() {
         let source = "\
 echo ok
@@ -2928,9 +2991,14 @@ echo $bar
             &ShellCheckCodeMap::default(),
         );
         let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
-        let suppressions =
-            build_suppression_index_from_semantic(&directives, &output.file, source, &semantic)
-                .unwrap();
+        let suppressions = build_suppression_index_from_semantic(
+            &directives,
+            &output.file,
+            source,
+            &semantic,
+            &[],
+        )
+        .unwrap();
 
         let echo_foo = match &output.file.body[1].command {
             Command::Simple(command) => command.span,
