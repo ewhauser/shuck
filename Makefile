@@ -332,10 +332,20 @@ check-release-security:
 check-scripts:
 	cargo run -q -p shuck-cli -- check --no-cache scripts
 	bash scripts/check-agents-crates.sh
-check:
+
+check-common:
 	cargo fmt -- --check
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+check:
+	$(MAKE) --no-print-directory check-common
 	$(NIX_DEVELOP) cargo shear
+	$(MAKE) --no-print-directory check-scripts
+
+# Avoid using nix command inside nix build script.
+check-nix:
+	$(MAKE) --no-print-directory check-common
+	cargo shear
 	$(MAKE) --no-print-directory check-scripts
 
 hawk:
