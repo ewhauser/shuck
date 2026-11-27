@@ -46,7 +46,7 @@
         devShells.default = pkgs.mkShell {
           packages = testPackages;
         };
-
+      } // pkgs.lib.optionalAttrs (builtins.elem system (import ./nix/package-systems.nix)) {
         packages = rec {
           shuck = pkgs.callPackage ./nix/package.nix {
             inherit rustPlatform;

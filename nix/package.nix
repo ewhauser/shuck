@@ -2,7 +2,6 @@
   lib,
   makeWrapper,
   nativeBuildInputs,
-  nix,
   rustPlatform,
 }: let
   workspaceTOML = (fromTOML (builtins.readFile ../Cargo.toml)).workspace.package;
@@ -40,11 +39,6 @@ in
 
       homepage = "https://github.com/ewhauser/shuck";
       license = lib.licenses.mit;
-      platforms = [
-        "aarch64-darwin"
-        "aarch64-linux"
-        "x86_64-windows"
-        "x86_64-linux"
-      ];
+      platforms = import ./package-systems.nix;
     };
   }
