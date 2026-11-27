@@ -34,6 +34,36 @@ pip install shuck-cli
 The PyPI package is named `shuck-cli`, but it still installs the `shuck`
 command.
 
+### Nix Flake
+
+The package is available for Linux (x86-64 and ARM64) and Apple Silicon.
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    shuck = {
+      url = "github:ewhauser/shuck";
+
+      inputs.nixpkgs.follows = "nixpkgs";
+      # inputs.flake-utils.follows = "flake-utils";
+    };
+  };
+
+  outputs = {nixpkgs, shuck, ...}: let
+    system = "<system>";
+    pkgs = nixpkgs.legacyPackages.${system};
+  in {
+    devShells.${system}.default = pkgs.mkShell {
+      packages = [
+        shuck.packages.${system}.default
+        # shuck.packages.${system}.shuck # Equivalent.
+      ];
+    };
+  };
+}
+```
+
 ### npm / WebAssembly
 
 ```sh

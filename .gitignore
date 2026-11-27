@@ -47,3 +47,6 @@ fuzz/corpus/
 fuzz/artifacts/
 fuzz/target/
 /shuck.cdx.xml
+
+# Nix
+result

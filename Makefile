@@ -1,4 +1,4 @@
-.PHONY: build test build-wasm test-wasm run check hawk check-scripts setup-hooks setup-large-corpus ensure-cache test-large-corpus large-corpus-report large-corpus-report-from-log large-corpus-report-open test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark test-oracle-shfmt-large-corpus update-oracle-shfmt-large-corpus-allowlist test-oracle-shellcheck-cli fuzz-setup fuzz-list fuzz-smoke fuzz-run fuzz-cli bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-lsp bench-large-corpus-hotspots bench-macro bench-macro-single bench-macro-format bench-macro-format-summary bench-macro-format-single bench-macro-site-local bench-repo-corpus profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view profile-large-corpus profile-large-corpus-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli harden-release check-release-security
+.PHONY: build test build-wasm test-wasm run check check-common check-nix hawk check-scripts setup-hooks setup-large-corpus ensure-cache test-large-corpus large-corpus-report large-corpus-report-from-log large-corpus-report-open test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark test-oracle-shfmt-large-corpus update-oracle-shfmt-large-corpus-allowlist test-oracle-shellcheck-cli fuzz-setup fuzz-list fuzz-smoke fuzz-run fuzz-cli bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-lsp bench-large-corpus-hotspots bench-macro bench-macro-single bench-macro-format bench-macro-format-summary bench-macro-format-single bench-macro-site-local bench-repo-corpus profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view profile-large-corpus profile-large-corpus-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli harden-release check-release-security
 
 ARGS ?= --help
 WASM_PACK ?= wasm-pack
@@ -332,10 +332,20 @@ check-release-security:
 check-scripts:
 	cargo run -q -p shuck-cli -- check --no-cache scripts
 	bash scripts/check-agents-crates.sh
-check:
+
+check-common:
 	cargo fmt -- --check
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+check:
+	$(MAKE) --no-print-directory check-common
 	$(NIX_DEVELOP) cargo shear
+	$(MAKE) --no-print-directory check-scripts
+
+# Avoid using nix command inside nix build script.
+check-nix:
+	$(MAKE) --no-print-directory check-common
+	cargo shear
 	$(MAKE) --no-print-directory check-scripts
 
 hawk:

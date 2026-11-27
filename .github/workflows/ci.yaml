@@ -31,7 +31,7 @@ jobs:
   nix-flake-check:
     name: "nix flake check"
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 45
     permissions:
       id-token: write
       contents: read
@@ -42,6 +42,15 @@ jobs:
       - uses: DeterminateSystems/determinate-nix-action@32cb6a5ae30bb0dfc996fa7baf8bf1ed28442fa4 # v3.17.3
       - uses: DeterminateSystems/flakehub-cache-action@77fe95416299b8d1351b57bf10a1042a0ed75708 # v3.17.3
       - run: nix flake check
+      - name: "Check advertised package systems"
+        run: |
+          packages="$(nix eval --json .#packages --apply builtins.attrNames)"
+          test "$packages" = '["aarch64-darwin","aarch64-linux","x86_64-linux"]'
+          nix eval --raw .#devShells.x86_64-darwin.default.name
+      - name: "Build and smoke test the Nix package"
+        run: |
+          nix build .#shuck
+          ./result/bin/shuck --version
 
   zizmor:
     name: "zizmor"
